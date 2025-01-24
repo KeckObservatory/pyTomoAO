@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 from tomography_utils import (
     p_bilinearSplineInterp,
     cart2pol,
-    make_biharm_operator
+    make_biharm_operator,
+    sub2ind
 )
 
 #%%
@@ -237,11 +238,7 @@ for jLenslet in range(nLenslet):
                     gridMask[iOffset + ii, jOffset + jj] = True
 
             idx_counter += 6
-
-# Sub2ind utility
-def sub2ind(shape, row, col):
-    return row * shape[1] + col
-
+#%%
 i_x0 = i_x - 1
 j_x0 = j_x - 1
 i_y0 = i_y - 1
@@ -250,30 +247,50 @@ j_y0 = j_y - 1
 indx = sub2ind((nMap, nMap), i_x0, j_x0)
 indy = sub2ind((nMap, nMap), i_y0, j_y0)
 
-v_ = np.arange(2*nValidLenslet)
-v_repeated = np.repeat(v_, 6)
+# --- MATLAB: v = 1:2*nValidLenslet; v = v(ones(6,1),:) ---
+# 1) Make row indices for the non‐zero values
+v = np.arange(1, 2*nValidLenslet + 1)          # 1..2*nValidLenslet (MATLAB style)
+v_mat = np.tile(v, (6, 1))                     # shape = (6, 2*nValidLenslet)
+# Flatten in column-major ('F') to mimic MATLAB's (:) operation
+rows_1_based = v_mat.flatten(order='F')        # shape = 6*(2*nValidLenslet)
+rows = rows_1_based - 1                        # Convert to 0-based indexing for Python
 
-data_x = np.concatenate([s_x, s_y])
-cols_x = np.concatenate([indx, indy])
-rows_x = np.concatenate([v_repeated, v_repeated])
-
-p_Gamma_coo = coo_matrix((data_x, (rows_x, cols_x)), shape=(2*nValidLenslet, nMap**2))
+# --- MATLAB: p_Gamma = sparse(v,[indx,indy],[s_x,s_y],2*nValidLenslet,nMap^2); ---
+# 2) Build the sparse gradient matrix
+data = np.concatenate([s_x, s_y])    # shape = 12*nValidLenslet
+cols = np.concatenate([indx, indy])  # these should already be 0-based if you're in Python
+p_Gamma_coo = coo_matrix(
+    (data, (rows, cols)),
+    shape=(2*nValidLenslet, nMap**2)
+)
 p_Gamma = p_Gamma_coo.tocsr()
 
-# Remove columns not used
-gridMask_flat = gridMask.ravel()
-p_Gamma = p_Gamma[:, gridMask_flat]
+# --- MATLAB: p_Gamma(:, ~gridMask) = [] ---
+# 3) Remove columns not used (gridMask is nMap x nMap)
+gridMask_flat = gridMask.flatten(order='F')  # Flatten in column-major
+p_Gamma = p_Gamma[:, gridMask_flat]          # Keep only the True columns
 
-p_Gamma = p_Gamma / (2*dSub)
+# --- MATLAB: p_Gamma = p_Gamma/2/dSub; ---
+# 4) Scale the matrix
+p_Gamma = p_Gamma / (2 * dSub)
 
-# Build block-diagonal Gamma
+# --- MATLAB cell loop to build Gamma{kGs}, then blkdiag ---
+# 5) Build block-diagonal Gamma
+
+# MATLAB: vL = repmat(validLLMap(:), 2, 1);
+# Flatten validLLMap in column-major order and replicate
+vL = np.tile(validLLMap.flatten(order='F'), 2)  # shape: 2*(nLenslet^2)
+
 Gamma_list = []
 for kGs in range(nLGS):
-    rowMask = slopesMask[:, kGs]
-    phaseMaskSlice = phaseMask[:, kGs]
-    colMask = np.logical_and(phaseMaskSlice, gridMask_flat)
-    Gamma_kGs = p_Gamma[rowMask, :][:, colMask]
+    # slopesMask(vL, kGs) => a boolean row selector
+    # phaseMask(gridMask(:), kGs) => a boolean column selector
+    row_mask = slopesMask[vL, kGs]
+    col_mask = phaseMask[gridMask_flat, kGs]
+    # Select row_mask rows and col_mask columns
+    Gamma_kGs = p_Gamma[row_mask, :][:, col_mask]
     Gamma_list.append(Gamma_kGs)
+
 Gamma = block_diag(Gamma_list)
 
 # %% ------------------------------------------------------------

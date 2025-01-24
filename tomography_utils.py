@@ -1,6 +1,10 @@
 import numpy as np
 from scipy.sparse import spdiags, coo_matrix
 
+# Sub2ind utility
+def sub2ind(shape, row, col):
+    return row * shape[1] + col
+
 # ------------------------------------------------------------
 # iCxx: Set bi-harmonic operator (approx to inverse phase covariance matrix)
 # ------------------------------------------------------------
