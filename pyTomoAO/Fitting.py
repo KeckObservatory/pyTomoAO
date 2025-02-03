@@ -1,13 +1,16 @@
 
 class TomographyFitting:
     def __init__(self, dm):
+        
         """
         Initialize the TomographyFitting class with a Deformable Mirror (DM) object.
 
         :param dm: A Deformable Mirror object containing actuator layout and influence functions.
         """
         self.dm = dm
-
+        self.command_vector = None
+        self.opd_map = None
+        
     def fit(self, opd_map):
         """
         Perform least squares fitting of the OPD map to the DM influence functions.
