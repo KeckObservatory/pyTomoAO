@@ -1,3 +1,4 @@
+#%% 
 import numpy as np
 
 def compute_cross_covariance(s1, s2, max_shift):
