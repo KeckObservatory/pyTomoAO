@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse import spdiags, coo_matrix
+from scipy.sparse import spdiags, coo_matrix, csr_matrix
 
 # Sub2ind utility
 def sub2ind(shape, row, col):
@@ -140,3 +140,104 @@ def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     theta = np.arctan2(y, x)
     return theta, rho
+
+
+def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
+    """
+    Computes the sparse gradient matrix (3x3 stencil).
+    
+    Parameters
+    ----------
+    validLenslet : 2D array
+        Valid lenslet map
+    amplMask : 2D array
+        Amplitudes Weight Mask (default=None). 
+    overSampling : int
+        Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
+
+    Returns
+    -------
+    Gamma : scipy.sparse.csr_matrix
+        Sparse gradient matrix of size.
+    gridMask : 2D array
+        Mask of size (overSampling*validLenslet.shape[0]+1) used for the reconstructed phase.
+    """
+    nLenslet = validLenslet.shape[0] # Number of lenselt across the pupil
+    osFactor = overSampling 
+
+    if amplMask is None:
+        amplMask = np.ones((osFactor * nLenslet + 1, osFactor * nLenslet + 1))
+
+    nMap = osFactor * nLenslet + 1
+    nValidLenslet_ = np.count_nonzero(validLenslet)
+    dsa = 1
+
+    if osFactor == 2:
+        i0x = np.tile(np.arange(1, 4), 3) # x stencil row subscript
+        j0x = np.repeat(np.arange(1, 4), 3) # x stencil col subscript
+        i0y = np.tile(np.arange(1, 4), 3) # y stencil row subscript
+        j0y = np.repeat(np.arange(1, 4), 3) # y stencil col subscript
+        s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4]) * (1/dsa) # x stencil weight
+        s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4]) * (1/dsa) # y stencil weight
+        Gv = np.array([[-2, 2, -1, 1], [-2, 2, -1, 1], [-1, 1, -2, 2], [-1, 1, -2, 2]])
+        i_x = np.zeros(9 * nValidLenslet_)
+        j_x = np.zeros(9 * nValidLenslet_)
+        s_x = np.zeros(9 * nValidLenslet_)
+        i_y = np.zeros(9 * nValidLenslet_)
+        j_y = np.zeros(9 * nValidLenslet_)
+        s_y = np.zeros(9 * nValidLenslet_)
+        iMap0, jMap0 = np.meshgrid(np.arange(1, 4), np.arange(1, 4))
+        gridMask = np.zeros((nMap, nMap), dtype=bool)
+        u = np.arange(1, 10)
+    elif osFactor == 4:
+        i0x = np.tile(np.arange(1, 6), 5) # x stencil row subscript
+        j0x = np.repeat(np.arange(1, 6), 5) # x stencil col subscript
+        i0y = np.tile(np.arange(1, 6), 5) # y stencil row subscript
+        j0y = np.repeat(np.arange(1, 6), 5) # y stencil col subscript
+        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16]) * (1/dsa) # x stencil weight
+        s0y = s0x.reshape(5,5).T.flatten() # y stencil weight
+        i_x = np.zeros(25 * nValidLenslet_)
+        j_x = np.zeros(25 * nValidLenslet_)
+        s_x = np.zeros(25 * nValidLenslet_)
+        i_y = np.zeros(25 * nValidLenslet_)
+        j_y = np.zeros(25 * nValidLenslet_)
+        s_y = np.zeros(25 * nValidLenslet_)
+        iMap0, jMap0 = np.meshgrid(np.arange(1, 6), np.arange(1, 6))
+        gridMask = np.zeros((nMap, nMap), dtype=bool)
+        u = np.arange(1, 26)
+
+    # Perform accumulation of x and y stencil row and col subscript and weight
+    for jLenslet in range(1, nLenslet + 1):
+        jOffset = osFactor * (jLenslet - 1)
+        for iLenslet in range(1, nLenslet + 1):
+            if validLenslet[iLenslet - 1, jLenslet - 1]:
+                I = (iLenslet - 1) * osFactor + 1
+                J = (jLenslet - 1) * osFactor + 1
+
+                a = amplMask[I - 1:I + osFactor, J - 1:J + osFactor]
+                numIllum = np.sum(a)
+
+                if numIllum == (osFactor + 1) ** 2:
+                    iOffset = osFactor * (iLenslet - 1)
+                    i_x[u - 1] = i0x + iOffset
+                    j_x[u - 1] = j0x + jOffset
+                    s_x[u - 1] = s0x
+                    i_y[u - 1] = i0y + iOffset
+                    j_y[u - 1] = j0y + jOffset
+                    s_y[u - 1] = s0y
+                    u = u + (osFactor + 1) ** 2
+                    gridMask[iMap0 + iOffset - 1, jMap0 + jOffset - 1] = True
+                elif numIllum != (osFactor + 1) ** 2:
+                    # Perform calculations for numIllum != (osFactor+1)**2
+                    # ...
+                    pass
+
+    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order='F')
+    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order='F')
+    v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
+    Gamma = csr_matrix((np.concatenate((s_x, s_y)), (v.flatten() - 1, np.concatenate((indx, indy)))),
+                       shape=(2 * nValidLenslet_, nMap ** 2))
+    Gamma = Gamma[:, gridMask.ravel()]
+
+    return Gamma, gridMask
+

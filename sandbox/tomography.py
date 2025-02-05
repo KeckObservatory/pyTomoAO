@@ -78,6 +78,11 @@ arcsec2radian  = math.pi/180.0/3600.0
 # Let's say config noise_parameters.iNoiseVar = 1e14, so iNoiseVar = 1 / 1e-14
 iNoiseVar = 1.0 / float(config["noise_parameters"]["iNoiseVar"])
 
+# ===== OPTMIZATION PARAMETERS (!!!!!!!!! TO BE MOVED in the tomography_config.yaml !!!!!!!) =====
+fitSrcHeight = np.inf
+nFitSrc = 7  # number of source for optimization  array of nFitSrc x nFitSrc
+fovOptimizaton = 85 # optimization box size in arcseconds if nFitSrc > 1
+
 
 #%%
 # ------------------------------------------------------------
@@ -94,26 +99,20 @@ resolution  = nLenslet * nPx
 # slopesMask = np.tile(slopesMask, (1, nLGS))       # replicate horizontally
 slopesMask = np.tile(validLLMap.ravel()[:, None], (2, nLGS))
 
-# nMap for wavefront
-nMap = 2*nLenslet + 1
-
-# Build phaseMask array
+# Phase mask construction
+nMap = 2 * nLenslet + 1
+phaseMask = np.zeros((nMap**2, nLGS), dtype=bool)
 iMap0, jMap0 = np.mgrid[0:3, 0:3]
-iMap0 += 1  # match 1-based indexing from MATLAB
-jMap0 += 1
-phaseMask = np.zeros((nMap*nMap, nLGS), dtype=bool)
 
 for jLenslet in range(nLenslet):
-    jOffset = 2 * jLenslet
     for iLenslet in range(nLenslet):
-        index1 = jLenslet + nLenslet*(iLenslet)
-        iOffset = 2 * iLenslet
-        # If valid in slopesMask, mark the 3x3 patch
-        for kGs in range(nLGS):
-            if slopesMask[index1, kGs]:
-                index2 = (iMap0 + iOffset - 1) + (jMap0 + jOffset - 1)*nMap
-                index2_flat = index2.ravel() - 1  # 0-based
-                phaseMask[index2_flat, kGs] = True
+        if validLLMap[iLenslet, jLenslet]:
+            for kGs in range(nLGS):
+                iOffset = 2 * iLenslet
+                jOffset = 2 * jLenslet
+                indices = (iMap0 + iOffset) * nMap + (jMap0 + jOffset)
+                phaseMask[indices.flatten(), kGs] = True
+
 
 # Count how many valid lenslets, for reference:
 nValidLenslet = np.count_nonzero(validLLMap)
@@ -145,15 +144,16 @@ for i in range(nLGS):
 # %% ------------------------------------------------------------
 # Optimization Directions (for fitting sources)
 # ------------------------------------------------------------
-nFitSrc      = 49
-fitSrcHeight = np.inf
 
-x_  = np.linspace(-85/2, 85/2, 7)
-xx, yy = np.meshgrid(x_, x_)
-theta, rho = cart2pol(xx, yy)  # from tomography_utils
-
-zenithOpt  = rho.ravel() * arcsec2radian
-azimuthOpt = theta.ravel()
+if nFitSrc==1:
+    zenithOpt = np.array([0])
+    azimuthOpt = np.array([0])
+else:
+    x = np.linspace(-fovOptimizaton/2, fovOptimizaton/2, nFitSrc)
+    x, y = np.meshgrid(x, x)
+    theta, rho = np.arctan2(y, x), np.sqrt(x**2 + y**2)
+    zenithOpt = rho.flatten() * arcsec2radian
+    azimuthOpt = theta.flatten()
 
 directionVectorFitSrc = np.zeros((3, nFitSrc))
 for i in range(nFitSrc):
@@ -199,84 +199,15 @@ for kLayer in range(nLayer):
 # %% ------------------------------------------------------------
 # Set the sparse gradient matrix (3x3 stencil)
 # ------------------------------------------------------------
-# Stencil definitions, etc.
-i0x = np.array([0,0,0,0,0,0]) + 1
-j0x = np.array([0,1,2,0,1,2]) + 1
-i0y = np.array([0,2,0,2,0,2]) + 1
-j0y = np.array([0,0,1,1,2,2]) + 1
+p_Gamma, gridMask = sparseGradientMatrixAmplitudeWeighted(validLLMap, amplMask=None, overSampling=2)
 
-s0x = np.array([-1, -2, -1, 1, 2, 1], dtype=float)/2
-s0y = -np.array([1, -1, 2, -2, 1, -1], dtype=float)/2
+# rextract the phaseMask from the grid mask (flatten and tiled for nLGS)
+phaseMask = np.tile(gridMask.flatten(order='F'),(nLGS,1)).T
 
-i_x = np.zeros(6*nValidLenslet, dtype=int)
-j_x = np.zeros(6*nValidLenslet, dtype=int)
-s_x = np.zeros(6*nValidLenslet, dtype=float)
-i_y = np.zeros(6*nValidLenslet, dtype=int)
-j_y = np.zeros(6*nValidLenslet, dtype=int)
-s_y = np.zeros(6*nValidLenslet, dtype=float)
-
-gridMask = np.zeros((nMap, nMap), dtype=bool)
-
-idx_counter = 0
-for jLenslet in range(nLenslet):
-    jOffset = 2*jLenslet
-    for iLenslet in range(nLenslet):
-        if validLLMap[iLenslet, jLenslet]:
-            iOffset = 2*iLenslet
-
-            i_x[idx_counter:idx_counter+6] = i0x + iOffset
-            j_x[idx_counter:idx_counter+6] = j0x + jOffset
-            s_x[idx_counter:idx_counter+6] = s0x
-
-            i_y[idx_counter:idx_counter+6] = i0y + iOffset
-            j_y[idx_counter:idx_counter+6] = j0y + jOffset
-            s_y[idx_counter:idx_counter+6] = s0y
-
-            # Update gridMask
-            for ii in range(3):
-                for jj in range(3):
-                    gridMask[iOffset + ii, jOffset + jj] = True
-
-            idx_counter += 6
-#%%
-i_x0 = i_x - 1
-j_x0 = j_x - 1
-i_y0 = i_y - 1
-j_y0 = j_y - 1
-
-indx = sub2ind((nMap, nMap), i_x0, j_x0)
-indy = sub2ind((nMap, nMap), i_y0, j_y0)
-
-# --- MATLAB: v = 1:2*nValidLenslet; v = v(ones(6,1),:) ---
-# 1) Make row indices for the non‐zero values
-v = np.arange(1, 2*nValidLenslet + 1)          # 1..2*nValidLenslet (MATLAB style)
-v_mat = np.tile(v, (6, 1))                     # shape = (6, 2*nValidLenslet)
-# Flatten in column-major ('F') to mimic MATLAB's (:) operation
-rows_1_based = v_mat.flatten(order='F')        # shape = 6*(2*nValidLenslet)
-rows = rows_1_based - 1                        # Convert to 0-based indexing for Python
-
-# --- MATLAB: p_Gamma = sparse(v,[indx,indy],[s_x,s_y],2*nValidLenslet,nMap^2); ---
-# 2) Build the sparse gradient matrix
-data = np.concatenate([s_x, s_y])    # shape = 12*nValidLenslet
-cols = np.concatenate([indx, indy])  # these should already be 0-based if you're in Python
-p_Gamma_coo = coo_matrix(
-    (data, (rows, cols)),
-    shape=(2*nValidLenslet, nMap**2)
-)
-p_Gamma = p_Gamma_coo.tocsr()
-
-# --- MATLAB: p_Gamma(:, ~gridMask) = [] ---
-# 3) Remove columns not used (gridMask is nMap x nMap)
-gridMask_flat = gridMask.flatten(order='F')  # Flatten in column-major
-p_Gamma = p_Gamma[:, gridMask_flat]          # Keep only the True columns
-
-# --- MATLAB: p_Gamma = p_Gamma/2/dSub; ---
-# 4) Scale the matrix
+# Scale the matrix
 p_Gamma = p_Gamma / (2 * dSub)
 
-# --- MATLAB cell loop to build Gamma{kGs}, then blkdiag ---
-# 5) Build block-diagonal Gamma
-
+# Build block-diagonal Gamma
 # MATLAB: vL = repmat(validLLMap(:), 2, 1);
 # Flatten validLLMap in column-major order and replicate
 vL = np.tile(validLLMap.flatten(order='F'), 2)  # shape: 2*(nLenslet^2)
@@ -286,7 +217,7 @@ for kGs in range(nLGS):
     # slopesMask(vL, kGs) => a boolean row selector
     # phaseMask(gridMask(:), kGs) => a boolean column selector
     row_mask = slopesMask[vL, kGs]
-    col_mask = phaseMask[gridMask_flat, kGs]
+    col_mask = phaseMask[gridMask.flatten() , kGs]
     # Select row_mask rows and col_mask columns
     Gamma_kGs = p_Gamma[row_mask, :][:, col_mask]
     Gamma_list.append(Gamma_kGs)
