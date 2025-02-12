@@ -270,3 +270,7 @@ Cnn = iNoiseVar * eye(np.sum(slopesMask), format='csr')
 Right = GxT @ Cnn
 Left  = GxT @ Cnn @ Gx + iCxx
 # Typically solve Left*x = Right, or do a pinv, etc.
+#R = pinv(Left) @ Right
+
+R, residuals, rank, singular_values = np.linalg.lstsq(Left, Right, rcond=None)
+# %%

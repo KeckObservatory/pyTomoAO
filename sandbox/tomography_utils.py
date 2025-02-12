@@ -1,5 +1,43 @@
 import numpy as np
+import math
 from scipy.sparse import spdiags, coo_matrix, csr_matrix
+from scipy.linalg import triu
+from scipy.special import kv  # kv is the Bessel function of the second kind
+
+def cart2pol(x, y):
+    """
+    Convert Cartesian coordinates (x, y) to polar (theta, rho).
+    theta is the angle in radians, rho is the radial distance.
+    """
+    rho = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+    return theta, rho
+
+def pol2cart(theta, rho):
+    """
+    Convert polar coordinates (theta, rho) to Cartesian (x, y).
+    theta is the angle in radians, rho is the radial distance.
+    """
+    x = rho * np.cos(theta)
+    y = rho * np.sin(theta)
+    return x, y
+
+def rotateDM(px,py, rotAngleInRadians):
+    """
+    This function rotate the DM actuators positions.
+
+    Args:
+        px (1D array): The original DM X actuator position.
+        py (1D array): The original DM Y actuator position.
+        rotAngleInRadians (double): The rotation angle in radians.
+
+    Returns:
+        pxx (1D array): The new DM X actuator position after rotation.
+        pyy (1D array): The new DM Y actuator position after rotation.
+    """
+    pxx = px * math.cos(rotAngleInRadians) - py * math.sin(rotAngleInRadians)
+    pyy= py * math.cos(rotAngleInRadians) + px * math.sin(rotAngleInRadians)
+    return pxx, pyy
 
 def make_biharm_operator(n, m):
     """
@@ -39,16 +77,6 @@ def make_biharm_operator(n, m):
     p_L2 = p_L.transpose().dot(p_L)
 
     return p_L2
-
-def cart2pol(x, y):
-    """
-    Convert Cartesian coordinates (x, y) to polar (theta, rho).
-    theta is the angle in radians, rho is the radial distance.
-    """
-    rho = np.sqrt(x**2 + y**2)
-    theta = np.arctan2(y, x)
-    return theta, rho
-
 
 def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
     """
@@ -102,7 +130,8 @@ def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampl
         j0x = np.repeat(np.arange(1, 6), 5) # x stencil col subscript
         i0y = np.tile(np.arange(1, 6), 5) # y stencil row subscript
         j0y = np.repeat(np.arange(1, 6), 5) # y stencil col subscript
-        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16]) * (1/dsa) # x stencil weight
+        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, \
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16]) * (1/dsa) # x stencil weight
         s0y = s0x.reshape(5,5).T.flatten() # y stencil weight
         i_x = np.zeros(25 * nValidLenslet_)
         j_x = np.zeros(25 * nValidLenslet_)
@@ -166,8 +195,6 @@ def sparseGradientMatrix3x3Stencil(validLenslet):
         Mask of size (overSampling*validLenslet.shape[0]+1) used for the reconstructed phase.
     """
     nLenslet = validLenslet.shape[0] # Number of lenselt across the pupil
-  
-
     nMap = 2 * nLenslet + 1
     nValidLenslet_ = np.count_nonzero(validLenslet)
 
@@ -290,10 +317,6 @@ def p_bilinearSplineInterp(xo, yo, do, xi, yi):
     P = coo_matrix((data, (rows, cols)), shape=(ni, no))
     return P.tocsr()
 
-
-import numpy as np
-import math
-
 def create_atm_grid(directionVectorLGS, directionVectorFitSrc, nLayer, dSub, altitude, LGSheight, D):
     """
     Create an atmospheric grid for each layer based on the given parameters.
@@ -351,3 +374,234 @@ def create_atm_grid(directionVectorLGS, directionVectorFitSrc, nLayer, dSub, alt
         atmGrid.append((x_grid, y_grid))
 
     return atmGrid
+
+def auto_correlation(sampling, D, wfs_lenslets_rotation, wfs_lenslets_offset, \
+                    mask, nGs, srcACdirectionVector, srcACheight, nLayer, altitude, \
+                    fractionnalR0,r0,L0):
+    """
+    Python implementation of the MATLAB autoCorrelation function.
+    
+    Parameters:
+    -----------
+    sampling : int
+        Sampling rate for the grid.
+    range : float
+        Range of the grid.
+    wfs : object
+        Wavefront sensor object with lenslets' rotation and offset attributes.
+    mask : ndarray
+        Mask for filtering the covariance matrix.
+    nGs : int
+        Number of guide stars.
+    srcACdirectionVector : ndarray
+        Direction vector for the guide stars.
+    srcACheight : ndarray
+        Heights of the guide stars.
+    nLayer : int
+        Number of atmospheric layers.
+    altitude : ndarray
+        Altitudes of the atmospheric layers.
+    fr0 : float
+        Reference frequency.
+    L0 : float
+        Outer scale of turbulence.
+
+    
+    Returns:
+    --------
+    S : ndarray
+        Auto-correlation meta-matrix.
+    """
+    
+    print("-->> Auto-correlation meta-matrix!\n")
+    
+    # Generate indices for the upper triangular part of the matrix
+    kGs = np.triu(np.arange(1, nGs**2 + 1).reshape(nGs, nGs).T, 1).T.reshape(nGs**2)
+    kGs[0] = 1
+    kGs = kGs[kGs != 0]
+    
+    # Initialize a list of zero matrices based on the mask
+    S = [np.zeros((np.sum(mask),np.sum(mask))) for _ in range(len(kGs))]
+    
+    for k in range(len(kGs)):
+        # Get the indices iGs and jGs from the index kGs(k)
+        jGs, iGs = np.unravel_index(kGs[k] - 1, (nGs, nGs))  # Adjust for 0-based index in Python
+        
+        buf = 0
+        
+        # Create a grid for the first guide star
+        x1, y1 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
+                             np.linspace(-1, 1, sampling) * D/2)
+        x1, y1 = rotateDM(x1.flatten(), y1.flatten(), wfs_lenslets_rotation[iGs] * 180/np.pi)
+        x1 = x1 - wfs_lenslets_offset[0, iGs] * D
+        y1 = y1 - wfs_lenslets_offset[1, iGs] * D
+        x1 = x1.reshape(sampling, sampling)
+        y1 = y1.reshape(sampling, sampling)
+        
+        # Create a grid for the second guide star
+        x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
+                             np.linspace(-1, 1, sampling) * D/2)
+        x2, y2 = rotateDM(x2.flatten(), y2.flatten(), wfs_lenslets_rotation[jGs] * 180/np.pi)
+        x2 = x2 - wfs_lenslets_offset[0, jGs] * D
+        y2 = y2 - wfs_lenslets_offset[1, jGs] * D
+        x2 = x2.reshape(sampling, sampling)
+        y2 = y2.reshape(sampling, sampling)
+        
+        for kLayer in range(nLayer):
+            # Calculate the scaled and shifted coordinates for the first guide star
+            beta = srcACdirectionVector[:, iGs] * altitude[kLayer]
+            scale = 1 - altitude[kLayer] / srcACheight
+            iZ = x1 * scale + beta[0] + 1j * (y1 * scale + beta[1])
+            
+            # Calculate the scaled and shifted coordinates for the second guide star
+            beta = srcACdirectionVector[:, jGs] * altitude[kLayer]
+            scale = 1 - altitude[kLayer] / srcACheight
+            jZ = x2 * scale + beta[0] + 1j * (y2 * scale + beta[1])
+            
+            # Compute the covariance matrix
+            #out = covariance_matrix(iZ, jZ, slab(atm, kLayer))
+            out = covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
+            #out[~mask, :] = 0
+            #out[:, ~mask] = 0
+            out = out[mask.flatten(),:]
+            out = out[:,mask.flatten()]
+            # Accumulate the results
+            buf += out
+        
+        S[k] = buf
+    
+    # Rearrange the results into a full nGs x nGs matrix
+    buf = S
+    S = [np.zeros(np.sum(mask)) for _ in range(nGs**2)]
+    for idx, val in zip(kGs, buf):
+        S[idx - 1] = val  # Adjust for 0-based index in Python
+    S = np.array(S).reshape(nGs, nGs)
+    
+    # Fill the diagonal with the first element
+    np.fill_diagonal(S, S[0, 0])
+    
+    # Make the matrix symmetric
+    S = triu(S, 1) + triu(S).T
+    
+    return S
+
+def covariance_matrix(*args):
+    """
+    COVARIANCEMATRIX Phase covariance matrix
+
+    Computes the phase auto-covariance matrix from the vector rho1 and r0, L0, fractionnalR0
+    or the phase cross-covariance matrix from the vectors rho1 and rho2 and r0, L0, fractionnalR0.
+
+    Parameters:
+    -----------
+    *args : tuple
+        - If four arguments are provided: rho1 (complex array), r0, L0, fractionnalR0
+        - If five arguments are provided: rho1 (complex array), 
+        rho2 (complex array), r0, L0, fractionnalR0
+
+    Returns:
+    --------
+    out : numpy.ndarray
+        The covariance matrix
+
+    Example:
+    --------
+    # covariance matrix on a 1 metre square grid sampled on 16 pixels
+    x, y = np.meshgrid(np.linspace(0, 1, 16), np.linspace(0, 1, 16))
+    rho1 = x + 1j * y
+    g = covariance_matrix(rho1, r0, L0, fractionnalR0)
+    plt.imshow(g)
+    plt.colorbar()
+    plt.show()
+
+    # covariance matrix on a 1 metre square grid sampled on 16 pixels with the 
+    # same grid but displaced of 1 metre
+    x, y = np.meshgrid(np.linspace(0, 1, 16), np.linspace(0, 1, 16))
+    rho1 = x + 1j * y
+    rho2 = rho1 + 1
+    g = covariance_matrix(rho1, rho2, r0, L0, fractionnalR0)
+    plt.imshow(g)
+    plt.colorbar()
+    plt.show()
+    """
+    
+    if len(args) < 4 or len(args) > 5:
+        raise ValueError("Number of arguments must be 4 or 5")
+    
+    rho1 = args[0].flatten()
+    if len(args) == 4:
+        rho = np.abs(rho1[:, np.newaxis] - rho1)
+        r0 = args[1]
+        L0 = args[2]
+        fractionnalR0 = args[3]
+    else:
+        rho2 = args[1].flatten()
+        rho = np.abs(rho1[:, np.newaxis] - rho2)
+        r0 = args[2]
+        L0 = args[3]
+        fractionnalR0 = args[4]
+    
+    nRho, mRho = rho.shape
+    blockSize = 5000
+    
+    if max(nRho, mRho) > blockSize:  # Memory gentle
+        l = nRho // blockSize
+        #le = nRho - l * blockSize
+        p = mRho // blockSize
+        #pe = mRho - p * blockSize
+        
+        print(f" @(covariance_matrix)> Memory gentle! ({(l+1)}X{(p+1)} blocks)")
+        
+        # Split the matrix into blocks
+        rho_blocks = [rho[i * blockSize:(i + 1) * blockSize, j * blockSize:(j + 1) * blockSize] \
+            for i in range(l + 1) for j in range(p + 1)]
+        
+        out_blocks = []
+        for block in rho_blocks:
+            out_blocks.append(_compute_covariance(block, r0, L0, fractionnalR0))
+        
+        # Reconstruct the full matrix from blocks
+        out = np.block([[out_blocks[i * (p + 1) + j] for j in range(p + 1)] for i in range(l + 1)])
+        
+    else:  # Memory intensive
+        out = _compute_covariance(rho, r0, L0, fractionnalR0)
+    
+    return out
+
+
+def _compute_covariance(rho, r0, L0, fractionnalR0):
+    """
+    Helper function to compute the covariance matrix for a given rho and 
+    atmosphere parameters: r0, L0 and fractionnal r0.
+
+    Parameters:
+    -----------
+    rho : numpy.ndarray
+        The distance matrix
+    r0 : float
+        The atmosphere coherence length (internal scale)
+    L0 : float
+        The atmosphere coherence length (external scale)
+    fractionnalR0: numpy.ndarray
+        The atmosphere fractionnal r0 profile (Cn2 profile)
+
+    Returns:
+    --------
+    out : numpy.ndarray
+        The covariance matrix
+    """
+    
+    L0r0ratio = (L0/r0)**(5./3.)
+    cst = (24.*math.gamma(6./5.)/5)**(5./6.)* \
+        (math.gamma(11./6.)/(2.**(5./6.)*np.pi**(8./3.)))*L0r0ratio
+    
+    out = np.ones_like(rho)*(24.*math.gamma(6./5.)/5.)**(5./6.)* \
+        (math.gamma(11./6.)*math.gamma(5./6.)/(2*np.pi**(8./3.)))*L0r0ratio
+    
+    index = rho != 0
+    u = 2*np.pi*rho[index]/L0
+    out[index] = cst*u**(5./6.)*kv(5./6., u)
+    
+    out = np.sum(fractionnalR0) * out
+    
+    return out
