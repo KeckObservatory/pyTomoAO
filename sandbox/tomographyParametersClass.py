@@ -1,6 +1,7 @@
 # tomographyParametersClass.py
 import numpy as np
 from numbers import Number
+import math
 
 class tomographyParameters:
     """
@@ -61,6 +62,33 @@ class tomographyParameters:
     @property
     def optimization_shape(self) -> tuple:
         return (self.nFitSrc, self.nFitSrc)
+
+    @property
+    def directionVectorSrc(self) -> np.ndarray:
+        """
+        Compute 3D direction vectors for optimization sources in observer's coordinate system.
+        
+        Returns:
+            np.ndarray: 3xN array where N = nFitSrc*nFitSrc, with vectors:
+                        [ [x1, x2, ...],
+                        [y1, y2, ...],
+                        [z1, z2, ...] ]
+                        where z = 1 (optical axis) and x/y are transverse components
+        """
+        n_src = self.nFitSrc**2
+        vectors = np.zeros((3, n_src))
+        zenith, azimuth = self.compute_optimization_geometry()
+        
+        for i in range(n_src):
+            # Compute transverse components
+            tan_zenith = math.tan(zenith[i])
+            vectors[0, i] = tan_zenith * math.cos(azimuth[i])
+            vectors[1, i] = tan_zenith * math.sin(azimuth[i])
+            
+            # Optical axis component normalized to 1
+            vectors[2, i] = 1.0
+
+        return vectors
 
     def __str__(self):
         """Human-readable string representation of the tomography parameters"""

@@ -1,31 +1,29 @@
+# tomographic_reconstructor_SR.py
+"""This scrip computes a tomographic reconstructor to estimate the directional phase 
+    in the science direction(s) from multiple Shack-Hartmann wavefront sensord based 
+    on the turbulence model given by atmospheric parameters. This tomographic 
+    reconstructor is compatible with super resolution. 
+"""
 # %%
 import yaml
 import numpy as np
 import math
 import time
-from scipy.sparse import coo_matrix, block_diag, csr_matrix, eye, lil_matrix, hstack
-from scipy.interpolate import splrep, splev 
-from numpy.linalg import pinv
+import cProfile
 import matplotlib.pyplot as plt
-from numbers import Number
-from lgsWfsParametersClass import lgsWfsParameters 
+from scipy.sparse import block_diag
 from dmParametersClass import dmParameters
 from atmosphereParametersClass import atmosphereParameters
 from lgsAsterismParametersClass import lgsAsterismParameters
+from lgsWfsParametersClass import lgsWfsParameters 
 from tomographyParametersClass import tomographyParameters
 
 # Import your utility functions from tomography_utils
+
 from tomography_utils import (
-    p_bilinearSplineInterp,
-    cart2pol,
-    pol2cart,
-    make_biharm_operator,
     sparseGradientMatrixAmplitudeWeighted,
-    sparseGradientMatrix3x3Stencil,
-    create_atm_grid,
     auto_correlation,
-    rotateDM,
-    covariance_matrix
+    cross_correlation
 )
 
 #%%
@@ -81,8 +79,10 @@ try:
     print(tomoParams) 
 except (ValueError, TypeError) as e:
     print(f"Configuration Error: {e}")
+
 #%%
 # LTAO SPATIO-ANGULAR RECONSTRUCTOR (LINEAR MMSE) SUPPORTING SR
+start_time = time.perf_counter()
 
 Gamma, gridMask = sparseGradientMatrixAmplitudeWeighted(lgsWfsParams.validLLMapSupport, amplMask=None, overSampling=2)
 GammaBeta = Gamma/(2*math.pi)
@@ -93,15 +93,15 @@ for kGs in range(lgsAsterismParams.nLGS):
 
 Gamma = block_diag(Gamma_list)
 
+end_time = time.perf_counter()
+execution_time = end_time - start_time
+print(f"Execution time : {execution_time:.4f} seconds")
+
 # %%
 # AUTO-COVARIANCE MATRIX
-#Cxx = spatioAngularIrregularCovarianceMatrix(2*nLenslet+1,tel.D, wfs,atm,lgsGs,'mask',gridMask);
-##### TO BE COVERTTED TO A FUNCTION ######### 
+start_time = time.perf_counter()
 
-#def spatioAngularIrregularCovarianceMatrix(sampling, range,wfs,atm,srcAC,varargin)
-# computes the spatio-Angular auto-correlation of the
-
-L0_r0_ratio = (atmParams.L0/atmParams.r0)**(5./3.)
+""" L0_r0_ratio = (atmParams.L0/atmParams.r0)**(5./3.)
 cst = (24.*math.gamma(6./5)/5)**(5./6.) * \
          (math.gamma(11./6.)/(2.**(5./6.)*math.pi**(8./3.))) * L0_r0_ratio
 
@@ -110,17 +110,31 @@ cst_L0 = (24.*math.gamma(6./5)/5)**(5./6.) * \
 
 cst_r0 = (24.*math.gamma(6./5)/5)**(5./6.) * \
          (math.gamma(11./6.)**2./(2.*math.pi**(11./3.))) * atmParams.r0**(-5./3.)
+"""
 
-windVx, windVy = pol2cart(atmParams.windDirection,atmParams.windSpeed)
+# Updates classes properties for Super Resolution
+# To be moved as default parameters into the tomographyParametersClass
+tomoParams.sampling = gridMask.shape[0]
+lgsWfsParams.wfs_lenslets_rotation = [0,0,0,0]
+lgsWfsParams.wfs_lenslets_offset = np.array([[0.0096,-0.0096,-0.0096,0.0096],\
+                                            [0.0096,0.0096,-0.0096,-0.0096]])
 
+# Profile the function
+#profiler = cProfile.Profile()
+#profiler.enable()
+Cxx = auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask)
+#profiler.disable()
+#profiler.print_stats(sort='time')
+end_time = time.perf_counter()
+execution_time = end_time - start_time
+print(f"Execution time : {execution_time:.4f} seconds")
 
-sampling = gridMask.shape[0]
-wfs_lenslets_rotation = [0,0,0,0]
-wfs_lenslets_offset = np.array([[0.0096,-0.0096,-0.0096,0.0096],[0.0096,0.0096,-0.0096,-0.0096]])
+# %% 
+# CROSS-COVARIANCE MATRIX
+start_time = time.perf_counter()
 
+Cox = cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams)
 
-S = auto_correlation(sampling,lgsWfsParams.D,wfs_lenslets_rotation,wfs_lenslets_offset,gridMask,lgsWfsParams.nLGS,lgsAsterismParams.directionVectorLGS,\
-                    lgsAsterismParams.LGSheight,atmParams.nLayer,atmParams.altitude,atmParams.fractionnalR0,atmParams.r0,atmParams.L0)
-
-
-# %%
+end_time = time.perf_counter()
+execution_time = end_time - start_time
+print(f"Execution time : {execution_time:.4f} seconds")

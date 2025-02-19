@@ -20,7 +20,7 @@ class lgsWfsParameters:
         
         Args:
             config: Dictionary containing "lgs_wfs_parameters" key with subkeys:
-                   D, nLenslet, nPx, fieldStopSize, nLGS, validLLMap, validActuatorMap
+                    D, nLenslet, nPx, fieldStopSize, nLGS, validLLMap, validActuatorMap
         """
         self._config = config["lgs_wfs_parameters"]
         self._lgsAsterism_params = lgsAsterism_params
@@ -178,35 +178,35 @@ class lgsWfsParameters:
             f"  - Pixels per Lenslet: {self.nPx}\n"
             f"  - Field Stop: {self.fieldStopSize:.2f} arcsec\n"
             f"  - Number of LGS: {self._lgsAsterism_params.nLGS}\n"
-            "\nValidation Maps:"
-            "\n  - Valid Lenslet Map:"
-            f"\n    Valid Elements: {ll_valid}/{ll_total} ({ll_valid/ll_total:.1%})"
-            f"\n    Preview:\n{self._format_map_preview(self.validLLMap)}"
-            "\n\n  - Padded Support Map:"
-            f"\n    Scaling Factor: {support_ratio:.2f}x"
-            f"\n    Preview:\n{self._format_map_preview(self.validLLMapSupport)}"
-            "\n\n  - Valid Actuator Map:"
-            f"\n    Valid Elements: {act_valid}/{act_total} ({act_valid/act_total:.1%})"
-            f"\n    Preview:\n{self._format_map_preview(self.validActuatorMap)}"
+#            "\nValidation Maps:"
+#            "\n  - Valid Lenslet Map:"
+#            f"\n    Valid Elements: {ll_valid}/{ll_total} ({ll_valid/ll_total:.1%})"
+#            f"\n    Preview:\n{self._format_map_preview(self.validLLMap)}"
+#            "\n\n  - Padded Support Map:"
+#            f"\n    Scaling Factor: {support_ratio:.2f}x"
+#            f"\n    Preview:\n{self._format_map_preview(self.validLLMapSupport)}"
+#            "\n\n  - Valid Actuator Map:"
+#            f"\n    Valid Elements: {act_valid}/{act_total} ({act_valid/act_total:.1%})"
+#            f"\n    Preview:\n{self._format_map_preview(self.validActuatorMap)}"
         )
 
 
-    def _format_map_preview(self, arr: np.ndarray, size: int = 5) -> str:
-        """Format a preview of a boolean 2D array"""
-        # Handle non-square arrays
-        rows = min(size, arr.shape[0])
-        cols = min(size, arr.shape[1])
-        
-        preview = arr[:rows, :cols]
-        preview_str = np.array2string(
-            preview,
-            prefix='    ',
-            formatter={'bool': lambda x: '█' if x else '░'}
-        ).replace('[','').replace(']','')
-        
-        shape_note = f"\n    Full Array Shape: {arr.shape}" if (rows < arr.shape[0] or cols < arr.shape[1]) else ""
-        
-        return f"    {preview_str}{shape_note}"
+#    def _format_map_preview(self, arr: np.ndarray, size: int = 5) -> str:
+#        """Format a preview of a boolean 2D array"""
+#        # Handle non-square arrays
+#        rows = min(size, arr.shape[0])
+#        cols = min(size, arr.shape[1])
+#        
+#        preview = arr[:rows, :cols]
+#        preview_str = np.array2string(
+#            preview,
+#            prefix='    ',
+#            formatter={'bool': lambda x: '█' if x else '░'}
+#        ).replace('[','').replace(']','')
+#        
+#        shape_note = f"\n    Full Array Shape: {arr.shape}" if (rows < arr.shape[0] or cols < arr.shape[1]) else ""
+#        
+#        return f"    {preview_str}{shape_note}"
 
 if __name__ == "__main__":
     config = {

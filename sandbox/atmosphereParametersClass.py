@@ -20,8 +20,8 @@ class atmosphereParameters:
         
         Args:
             config: Dictionary containing "atmosphere_parameters" key with subkeys:
-                   nLayer, zenithAngleInDeg, altitude, L0, r0, fractionnalR0, 
-                   wavelength, windDirection, windSpeed
+                    nLayer, zenithAngleInDeg, altitude, L0, r0, fractionnalR0, 
+                    wavelength, windDirection, windSpeed
         """
         self._config = config["atmosphere_parameters"]
         self._initialize_properties()
@@ -168,6 +168,17 @@ class atmosphereParameters:
     def windSpeed(self, value):
         arr = self._validate_array(value, "windSpeed", min_value=0)
         self._windSpeed = arr
+        
+    # === Wind Velocity Components ===
+    @property
+    def windVx(self) -> np.ndarray:
+        """Eastward wind component (m/s)"""
+        return self.windSpeed * np.cos(self.windDirection)
+
+    @property
+    def windVy(self) -> np.ndarray:
+        """Northward wind component (m/s)"""
+        return self.windSpeed * np.sin(self.windDirection)
 
     # === Wavelength ===
     @property
@@ -201,22 +212,28 @@ class atmosphereParameters:
         return arr
 
     def __str__(self):
-        """Human-readable string representation"""
-        return (
+        """Updated string representation with wind components"""
+        # Existing atmospheric parameters string
+        base_str = (
             "Atmospheric Parameters:\n"
             f"  - Zenith Angle: {self.zenithAngleInDeg:.1f}° (Airmass: {self.airmass:.2f})\n"
             f"  - Outer Scale (L0): {self.L0:.1f} m\n"
             f"  - Fried Parameter (r0): {self.r0_zenith:.3f} m @ zenith → {self.r0:.3f} m @ current airmass\n"
             f"  - Observation Wavelength: {self.wavelength*1e9:.1f} nm\n"
-            f"\nTurbulence Profile ({self.nLayer} layers):\n" + 
-            "\n".join(
-                f"    Layer {i+1}: {self.altitude_km[i]:.1f} km "
-                f"(frac: {self.fractionnalR0[i]:.2f}, "
-                f"wind: {self.windSpeed[i]:.1f} m/s @ {self.windDirection_deg[i]:.0f}°)"
-                for i in range(self.nLayer)
-            ) + 
-            f"\n    Total fractional R0: {np.sum(self.fractionnalR0):.4f}"
+            "\nTurbulence Profile:"
         )
+        
+        # Add wind components to layer information
+        layer_info = []
+        for i in range(self.nLayer):
+            layer_info.append(
+                f"    Layer {i+1}: {self.altitude[i]:.1f} m "
+                f"(frac: {self.fractionnalR0[i]:.2f}, "
+                f"wind: {self.windSpeed[i]:.1f} m/s @ {self.windDirection_deg[i]:.0f}° "
+                f"[Vx: {self.windVx[i]:.1f}, Vy: {self.windVy[i]:.1f}]"
+            )
+        
+        return "\n".join([base_str] + layer_info + [f"    Total fractional R0: {np.sum(self.fractionnalR0):.4f}"])
 
 # Example Usage
 if __name__ == "__main__":

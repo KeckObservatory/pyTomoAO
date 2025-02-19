@@ -18,7 +18,7 @@ class dmParameters:
         
         Args:
             config: Dictionary containing "dm_parameters" key with subkeys:
-                   dmHeights, dmPitch, dmCrossCoupling, nActuators, validActuators
+                    dmHeights, dmPitch, dmCrossCoupling, nActuators, validActuators
         """
         self._config = config["dm_parameters"]
         self._initialize_properties()
@@ -135,7 +135,7 @@ class dmParameters:
             f"  - Cross-Coupling: {self.dmCrossCoupling*100:.1f}%\n"
             f"  - Valid Actuators: {valid_actuators}/{total_actuators} "
             f"({valid_actuators/total_actuators:.1%})\n"
-            f"  - Actuator Map Preview:\n{self._format_actuator_preview()}"
+            #f"  - Actuator Map Preview:\n{self._format_actuator_preview()}"
         )
 
     def _format_array_stats(self, arr: np.ndarray, unit: str = "") -> str:
@@ -144,14 +144,14 @@ class dmParameters:
             return f"{arr[0]:.3f} {unit} (uniform)"
         return f"{np.min(arr):.3f}-{np.max(arr):.3f} {unit} (mean: {np.mean(arr):.3f})"
 
-    def _format_actuator_preview(self, size: int = 5) -> str:
-        """Format a preview of the actuator map"""
-        preview = np.array2string(
-            self.validActuators[:size, :size],
-            prefix='    ',
-            formatter={'bool': lambda x: 'X' if x else '.'}
-        )
-        return f"    {preview.replace('[','').replace(']','')}\n    ..." 
+#    def _format_actuator_preview(self, size: int = 5) -> str:
+#        """Format a preview of the actuator map"""
+#        preview = np.array2string(
+#            self.validActuators[:size, :size],
+#            prefix='    ',
+#            formatter={'bool': lambda x: 'X' if x else '.'}
+#        )
+#        return f"    {preview.replace('[','').replace(']','')}\n    ..." 
 
 # Example Usage
 if __name__ == "__main__":

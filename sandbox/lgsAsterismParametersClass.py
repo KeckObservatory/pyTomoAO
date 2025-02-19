@@ -3,6 +3,7 @@ from numbers import Number
 from atmosphereParametersClass import atmosphereParameters
 import math
 import numpy as np
+
 class lgsAsterismParameters:
     """
     Encapsulates Laser Guide Star (LGS) Asterism parameters with validation
@@ -91,10 +92,12 @@ class lgsAsterismParameters:
         arcsec_to_rad = math.pi / (180 * 3600)  # 1 arcsec in radians
         
         # Calculate base radius in radians
-        base_radius = self.radiusAst * arcsec_to_rad * math.sqrt(2)
+        base_radius = self.radiusAst * arcsec_to_rad
         
         # Define azimuth angles in degrees (225°, 135°, 315°, 45°)
-        azimuth_deg = [225, 135, 315, 45]
+        azimuth_deg =np.zeros(self.nLGS)
+        for i in range(self.nLGS):
+            azimuth_deg[i] = i*360/self.nLGS
         
         return np.array([
             [base_radius, math.radians(angle)]
@@ -108,10 +111,10 @@ class lgsAsterismParameters:
         
         Returns:
             np.ndarray: 3xN array where N = nLGS, with vectors:
-                       [ [x1, x2, ...],
-                         [y1, y2, ...],
-                         [z1, z2, ...] ]
-                       where z = 1 (optical axis) and x/y are transverse components
+                        [ [x1, x2, ...],
+                        [y1, y2, ...],
+                        [z1, z2, ...] ]
+                        where z = 1 (optical axis) and x/y are transverse components
         """
         n_lgs = self.nLGS
         vectors = np.zeros((3, n_lgs))

@@ -79,8 +79,8 @@ dm_parameters:
 
 atmosphere_parameters:
   nLayer: 7
-  zenithAngleInDeg: 0.0
-  altitude: [0, 0.5, 1, 2, 6, 12, 20]
+  zenithAngleInDeg: 30.0
+  altitude: [0, 0.5, 1, 2, 4, 8, 16]
   L0: 30
   r0: 0.186
   fractionnalR0: [0.4557, 0.1295, 0.0442, 0.0506, 0.1167, 0.0926, 0.1107]

@@ -1,8 +1,8 @@
 import numpy as np
 import math
 from scipy.sparse import spdiags, coo_matrix, csr_matrix
-from scipy.linalg import triu
-from scipy.special import kv  # kv is the Bessel function of the second kind
+from scipy.linalg import triu, tril
+from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
 
 def cart2pol(x, y):
     """
@@ -25,12 +25,12 @@ def pol2cart(theta, rho):
 def rotateDM(px,py, rotAngleInRadians):
     """
     This function rotate the DM actuators positions.
-
+    
     Args:
         px (1D array): The original DM X actuator position.
         py (1D array): The original DM Y actuator position.
         rotAngleInRadians (double): The rotation angle in radians.
-
+    
     Returns:
         pxx (1D array): The new DM X actuator position after rotation.
         pyy (1D array): The new DM Y actuator position after rotation.
@@ -38,6 +38,26 @@ def rotateDM(px,py, rotAngleInRadians):
     pxx = px * math.cos(rotAngleInRadians) - py * math.sin(rotAngleInRadians)
     pyy= py * math.cos(rotAngleInRadians) + px * math.sin(rotAngleInRadians)
     return pxx, pyy
+
+def create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
+    # Create a grid
+    x, y = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
+                        np.linspace(-1, 1, sampling) * D/2)
+    
+    # Flatten, rotate, and apply offset
+    x, y = rotateDM(x.flatten(), y.flatten(), rotation_angle * 180/np.pi)
+    x = x - offset_x * D
+    y = y - offset_y * D
+    
+    # Reshape back to the original grid
+    return x.reshape(sampling, sampling), y.reshape(sampling, sampling)
+
+def calculate_scaled_shifted_coords(x, y, srcACdirectionVector, gs_index, 
+                                    altitude, kLayer, srcACheight):
+    beta = srcACdirectionVector[:, gs_index] * altitude[kLayer]
+    scale = 1 - altitude[kLayer] / srcACheight
+    return x * scale + beta[0] + 1j * (y * scale + beta[1])
+
 
 def make_biharm_operator(n, m):
     """
@@ -90,7 +110,7 @@ def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampl
         Amplitudes Weight Mask (default=None). 
     overSampling : int
         Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
-
+    
     Returns
     -------
     Gamma : scipy.sparse.csr_matrix
@@ -98,6 +118,8 @@ def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampl
     gridMask : 2D array
         Mask of size (overSampling*validLenslet.shape[0]+1) used for the reconstructed phase.
     """
+    print("-->> Computing sparse gradiend matrix <<--\n")
+    
     nLenslet = validLenslet.shape[0] # Number of lenselt across the pupil
     osFactor = overSampling 
 
@@ -186,7 +208,7 @@ def sparseGradientMatrix3x3Stencil(validLenslet):
     ----------
     validLenslet : 2D array
         Valid lenslet map
-
+    
     Returns
     -------
     Gamma : scipy.sparse.csr_matrix
@@ -238,13 +260,11 @@ def sparseGradientMatrix3x3Stencil(validLenslet):
 
     return Gamma, gridMask
 
-
-
 def p_bilinearSplineInterp(xo, yo, do, xi, yi):
     """
     Sparse bilinear interpolation from a regular grid (xo, yo) with spacing 'do'
     to query points (xi, yi).
-
+    
     Parameters
     ----------
     xo, yo : 1D arrays
@@ -254,7 +274,7 @@ def p_bilinearSplineInterp(xo, yo, do, xi, yi):
         The spacing between grid points (assumed uniform).
     xi, yi : 1D arrays
         Coordinates of the interpolation points.
-
+    
     Returns
     -------
     P : scipy.sparse.csr_matrix
@@ -375,45 +395,70 @@ def create_atm_grid(directionVectorLGS, directionVectorFitSrc, nLayer, dSub, alt
 
     return atmGrid
 
-def auto_correlation(sampling, D, wfs_lenslets_rotation, wfs_lenslets_offset, \
-                    mask, nGs, srcACdirectionVector, srcACheight, nLayer, altitude, \
-                    fractionnalR0,r0,L0):
+def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask):
     """
-    Python implementation of the MATLAB autoCorrelation function.
+    Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
     
     Parameters:
     -----------
-    sampling : int
-        Sampling rate for the grid.
-    range : float
-        Range of the grid.
-    wfs : object
-        Wavefront sensor object with lenslets' rotation and offset attributes.
-    mask : ndarray
-        Mask for filtering the covariance matrix.
-    nGs : int
-        Number of guide stars.
-    srcACdirectionVector : ndarray
-        Direction vector for the guide stars.
-    srcACheight : ndarray
-        Heights of the guide stars.
-    nLayer : int
-        Number of atmospheric layers.
-    altitude : ndarray
-        Altitudes of the atmospheric layers.
-    fr0 : float
-        Reference frequency.
-    L0 : float
-        Outer scale of turbulence.
-
+    tomoParams : object
+        Contains tomography parameters:
+        - sampling (int): Number of grid samples per axis
+        - mask (ndarray): 2D boolean grid mask
     
+    lgsWfsParams : object
+        LGS WFS parameters:
+        - D (float): Telescope diameter [m]
+        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
+        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
+    
+    atmParams : object
+        Atmospheric parameters:
+        - nLayer (int): Number of turbulence layers
+        - altitude (ndarray): Layer altitudes [m]
+        - r0 (float): Fried parameter [m]
+        - L0 (float): Outer scale [m]
+        - fractionnalR0 (ndarray): Turbulence strength per layer
+    
+    lgsAsterismParams : object
+        LGS constellation parameters:
+        - nLGS (int): Number of LGS
+        - directionVectorLGS (ndarray): Direction vectors
+        - LGSheight (ndarray): LGS heights [m]
+
+    gridMask : ndarray
+        2D boolean mask for valid grid points
+
     Returns:
     --------
     S : ndarray
-        Auto-correlation meta-matrix.
+        Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
     """
     
-    print("-->> Auto-correlation meta-matrix!\n")
+    print("-->> Computing auto-correlation meta-matrix <<--\n")
+    # ======================================================================
+    # Parameter Extraction
+    # ======================================================================
+    # Tomography parameters
+    sampling = tomoParams.sampling
+    mask = gridMask
+    
+    # LGS constellation parameters
+    nGs = lgsAsterismParams.nLGS
+    srcACdirectionVector = lgsAsterismParams.directionVectorLGS
+    srcACheight  = lgsAsterismParams.LGSheight
+    
+    # WFS parameters
+    D = lgsWfsParams.DSupport  
+    wfs_lenslets_rotation = lgsWfsParams.wfs_lenslets_rotation
+    wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
+    
+    # Atmospheric parameters
+    nLayer = atmParams.nLayer
+    altitude = atmParams.altitude
+    r0 = atmParams.r0
+    L0 = atmParams.L0
+    fractionnalR0 = atmParams.fractionnalR0
     
     # Generate indices for the upper triangular part of the matrix
     kGs = np.triu(np.arange(1, nGs**2 + 1).reshape(nGs, nGs).T, 1).T.reshape(nGs**2)
@@ -429,40 +474,19 @@ def auto_correlation(sampling, D, wfs_lenslets_rotation, wfs_lenslets_offset, \
         
         buf = 0
         
-        # Create a grid for the first guide star
-        x1, y1 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
-                             np.linspace(-1, 1, sampling) * D/2)
-        x1, y1 = rotateDM(x1.flatten(), y1.flatten(), wfs_lenslets_rotation[iGs] * 180/np.pi)
-        x1 = x1 - wfs_lenslets_offset[0, iGs] * D
-        y1 = y1 - wfs_lenslets_offset[1, iGs] * D
-        x1 = x1.reshape(sampling, sampling)
-        y1 = y1.reshape(sampling, sampling)
-        
-        # Create a grid for the second guide star
-        x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
-                             np.linspace(-1, 1, sampling) * D/2)
-        x2, y2 = rotateDM(x2.flatten(), y2.flatten(), wfs_lenslets_rotation[jGs] * 180/np.pi)
-        x2 = x2 - wfs_lenslets_offset[0, jGs] * D
-        y2 = y2 - wfs_lenslets_offset[1, jGs] * D
-        x2 = x2.reshape(sampling, sampling)
-        y2 = y2.reshape(sampling, sampling)
+        # Create grids for the first and second guide stars
+        x1, y1 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[iGs], 
+                                        wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
+        x2, y2 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[jGs], 
+                                        wfs_lenslets_offset[0, jGs], wfs_lenslets_offset[1, jGs])
         
         for kLayer in range(nLayer):
-            # Calculate the scaled and shifted coordinates for the first guide star
-            beta = srcACdirectionVector[:, iGs] * altitude[kLayer]
-            scale = 1 - altitude[kLayer] / srcACheight
-            iZ = x1 * scale + beta[0] + 1j * (y1 * scale + beta[1])
-            
-            # Calculate the scaled and shifted coordinates for the second guide star
-            beta = srcACdirectionVector[:, jGs] * altitude[kLayer]
-            scale = 1 - altitude[kLayer] / srcACheight
-            jZ = x2 * scale + beta[0] + 1j * (y2 * scale + beta[1])
+            # Calculate the scaled and shifted coordinates for the first and second guide stars
+            iZ = calculate_scaled_shifted_coords(x1, y1, srcACdirectionVector, iGs, altitude, kLayer, srcACheight)
+            jZ = calculate_scaled_shifted_coords(x2, y2, srcACdirectionVector, jGs, altitude, kLayer, srcACheight)
             
             # Compute the covariance matrix
-            #out = covariance_matrix(iZ, jZ, slab(atm, kLayer))
             out = covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
-            #out[~mask, :] = 0
-            #out[:, ~mask] = 0
             out = out[mask.flatten(),:]
             out = out[:,mask.flatten()]
             # Accumulate the results
@@ -472,136 +496,309 @@ def auto_correlation(sampling, D, wfs_lenslets_rotation, wfs_lenslets_offset, \
     
     # Rearrange the results into a full nGs x nGs matrix
     buf = S
-    S = [np.zeros(np.sum(mask)) for _ in range(nGs**2)]
-    for idx, val in zip(kGs, buf):
-        S[idx - 1] = val  # Adjust for 0-based index in Python
-    S = np.array(S).reshape(nGs, nGs)
+    S_tmp = [np.zeros((np.sum(mask), np.sum(mask))) for _ in range(nGs**2)]
+    for c, i in enumerate(kGs):
+        S_tmp[i-1] = buf[c]
     
-    # Fill the diagonal with the first element
-    np.fill_diagonal(S, S[0, 0])
+    index = [5, 10, 15]
+    for i in index:
+        S_tmp[i] = S_tmp[0]   
     
+    S_tmp = np.stack(S_tmp, axis=0)
+    S = S_tmp.reshape(nGs, nGs, np.sum(mask), np.sum(mask))\
+        .transpose(0, 2, 1, 3).reshape(nGs*np.sum(mask), nGs*np.sum(mask))
+        
     # Make the matrix symmetric
-    S = triu(S, 1) + triu(S).T
+    S = tril(S) + triu(S.T, 1)
     
     return S
 
 def covariance_matrix(*args):
     """
-    COVARIANCEMATRIX Phase covariance matrix
-
-    Computes the phase auto-covariance matrix from the vector rho1 and r0, L0, fractionnalR0
-    or the phase cross-covariance matrix from the vectors rho1 and rho2 and r0, L0, fractionnalR0.
-
+    Optimized phase covariance matrix calculation using Von Karman turbulence model
+    
     Parameters:
-    -----------
-    *args : tuple
-        - If four arguments are provided: rho1 (complex array), r0, L0, fractionnalR0
-        - If five arguments are provided: rho1 (complex array), 
-        rho2 (complex array), r0, L0, fractionnalR0
-
+        *args: (rho1, [rho2], r0, L0, fractionalR0)
+            rho1, rho2: Complex coordinate arrays (x + iy)
+            r0: Fried parameter (m)
+            L0: Outer scale (m)
+            fractionalR0: Turbulence layer weighting factor
+    
     Returns:
-    --------
-    out : numpy.ndarray
-        The covariance matrix
-
-    Example:
-    --------
-    # covariance matrix on a 1 metre square grid sampled on 16 pixels
-    x, y = np.meshgrid(np.linspace(0, 1, 16), np.linspace(0, 1, 16))
-    rho1 = x + 1j * y
-    g = covariance_matrix(rho1, r0, L0, fractionnalR0)
-    plt.imshow(g)
-    plt.colorbar()
-    plt.show()
-
-    # covariance matrix on a 1 metre square grid sampled on 16 pixels with the 
-    # same grid but displaced of 1 metre
-    x, y = np.meshgrid(np.linspace(0, 1, 16), np.linspace(0, 1, 16))
-    rho1 = x + 1j * y
-    rho2 = rho1 + 1
-    g = covariance_matrix(rho1, rho2, r0, L0, fractionnalR0)
-    plt.imshow(g)
-    plt.colorbar()
-    plt.show()
+        Covariance matrix with same dimensions as input coordinates
     """
     
-    if len(args) < 4 or len(args) > 5:
-        raise ValueError("Number of arguments must be 4 or 5")
+    # Validate input arguments
+    if len(args) not in {4, 5}:
+        raise ValueError("Expected 4 or 5 arguments: (rho1, [rho2], r0, L0, fractionalR0)")
     
+    # Parse arguments and flatten coordinates
     rho1 = args[0].flatten()
-    if len(args) == 4:
-        rho = np.abs(rho1[:, np.newaxis] - rho1)
-        r0 = args[1]
-        L0 = args[2]
-        fractionnalR0 = args[3]
+    auto_covariance = len(args) == 4
+    if auto_covariance:
+        r0, L0, fractionalR0 = args[1:]
+        rho2 = rho1
     else:
-        rho2 = args[1].flatten()
-        rho = np.abs(rho1[:, np.newaxis] - rho2)
-        r0 = args[2]
-        L0 = args[3]
-        fractionnalR0 = args[4]
+        rho2, r0, L0, fractionalR0 = args[1], args[2], args[3], args[4]
+        rho2 = rho2.flatten()
+
+    # ==================================================================
+    # Precompute constants (critical performance improvement)
+    # ==================================================================
+    # Gamma function values precomputed for numerical stability
+    GAMMA_6_5 = gamma(6/5)
+    GAMMA_11_6 = gamma(11/6)
+    GAMMA_5_6 = gamma(5/6)
     
-    nRho, mRho = rho.shape
-    blockSize = 5000
+    # Base constant components
+    BASE_CONST = (24 * GAMMA_6_5 / 5) ** (5/6)
+    SCALE_FACTOR = (GAMMA_11_6 / (2**(5/6) * np.pi**(8/3)))
     
-    if max(nRho, mRho) > blockSize:  # Memory gentle
-        l = nRho // blockSize
-        #le = nRho - l * blockSize
-        p = mRho // blockSize
-        #pe = mRho - p * blockSize
+    # L0/r0 ratio raised to 5/3 power
+    L0_r0_ratio = (L0 / r0) ** (5/3)
+    
+    # Final constant for non-zero distances
+    cst = BASE_CONST * SCALE_FACTOR * L0_r0_ratio
+    
+    # Variance term for zero distances (r=0 case)
+    var_term = (BASE_CONST * GAMMA_11_6 * GAMMA_5_6 / 
+               (2 * np.pi**(8/3))) * L0_r0_ratio
+
+    # ==================================================================
+    # Calculate pairwise distances
+    # ==================================================================
+    # Vectorized distance calculation using broadcasting
+    rho = np.abs(rho1[:, np.newaxis] - rho2)
+    n, m = rho.shape
+
+    # ==================================================================
+    # Block processing for large matrices (>5000 elements per dimension)
+    # ==================================================================
+    block_size = 5000
+    if max(n, m) > block_size:
+        # Preallocate output array for memory efficiency
+        out = np.empty((n, m), dtype=np.float64)
         
-        print(f" @(covariance_matrix)> Memory gentle! ({(l+1)}X{(p+1)} blocks)")
+        # Process row blocks
+        for i in range(0, n, block_size):
+            i_end = min(i + block_size, n)
+            
+            # Process column blocks
+            for j in range(0, m, block_size):
+                j_end = min(j + block_size, m)
+                
+                # Process current block
+                block = rho[i:i_end, j:j_end]
+                out[i:i_end, j:j_end] = _compute_block(
+                    block, L0, cst, var_term
+                )
         
-        # Split the matrix into blocks
-        rho_blocks = [rho[i * blockSize:(i + 1) * blockSize, j * blockSize:(j + 1) * blockSize] \
-            for i in range(l + 1) for j in range(p + 1)]
+        # Apply fractional weighting
+        out *= fractionalR0
+        return out
+
+    # Single block processing for smaller matrices
+    out = _compute_block(rho, L0, cst, var_term)
+    return out * fractionalR0
+
+import numpy as np
+import numba as nb
+
+# Precomputed Gamma function values for v=5/6
+gamma_1_6 = 5.56631600178  # Gamma(1/6)
+gamma_11_6 = 0.94065585824  # Gamma(11/6)
+
+@nb.njit(nb.complex128(nb.complex128), cache=True)
+def _kv56_scalar(z):
+    """Scalar implementation used as kernel for array version"""
+    v = 5.0 / 6.0
+    z_abs = np.abs(z)
+    
+    if z_abs < 2.0:
+        # Series expansion for small |z|
+        sum_a = 0.0j
+        sum_b = 0.0j
         
-        out_blocks = []
-        for block in rho_blocks:
-            out_blocks.append(_compute_covariance(block, r0, L0, fractionnalR0))
+        term_a = (0.5 * z)**v / gamma_11_6
+        term_b = (0.5 * z)**-v / gamma_1_6
+        sum_a += term_a
+        sum_b += term_b
         
-        # Reconstruct the full matrix from blocks
-        out = np.block([[out_blocks[i * (p + 1) + j] for j in range(p + 1)] for i in range(l + 1)])
+        z_sq_over_4 = (0.5 * z)**2
+        k = 1
+        tol = 1e-15
+        max_iter = 1000
         
-    else:  # Memory intensive
-        out = _compute_covariance(rho, r0, L0, fractionnalR0)
+        for _ in range(max_iter):
+            factor_a = z_sq_over_4 / (k * (k + v))
+            term_a *= factor_a
+            sum_a += term_a
+            
+            factor_b = z_sq_over_4 / (k * (k - v))
+            term_b *= factor_b
+            sum_b += term_b
+            
+            if abs(term_a) < tol * abs(sum_a) and abs(term_b) < tol * abs(sum_b):
+                break
+            k += 1
+        
+        K = np.pi * (sum_b - sum_a)
+    else:
+        # Asymptotic expansion for large |z|
+        z_inv = 1.0 / z
+        sum_terms = 1.0 + (2.0/9.0)*z_inv + (-7.0/81.0)*z_inv**2 + \
+                    (175.0/2187.0)*z_inv**3 + (-980.0/6561.0)*z_inv**4
+        prefactor = np.sqrt(np.pi/(2.0*z)) * np.exp(-z)
+        K = prefactor * sum_terms
+    
+    return K
+
+# Vectorized version with parallel execution
+@nb.vectorize([nb.complex128(nb.complex128),  # Complex input
+                nb.complex128(nb.float64)],    # Real input
+                nopython=True, target='parallel')
+def kv56(z):
+    """
+    Modified Bessel function K_{5/6}(z) for numpy arrays
+    Handles both real and complex inputs efficiently
+    """
+    return _kv56_scalar(z)
+
+def _compute_block(rho_block, L0, cst, var_term):
+    """
+    Vectorized computation of covariance values for a matrix block
+    """
+    # Initialize output with variance term
+    out = np.full(rho_block.shape, var_term, dtype=np.float64)
+    
+    # Find non-zero distances and compute covariance
+    mask = rho_block != 0
+    u = (2 * np.pi * rho_block[mask]) / L0
+    
+    # Vectorized Bessel function calculation
+    # u = np.round(u,2)
+    out[mask] = cst * u**(5/6) * kv56(u.astype(np.complex128)) # kv(5/6, u)
     
     return out
 
-
-def _compute_covariance(rho, r0, L0, fractionnalR0):
+def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask=None):
     """
-    Helper function to compute the covariance matrix for a given rho and 
-    atmosphere parameters: r0, L0 and fractionnal r0.
-
+    Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
+    
     Parameters:
     -----------
-    rho : numpy.ndarray
-        The distance matrix
-    r0 : float
-        The atmosphere coherence length (internal scale)
-    L0 : float
-        The atmosphere coherence length (external scale)
-    fractionnalR0: numpy.ndarray
-        The atmosphere fractionnal r0 profile (Cn2 profile)
-
+    tomoParams : object
+        Contains tomography parameters:
+        - sampling (int): Number of grid samples per axis
+        - mask (ndarray): 2D boolean grid mask
+    
+    lgsWfsParams : object
+        LGS WFS parameters:
+        - D (float): Telescope diameter [m]
+        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
+        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
+    
+    atmParams : object
+        Atmospheric parameters:
+        - nLayer (int): Number of turbulence layers
+        - altitude (ndarray): Layer altitudes [m]
+        - r0 (float): Fried parameter [m]
+        - L0 (float): Outer scale [m]
+        - fractionnalR0 (ndarray): Turbulence strength per layer
+    
+    lgsAsterismParams : object
+        LGS constellation parameters:
+        - nLGS (int): Number of LGS
+        - directionVectorLGS (ndarray): Direction vectors
+        - LGSheight (ndarray): LGS heights [m]
+    
+    gridMask : ndarray
+        2D boolean mask for valid grid points
+    
     Returns:
     --------
-    out : numpy.ndarray
-        The covariance matrix
+    S : ndarray
+        Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
     """
     
-    L0r0ratio = (L0/r0)**(5./3.)
-    cst = (24.*math.gamma(6./5.)/5)**(5./6.)* \
-        (math.gamma(11./6.)/(2.**(5./6.)*np.pi**(8./3.)))*L0r0ratio
+    print("-->> Computing cross-correlation meta-matrix <<--\n")
+    # ======================================================================
+    # Parameter Extraction
+    # ======================================================================
+    # Tomography parameters
+    sampling = tomoParams.sampling
     
-    out = np.ones_like(rho)*(24.*math.gamma(6./5.)/5.)**(5./6.)* \
-        (math.gamma(11./6.)*math.gamma(5./6.)/(2*np.pi**(8./3.)))*L0r0ratio
+    if gridMask is None:
+        mask = np.ones((sampling,sampling),dtype=bool)
+    else:
+        mask = gridMask
+        
     
-    index = rho != 0
-    u = 2*np.pi*rho[index]/L0
-    out[index] = cst*u**(5./6.)*kv(5./6., u)
+    nSs  = tomoParams.nFitSrc**2
+    srcCCdirectionVector = tomoParams.directionVectorSrc
+    srcCCheight = tomoParams.fitSrcHeight
     
-    out = np.sum(fractionnalR0) * out
+    # LGS constellation parameters
+    nGs = lgsAsterismParams.nLGS
+    srcACdirectionVector = lgsAsterismParams.directionVectorLGS
+    srcACheight  = lgsAsterismParams.LGSheight
     
-    return out
+    # WFS parameters
+    D = lgsWfsParams.DSupport  
+    wfs_lenslets_rotation = lgsWfsParams.wfs_lenslets_rotation
+    wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
+    
+    # Atmospheric parameters
+    nLayer = atmParams.nLayer
+    altitude = atmParams.altitude
+    r0 = atmParams.r0
+    L0 = atmParams.L0
+    fractionnalR0 = atmParams.fractionnalR0
+    
+    # Initialize a 2d list (nSs,nGs) of zero matrices of size (sampling**2,sampling**2)
+    C = [[np.zeros((np.sum(sampling**2),np.sum(sampling**2))) for _ in range(nGs)] for _ in range(nSs)]
+    
+    for k in range(nSs*nGs):
+        # Get the indices kGs and jGs 
+        kGs, iGs = np.unravel_index(k, (nSs, nGs)) 
+        
+        buf = 0
+        
+        # Create grids for the first and second guide stars
+        x1, y1 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[iGs], 
+                                        wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
+        
+        x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
+                            np.linspace(-1, 1, sampling) * D/2)
+        
+        for kLayer in range(nLayer):
+            # Calculate the scaled and shifted coordinates for the first and second guide stars
+            iZ = calculate_scaled_shifted_coords(x1, y1, srcACdirectionVector, 
+                                                iGs, altitude, kLayer, srcACheight)
+            jZ = calculate_scaled_shifted_coords(x2, y2, srcCCdirectionVector, 
+                                                kGs, altitude, kLayer, srcCCheight)
+            
+            # Compute the covariance matrix
+            out = covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
+            out = out[mask.flatten(),:]
+            out = out[:,mask.flatten()]
+            # Accumulate the results
+            buf += out
+        
+        C[kGs][iGs] = buf
+    
+    # Rearrange the results 
+    # Initialize an empty list to store the concatenated arrays
+    concatenated_list = []
+    
+    # Iterate over each row in the 2D list
+    for row in C:
+        # Concatenate the arrays in the row along the second axis (axis=1)
+        concatenated_array = np.concatenate(row, axis=1)
+        # Append the concatenated array to the list
+        concatenated_list.append(concatenated_array)
+        
+    C = np.array(concatenated_list)
+    
+    return C
+
