@@ -43,6 +43,23 @@ import pytomoao
 - [ ] Improve deformable mirror fitting routines.
 - [ ] Develop detailed documentation and examples.
 
+## Testing
+
+To run tests using `pytest`, ensure you have `pytest` installed. You can install it via pip:
+
+```sh
+pip install pytest
+```
+
+Once installed, you can run the tests by executing the following command in the root directory of the repository:
+
+```sh
+pytest
+```
+
+This will automatically discover and run all the test files in the repository.
+
+
 ## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
