@@ -11,8 +11,9 @@ setup(
     packages=['pyTomoAO'],
     install_requires=['numpy',
                       'matplotlib',
+                      'numba',
                       'scipy',
-                      'pyqt5'             
+                      'pytest'             
                       ],
 
     classifiers=[
