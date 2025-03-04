@@ -43,6 +43,24 @@ import pytomoao
 - [ ] Improve deformable mirror fitting routines.
 - [ ] Develop detailed documentation and examples.
 
+### Development Setup
+
+```sh
+git clone https://github.com/jacotay7/pyTomoAO.git
+cd pyTomoAO
+pip install .
+```
+
+### Building Documentation Locally
+
+To build the documentation, you need to install the package with the documentation dependencies and then run the build command:
+
+```sh
+pip install .[docs]
+cd docs
+make html
+```
+
 ## Testing
 
 To run tests using `pytest`, ensure you have `pytest` installed. You can install it via pip:
@@ -59,18 +77,9 @@ pytest
 
 This will automatically discover and run all the test files in the repository.
 
-
 ## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
-
-### Development Setup
-
-```sh
-git clone https://github.com/jacotay7/pyTomoAO.git
-cd pyTomoAO
-pip install .
-```
 
 ## License
 
@@ -79,4 +88,6 @@ TODO
 
 ## Contact
 
-For questions and discussions, open an issue on GitHub or contact jtaylor@keck.hawaii.edu.
+For questions and discussions, open an issue on GitHub or contact one of:
+- **Jacob Taylor** (Software): jtaylor@keck.hawaii.edu
+- **Uriel Conod** (Algorithm): urielconod@phas.ubc.ca

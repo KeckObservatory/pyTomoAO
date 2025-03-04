@@ -9,13 +9,20 @@ setup(
     author_email='jtaylor@keck.hawaii.edu',
     license='GNU',
     packages=['pyTomoAO'],
-    install_requires=['numpy',
-                      'matplotlib',
-                      'numba',
-                      'scipy',
-                      'pytest'             
-                      ],
-
+    install_requires=[
+        'numpy',
+        'matplotlib',
+        'numba',
+        'scipy',
+        'pytest'
+    ],
+    extras_require={
+        'docs': [
+            'sphinx',
+            'sphinx_rtd_theme',
+            'sphinx-autodoc-typehints'
+        ]
+    },
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Science/Research',
