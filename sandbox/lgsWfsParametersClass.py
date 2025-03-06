@@ -36,6 +36,23 @@ class lgsWfsParameters:
         #self.nLGS = self.lgsAsterism_params.nLGS
         self.validLLMap_list = params["validLLMap"]
         self.validActuatorMap_list = params["validActuatorMap"]
+        self.wfs_lenslets_rotation = params.get("wfs_lenslets_rotation", [0]*self._lgsAsterism_params.nLGS)
+
+    @property
+    def wfs_lenslets_rotation(self) -> np.ndarray:
+        """Rotation angles of WFS lenslets in radians"""
+        return self._wfs_lenslets_rotation
+
+    @wfs_lenslets_rotation.setter 
+    def wfs_lenslets_rotation(self, value):
+        if value is None:
+            value = [0] * self._lgsAsterism_params.nLGS
+        arr = np.array(value, dtype=float)
+        if arr.ndim != 1:
+            raise ValueError("wfs_lenslets_rotation must be 1D array")
+        if len(arr) != self._lgsAsterism_params.nLGS:
+            raise ValueError(f"wfs_lenslets_rotation length ({len(arr)}) must match nLGS ({self._lgsAsterism_params.nLGS})")
+        self._wfs_lenslets_rotation = arr
 
     # === Core Telescope Properties ===
     @property
@@ -178,6 +195,8 @@ class lgsWfsParameters:
             f"  - Pixels per Lenslet: {self.nPx}\n"
             f"  - Field Stop: {self.fieldStopSize:.2f} arcsec\n"
             f"  - Number of LGS: {self._lgsAsterism_params.nLGS}\n"
+            f"  - WFS Lenslets Rotation: {np.rad2deg(self.wfs_lenslets_rotation)} deg"
+
 #            "\nValidation Maps:"
 #            "\n  - Valid Lenslet Map:"
 #            f"\n    Valid Elements: {ll_valid}/{ll_total} ({ll_valid/ll_total:.1%})"

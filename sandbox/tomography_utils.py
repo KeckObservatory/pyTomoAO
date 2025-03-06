@@ -1,8 +1,8 @@
 import numpy as np
 import math
 from scipy.sparse import spdiags, coo_matrix, csr_matrix
-from scipy.linalg import triu, tril
 from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
+from numpy import triu, tril
 
 def cart2pol(x, y):
     """
@@ -59,6 +59,33 @@ def calculate_scaled_shifted_coords(x, y, srcACdirectionVector, gs_index,
     return x * scale + beta[0] + 1j * (y * scale + beta[1])
 
 
+def pinv_matlab(A):
+    """
+    Compute the pseudoinverse of matrix A similar to MATLAB's pinv.
+    
+    Parameters
+    ----------
+    A : array_like, shape (M, N)
+        Input matrix.
+    
+    Returns
+    -------
+    X : ndarray, shape (N, M)
+        Pseudoinverse of A.
+    """
+    # Compute the Singular Value Decomposition of A
+    U, s, Vt = np.linalg.svd(A, full_matrices=False)
+    
+    # Calculate tolerance similar to MATLAB's implementation:
+    # tol = max(size(A)) * max(s) * eps
+    tol = max(A.shape) * np.max(s) * np.finfo(s.dtype).eps
+    
+    # Invert singular values greater than tolerance, set others to zero.
+    s_inv = np.array([1/si if si > tol else 0 for si in s])
+    
+    # Reconstruct the pseudoinverse
+    return Vt.T @ np.diag(s_inv) @ U.T
+
 def make_biharm_operator(n, m):
     """
     Creates a discrete Laplacian operator L^2 using 5-point or 9-point stencils
@@ -100,7 +127,7 @@ def make_biharm_operator(n, m):
 
 def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
     """
-    Computes the sparse gradient matrix (3x3 stencil) with amplitude mask.
+    Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
     
     Parameters
     ----------
@@ -114,89 +141,89 @@ def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampl
     Returns
     -------
     Gamma : scipy.sparse.csr_matrix
-        Sparse gradient matrix of size.
+        Sparse gradient matrix.
     gridMask : 2D array
-        Mask of size (overSampling*validLenslet.shape[0]+1) used for the reconstructed phase.
+        Mask used for the reconstructed phase.
     """
-    print("-->> Computing sparse gradiend matrix <<--\n")
+    print("-->> Computing sparse gradient matrix <<--\n")
     
-    nLenslet = validLenslet.shape[0] # Number of lenselt across the pupil
-    osFactor = overSampling 
-
+    # Get dimensions and counts
+    nLenslet = validLenslet.shape[0]  # Size of lenslet array
+    nMap = overSampling * nLenslet + 1  # Size of oversampled grid
+    nValidLenslet_ = np.count_nonzero(validLenslet)  # Number of valid lenslets
+    
+    # Create default amplitude mask if none provided
     if amplMask is None:
-        amplMask = np.ones((osFactor * nLenslet + 1, osFactor * nLenslet + 1))
+        amplMask = np.ones((nMap, nMap))
 
-    nMap = osFactor * nLenslet + 1
-    nValidLenslet_ = np.count_nonzero(validLenslet)
-    dsa = 1
+    # Set up stencil parameters based on oversampling factor
+    if overSampling == 2:
+        # 3x3 stencil for 2x oversampling
+        stencil_size = 3
+        s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4])  # x-gradient weights
+        s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4])  # y-gradient weights
+        num_points = 9
+    elif overSampling == 4:
+        # 5x5 stencil for 4x oversampling
+        stencil_size = 5
+        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16])  # x-gradient weights
+        s0y = s0x.reshape(5,5).T.flatten()  # y-gradient weights (transpose of x)
+        num_points = 25
+    else:
+        raise ValueError("overSampling must be 2 or 4")
 
-    if osFactor == 2:
-        i0x = np.tile(np.arange(1, 4), 3) # x stencil row subscript
-        j0x = np.repeat(np.arange(1, 4), 3) # x stencil col subscript
-        i0y = np.tile(np.arange(1, 4), 3) # y stencil row subscript
-        j0y = np.repeat(np.arange(1, 4), 3) # y stencil col subscript
-        s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4]) * (1/dsa) # x stencil weight
-        s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4]) * (1/dsa) # y stencil weight
-        Gv = np.array([[-2, 2, -1, 1], [-2, 2, -1, 1], [-1, 1, -2, 2], [-1, 1, -2, 2]])
-        i_x = np.zeros(9 * nValidLenslet_)
-        j_x = np.zeros(9 * nValidLenslet_)
-        s_x = np.zeros(9 * nValidLenslet_)
-        i_y = np.zeros(9 * nValidLenslet_)
-        j_y = np.zeros(9 * nValidLenslet_)
-        s_y = np.zeros(9 * nValidLenslet_)
-        iMap0, jMap0 = np.meshgrid(np.arange(1, 4), np.arange(1, 4))
-        gridMask = np.zeros((nMap, nMap), dtype=bool)
-        u = np.arange(1, 10)
-    elif osFactor == 4:
-        i0x = np.tile(np.arange(1, 6), 5) # x stencil row subscript
-        j0x = np.repeat(np.arange(1, 6), 5) # x stencil col subscript
-        i0y = np.tile(np.arange(1, 6), 5) # y stencil row subscript
-        j0y = np.repeat(np.arange(1, 6), 5) # y stencil col subscript
-        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, \
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16]) * (1/dsa) # x stencil weight
-        s0y = s0x.reshape(5,5).T.flatten() # y stencil weight
-        i_x = np.zeros(25 * nValidLenslet_)
-        j_x = np.zeros(25 * nValidLenslet_)
-        s_x = np.zeros(25 * nValidLenslet_)
-        i_y = np.zeros(25 * nValidLenslet_)
-        j_y = np.zeros(25 * nValidLenslet_)
-        s_y = np.zeros(25 * nValidLenslet_)
-        iMap0, jMap0 = np.meshgrid(np.arange(1, 6), np.arange(1, 6))
-        gridMask = np.zeros((nMap, nMap), dtype=bool)
-        u = np.arange(1, 26)
+    # Initialize stencil position arrays
+    i0x = np.tile(np.arange(1, stencil_size+1), stencil_size)  # Row indices
+    j0x = np.repeat(np.arange(1, stencil_size+1), stencil_size)  # Column indices
+    i0y = i0x.copy()  # Same pattern for y-gradient
+    j0y = j0x.copy()
+    
+    # Initialize arrays to store sparse matrix entries
+    i_x = np.zeros(num_points * nValidLenslet_)  # Row indices for x-gradient
+    j_x = np.zeros(num_points * nValidLenslet_)  # Column indices for x-gradient
+    s_x = np.zeros(num_points * nValidLenslet_)  # Values for x-gradient
+    i_y = np.zeros(num_points * nValidLenslet_)  # Row indices for y-gradient
+    j_y = np.zeros(num_points * nValidLenslet_)  # Column indices for y-gradient
+    s_y = np.zeros(num_points * nValidLenslet_)  # Values for y-gradient
+    
+    # Create grid for mask
+    iMap0, jMap0 = np.meshgrid(np.arange(1, stencil_size+1), np.arange(1, stencil_size+1))
+    gridMask = np.zeros((nMap, nMap), dtype=bool)
+    u = np.arange(1, num_points+1)  # Counter for filling arrays
 
-    # Perform accumulation of x and y stencil row and col subscript and weight
+    # Build sparse matrix by iterating over lenslets
     for jLenslet in range(1, nLenslet + 1):
-        jOffset = osFactor * (jLenslet - 1)
+        jOffset = overSampling * (jLenslet - 1)  # Column offset in oversampled grid
         for iLenslet in range(1, nLenslet + 1):
-            if validLenslet[iLenslet - 1, jLenslet - 1]:
-                I = (iLenslet - 1) * osFactor + 1
-                J = (jLenslet - 1) * osFactor + 1
-
-                a = amplMask[I - 1:I + osFactor, J - 1:J + osFactor]
-                numIllum = np.sum(a)
-
-                if numIllum == (osFactor + 1) ** 2:
-                    iOffset = osFactor * (iLenslet - 1)
+            if validLenslet[iLenslet - 1, jLenslet - 1]:  # Only process valid lenslets
+                # Calculate indices in amplitude mask
+                I = (iLenslet - 1) * overSampling + 1
+                J = (jLenslet - 1) * overSampling + 1
+                
+                # Check if amplitude mask is valid for this lenslet
+                if np.sum(amplMask[I-1:I+overSampling, J-1:J+overSampling]) == (overSampling + 1) ** 2:
+                    iOffset = overSampling * (iLenslet - 1)  # Row offset in oversampled grid
+                    # Fill in gradient arrays
                     i_x[u - 1] = i0x + iOffset
                     j_x[u - 1] = j0x + jOffset
                     s_x[u - 1] = s0x
                     i_y[u - 1] = i0y + iOffset
                     j_y[u - 1] = j0y + jOffset
                     s_y[u - 1] = s0y
-                    u = u + (osFactor + 1) ** 2
+                    u = u + num_points
                     gridMask[iMap0 + iOffset - 1, jMap0 + jOffset - 1] = True
-                elif numIllum != (osFactor + 1) ** 2:
-                    # Perform calculations for numIllum != (osFactor+1)**2
-                    # ...
-                    pass
 
+    # Create sparse matrix in CSR format
+    # Convert indices to linear indices
     indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order='F')
     indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order='F')
     v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
+    
+    # Construct final sparse gradient matrix
     Gamma = csr_matrix((np.concatenate((s_x, s_y)), (v.flatten() - 1, np.concatenate((indx, indy)))),
                        shape=(2 * nValidLenslet_, nMap ** 2))
-    Gamma = Gamma[:, gridMask.ravel()]
+    Gamma = Gamma[:, gridMask.ravel()]  # Apply mask to reduce matrix size
 
     return Gamma, gridMask
 
@@ -486,13 +513,13 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
             jZ = calculate_scaled_shifted_coords(x2, y2, srcACdirectionVector, jGs, altitude, kLayer, srcACheight)
             
             # Compute the covariance matrix
-            out = covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
+            out = covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
             out = out[mask.flatten(),:]
             out = out[:,mask.flatten()]
             # Accumulate the results
             buf += out
         
-        S[k] = buf
+        S[k] = buf.T
     
     # Rearrange the results into a full nGs x nGs matrix
     buf = S
@@ -500,8 +527,12 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
     for c, i in enumerate(kGs):
         S_tmp[i-1] = buf[c]
     
-    index = [5, 10, 15]
-    for i in index:
+    # index = [5, 10, 15]
+    # diagonal_indices = np.diag_indices(nGs)
+    # If you want these as a 1D array of indices    
+    diagonal_indices_1d = np.diag_indices(nGs)[0] * nGs + np.diag_indices(nGs)[1]
+    
+    for i in diagonal_indices_1d:
         S_tmp[i] = S_tmp[0]   
     
     S_tmp = np.stack(S_tmp, axis=0)
@@ -647,7 +678,8 @@ def _kv56_scalar(z):
         # Asymptotic expansion for large |z|
         z_inv = 1.0 / z
         sum_terms = 1.0 + (2.0/9.0)*z_inv + (-7.0/81.0)*z_inv**2 + \
-                    (175.0/2187.0)*z_inv**3 + (-980.0/6561.0)*z_inv**4
+                    (175.0/2187.0)*z_inv**3 + (-2275.0/19683.0)*z_inv**4 + \
+                    (5005.0/177147.0)*z_inv**5 #+ (-2662660.0/4782969.0)*z_inv**6
         prefactor = np.sqrt(np.pi/(2.0*z)) * np.exp(-z)
         K = prefactor * sum_terms
     
@@ -677,9 +709,67 @@ def _compute_block(rho_block, L0, cst, var_term):
     
     # Vectorized Bessel function calculation
     # u = np.round(u,2)
-    out[mask] = cst * u**(5/6) * kv56(u.astype(np.complex128)) # kv(5/6, u)
+    out[mask] = cst * u**(5/6) * kv56(u.astype(np.complex128)) # kv56(u.astype(np.complex128)) # kv(5/6, u)
     
     return out
+
+#import cupy as cp
+# CuPy kernel for real-valued K_{5/6}
+# kv56_gpu_kernel = cp.ElementwiseKernel(
+#     'float64 z',
+#     'float64 K',
+#     '''
+#     double v = 5.0 / 6.0;
+#     double z_abs = fabs(z);
+#     if (z_abs < 2.0) {
+#         double sum_a = 0.0;
+#         double sum_b = 0.0;
+#         double term_a = pow(0.5 * z, v) / gamma_11_6;
+#         double term_b = pow(0.5 * z, -v) / gamma_1_6;
+#         sum_a = term_a;
+#         sum_b = term_b;
+#         double z_sq_over_4 = pow(0.5 * z, 2);
+#         int k = 1;
+#         double tol = 1e-15;
+#         int max_iter = 1000;
+#         for (int i = 0; i < max_iter; ++i) {
+#             double factor_a = z_sq_over_4 / (k * (k + v));
+#             term_a *= factor_a;
+#             sum_a += term_a;
+#             double factor_b = z_sq_over_4 / (k * (k - v));
+#             term_b *= factor_b;
+#             sum_b += term_b;
+#             if (fabs(term_a) < tol * fabs(sum_a) && fabs(term_b) < tol * fabs(sum_b)) {
+#                 break;
+#             }
+#             k += 1;
+#         }
+#         K = M_PI * (sum_b - sum_a);
+#     } else {
+#         double z_inv = 1.0 / z;
+#         double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
+#                     -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (-980.0/6561.0)))); # TO DO: update corrected terms up to power 5 
+#         double prefactor = sqrt(M_PI / (2.0 * z)) * exp(-z);
+#         K = prefactor * sum_terms;
+#     }
+#     ''',
+#     name='kv56_gpu_kernel',
+#     preamble=f'''
+#     const double gamma_1_6 = {gamma_1_6};
+#     const double gamma_11_6 = {gamma_11_6};
+#     '''
+# )
+
+def _compute_block_gpu(rho_block, L0, cst, var_term):
+    rho_block_gpu = cp.asarray(rho_block)
+    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=np.float64)
+    mask = rho_block_gpu != 0
+    u = (2 * cp.pi * rho_block_gpu[mask]) / L0
+    if u.size == 0:
+        return out_gpu.get()
+    K_gpu = kv56_gpu_kernel(u)
+    out_gpu[mask] = cst * cp.power(u, 5.0/6.0) * K_gpu
+    return out_gpu.get()
 
 def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask=None):
     """
@@ -779,13 +869,13 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
                                                 kGs, altitude, kLayer, srcCCheight)
             
             # Compute the covariance matrix
-            out = covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
+            out = covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
             out = out[mask.flatten(),:]
             out = out[:,mask.flatten()]
             # Accumulate the results
             buf += out
         
-        C[kGs][iGs] = buf
+        C[kGs][iGs] = buf.T
     
     # Rearrange the results into a single array
     C = np.array([np.concatenate(row, axis=1) for row in C])

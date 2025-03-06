@@ -25,7 +25,7 @@ lgs_wfs_parameters:
     - [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
     - [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0]
-  
+
   validActuatorMap:
     - [0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
@@ -48,14 +48,11 @@ lgs_wfs_parameters:
     - [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
     - [0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
-  
-  wfs_lenslets_rotation: [0,0,0,0]
-
 
 dm_parameters:
   dmHeights: [0.0]
-  dmPitch: [0.395]
-  dmCrossCoupling: 0.30
+  dmPitch: [0.4]
+  dmCrossCoupling: 0.15
   nActuators: [21]
   validActuators:
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
@@ -92,7 +89,7 @@ atmosphere_parameters:
   windSpeed: [5.6, 5.77, 6.25, 7.57, 13.31, 19.06, 12.14]
 
 lgs_asterism:
-  radiusAst: 42
+  radiusAst: 7.6
   LGSwavelength: 5.89e-7
   # Optionally store the base LGS height (like 90e3 if you wish)
   baseLGSHeight: 90000.0
@@ -104,5 +101,5 @@ noise_parameters:
 
 tomography_parameters:
   fovOptimization: 85 # FOV optimisation box size in arcsec
-  nFitSrc: 7 # number of sources accross the optimization box
+  nFitSrc: 1 # number of sources accross the optimization box
 # Any additional parameters

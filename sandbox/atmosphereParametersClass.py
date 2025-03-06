@@ -204,8 +204,8 @@ class atmosphereParameters:
             
         if len(arr) != self.nLayer:
             raise ValueError(f"{name} array length ({len(arr)}) "
-                             f"must match nLayer ({self.nLayer})")
-                             
+                            f"must match nLayer ({self.nLayer})")
+                            
         if min_value is not None and (arr < min_value).any():
             raise ValueError(f"All {name} values must be ≥ {min_value}")
             
