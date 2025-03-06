@@ -477,7 +477,7 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
     
     # WFS parameters
     D = lgsWfsParams.DSupport  
-    wfs_lenslets_rotation = lgsWfsParams.wfs_lenslets_rotation
+    wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
     wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
     
     # Atmospheric parameters
@@ -502,9 +502,9 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
         buf = 0
         
         # Create grids for the first and second guide stars
-        x1, y1 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[iGs], 
+        x1, y1 = create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
                                         wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
-        x2, y2 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[jGs], 
+        x2, y2 = create_guide_star_grid(sampling, D, wfsLensletsRotation[jGs], 
                                         wfs_lenslets_offset[0, jGs], wfs_lenslets_offset[1, jGs])
         
         for kLayer in range(nLayer):
@@ -835,7 +835,7 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
     
     # WFS parameters
     D = lgsWfsParams.DSupport  
-    wfs_lenslets_rotation = lgsWfsParams.wfs_lenslets_rotation
+    wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
     wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
     
     # Atmospheric parameters
@@ -855,7 +855,7 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
         buf = 0
         
         # Create grids for the first and second guide stars
-        x1, y1 = create_guide_star_grid(sampling, D, wfs_lenslets_rotation[iGs], 
+        x1, y1 = create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
                                         wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
         
         x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,

@@ -49,7 +49,7 @@ lgs_wfs_parameters:
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
     - [0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
   
-  wfs_lenslets_rotation: [0,0,0,0]
+  wfsLensletsRotation: [0,0,0,0]
 
 
 dm_parameters:

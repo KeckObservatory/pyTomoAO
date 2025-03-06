@@ -31,7 +31,10 @@ from tomography_utils import (
 #%%
 # Load parameters from config.yaml
 # ---------------------------------------
-with open("tomography_config.yaml", "r") as f:
+#with open("tomography_config.yaml", "r") as f:
+#    config = yaml.safe_load(f)
+
+with open("tomography_config_kapa.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 #%%
