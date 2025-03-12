@@ -172,9 +172,7 @@ if __name__ == "__main__":
 
     try:
         dmParams = dmParameters(config)
-        print("Successfully initialized DM parameters:")
-        print(f"- Heights: {dmParams.dmHeights}")
-        print(f"- Valid Actuators Map:\n{dmParams.validActuators}")
-        
+        print("Successfully initialized DM parameters.")
+        print(dmParams)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")
