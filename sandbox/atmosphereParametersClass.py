@@ -250,15 +250,11 @@ if __name__ == "__main__":
             "windSpeed": [10, 20, 15]
         }
     }
-
+    
     try:
-        atm = atmosphereParameters(config)
-        print("Successfully initialized atmosphere parameters:")
-        print(f"- Scaled altitudes: {atm.altitude} m")
-        print(f"- Airmass: {atm.airmass:.2f}")
-        print(f"- Effective r0: {atm.r0:.3f} m")
-        print(f"- Wind directions (rad): {atm.windDirection}")
-        
+        atmParams = atmosphereParameters(config)
+        print("Successfully initialized atmosphere parameters.")
+        print(atmParams)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")
         

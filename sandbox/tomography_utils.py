@@ -478,7 +478,7 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
     # WFS parameters
     D = lgsWfsParams.DSupport  
     wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
-    wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
+    wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
     
     # Atmospheric parameters
     nLayer = atmParams.nLayer
@@ -503,9 +503,9 @@ def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMa
         
         # Create grids for the first and second guide stars
         x1, y1 = create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
-                                        wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
+                                        wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs])
         x2, y2 = create_guide_star_grid(sampling, D, wfsLensletsRotation[jGs], 
-                                        wfs_lenslets_offset[0, jGs], wfs_lenslets_offset[1, jGs])
+                                        wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs])
         
         for kLayer in range(nLayer):
             # Calculate the scaled and shifted coordinates for the first and second guide stars
@@ -836,7 +836,7 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
     # WFS parameters
     D = lgsWfsParams.DSupport  
     wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
-    wfs_lenslets_offset = lgsWfsParams.wfs_lenslets_offset
+    wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
     
     # Atmospheric parameters
     nLayer = atmParams.nLayer
@@ -856,7 +856,7 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
         
         # Create grids for the first and second guide stars
         x1, y1 = create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
-                                        wfs_lenslets_offset[0, iGs], wfs_lenslets_offset[1, iGs])
+                                        wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs])
         
         x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
                             np.linspace(-1, 1, sampling) * D/2)
@@ -881,4 +881,25 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
     C = np.array([np.concatenate(row, axis=1) for row in C])
     
     return C
+
+def double_gaussian_influence(x, y, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
+    """
+    Computes the double Gaussian influence function for a deformable mirror.
+
+    Parameters:
+    x, y : float or np.ndarray
+        Coordinates at which to evaluate the influence function.
+    w1, w2 : float
+        Weights of the two Gaussian components.
+    sigma1, sigma2 : float
+        Standard deviations of the two Gaussian components.
+
+    Returns:
+    float or np.ndarray
+        Influence function value at the given coordinates.
+    """
+    gauss1 = w1 * np.exp(-(x**2 + y**2) / (2 * sigma1**2)) / (2 * np.pi * sigma1**2)
+    gauss2 = w2 * np.exp(-(x**2 + y**2) / (2 * sigma2**2)) / (2 * np.pi * sigma2**2)
+    return gauss1 + gauss2
+
 
