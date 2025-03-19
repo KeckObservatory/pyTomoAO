@@ -176,6 +176,11 @@ class lgsWfsParameters:
         self.validLLMap_list = value.tolist()  # Convert back to list for storage
 
     @property
+    def nValidSubap(self) -> int:
+        """Number of valid subapertures based on the valid lenslet map."""
+        return np.sum(self.validLLMap)
+
+    @property
     def validActuatorMap_list(self) -> list:
         """2D list representation of valid actuators"""
         return self._validActuatorMap_list
@@ -241,7 +246,6 @@ class lgsWfsParameters:
     def __str__(self):
         """Human-readable string representation with new properties"""
         # Existing calculations
-        ll_valid = np.sum(self.validLLMap)
         ll_total = np.prod(self.validLLMap.shape)
         act_valid = np.sum(self.validActuatorMap)
         act_total = np.prod(self.validActuatorMap.shape)
@@ -262,7 +266,7 @@ class lgsWfsParameters:
             
             "\nValidation Maps:"
             "\n  - Valid Lenslet Map:"
-            f"\n    Valid Elements: {ll_valid}/{ll_total} ({ll_valid/ll_total:.1%})"
+            f"\n    Valid Elements: {self.nValidSubap}/{ll_total} ({self.nValidSubap/ll_total:.1%})"
 #            f"\n    Preview:\n{self._format_map_preview(self.validLLMap)}"
             "\n\n  - Padded Support Map:"
             f"\n    Scaling Factor: {support_ratio:.2f}x"

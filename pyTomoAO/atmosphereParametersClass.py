@@ -128,6 +128,11 @@ class atmosphereParameters:
         cos_z = math.cos(math.radians(self.zenithAngleInDeg))
         return self.r0_zenith * cos_z**(3/5)
 
+    @r0.setter
+    def r0(self, value: float):
+        """Setter for the observed Fried parameter (scaled by zenith angle)"""
+        raise AttributeError("r0 is a derived property and cannot be set directly.")
+
     @property
     def fractionnalR0(self) -> np.ndarray:
         """Relative turbulence strength per layer (sums to 1)"""

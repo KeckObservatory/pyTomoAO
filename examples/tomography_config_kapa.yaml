@@ -1,5 +1,5 @@
 lgs_wfs_parameters:
-  D: 7.9
+  D: 10
   nLenslet: 20
   nPx: 8
   fieldStopSize: 4
@@ -54,7 +54,7 @@ lgs_wfs_parameters:
 
 dm_parameters:
   dmHeights: [0.0]
-  dmPitch: [0.4]
+  dmPitch: [0.5]
   dmCrossCoupling: 0.15
   nActuators: [21]
   validActuators:
