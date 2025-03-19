@@ -1,6 +1,6 @@
 # lgsAsterismParametersClass.py
 from numbers import Number
-from atmosphereParametersClass import atmosphereParameters
+from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 import math
 import numpy as np
 
