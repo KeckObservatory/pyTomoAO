@@ -1,7 +1,7 @@
 import numpy as np
 from numbers import Number
-from lgsAsterismParametersClass import lgsAsterismParameters
-from atmosphereParametersClass import atmosphereParameters
+from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
+from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 
 class lgsWfsParameters:
     """
