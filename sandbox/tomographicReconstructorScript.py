@@ -25,7 +25,11 @@ from scipy.io import loadmat
 from tomography_utils import (
     sparseGradientMatrixAmplitudeWeighted,
     auto_correlation,
-    cross_correlation
+    cross_correlation,
+    double_gaussian_influence,
+    create_influence_grid,
+    extract_actuator_coordinates,
+    map_actuators_to_new_grid
 )
 
 #%%

@@ -26,6 +26,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("")
 
+logger.info("#### Starting tests for tomographicReconstructor ####")
+
 # Mock the parameter classes to avoid initialization errors
 @pytest.fixture
 def mock_parameter_classes():
@@ -403,7 +405,6 @@ def test_full_reconstruction(config_file=None):
     
     # Build the reconstructor
     logger.info("Building the reconstructor")
-    logger.debug("Building the reconstructor")
     rec = reconstructor.reconstructor
     
     # Verify the result

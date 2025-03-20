@@ -1,4 +1,5 @@
 import numpy as np
+import numba as nb
 import math
 from scipy.sparse import spdiags, coo_matrix, csr_matrix
 from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
@@ -22,40 +23,76 @@ def pol2cart(theta, rho):
     y = rho * np.sin(theta)
     return x, y
 
-def rotateDM(px,py, rotAngleInRadians):
+def rotateWFS(px,py, rotAngleInRadians):
     """
-    This function rotate the DM actuators positions.
+    This function rotate the WFS subapertures positions.
     
     Args:
-        px (1D array): The original DM X actuator position.
-        py (1D array): The original DM Y actuator position.
+        px (1D array): The original WFS X subaperture position.
+        py (1D array): The original WFS Y subaperture position.
         rotAngleInRadians (double): The rotation angle in radians.
     
     Returns:
-        pxx (1D array): The new DM X actuator position after rotation.
-        pyy (1D array): The new DM Y actuator position after rotation.
+        pxx (1D array): The new WFS X subaperture position after rotation.
+        pyy (1D array): The new WFS Y subapertuer position after rotation.
     """
     pxx = px * math.cos(rotAngleInRadians) - py * math.sin(rotAngleInRadians)
     pyy= py * math.cos(rotAngleInRadians) + px * math.sin(rotAngleInRadians)
     return pxx, pyy
 
 def create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
-    # Create a grid
+    """
+    Create a grid of guide star positions based on the specified parameters.
+
+    Args:
+        sampling (int): Number of samples in each dimension for the grid.
+        D (float): Diameter of the telescope, used to scale the grid.
+        rotation_angle (float): Angle to rotate the grid in degrees.
+        offset_x (float): Offset in the x-direction to apply to the grid.
+        offset_y (float): Offset in the y-direction to apply to the grid.
+
+    Returns:
+        tuple: Two 2D arrays representing the x and y coordinates of the guide stars.
+    """
+    
+    # Create a grid of points in Cartesian coordinates
     x, y = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
                         np.linspace(-1, 1, sampling) * D/2)
     
-    # Flatten, rotate, and apply offset
-    x, y = rotateDM(x.flatten(), y.flatten(), rotation_angle * 180/np.pi)
-    x = x - offset_x * D
-    y = y - offset_y * D
+    # Flatten the grid, rotate the positions, and apply the specified offsets
+    x, y = rotateWFS(x.flatten(), y.flatten(), rotation_angle * 180/np.pi)
+    x = x - offset_x * D  # Apply x offset
+    y = y - offset_y * D  # Apply y offset
     
-    # Reshape back to the original grid
+    # Reshape the modified coordinates back to the original grid shape
     return x.reshape(sampling, sampling), y.reshape(sampling, sampling)
 
 def calculate_scaled_shifted_coords(x, y, srcACdirectionVector, gs_index, 
                                     altitude, kLayer, srcACheight):
+    """
+    Calculate the scaled and shifted coordinates for a guide star.
+
+    Args:
+        x (ndarray): The x-coordinates in Cartesian space.
+        y (ndarray): The y-coordinates in Cartesian space.
+        srcACdirectionVector (ndarray): Direction vectors for the guide stars.
+        gs_index (int): Index of the guide star being processed.
+        altitude (ndarray): Altitudes of the turbulence layers.
+        kLayer (int): Index of the current turbulence layer.
+        srcACheight (float): Height of the source guide star.
+
+    Returns:
+        complex: The scaled and shifted coordinates as a complex number,
+                where the real part is the x-coordinate and the imaginary
+                part is the y-coordinate.
+    """
+    # Calculate the beta shift based on the direction vector and altitude
     beta = srcACdirectionVector[:, gs_index] * altitude[kLayer]
+    
+    # Calculate the scaling factor based on the altitude and source height
     scale = 1 - altitude[kLayer] / srcACheight
+    
+    # Return the scaled and shifted coordinates as a complex number
     return x * scale + beta[0] + 1j * (y * scale + beta[1])
 
 
@@ -632,16 +669,16 @@ def covariance_matrix(*args):
     out = _compute_block(rho, L0, cst, var_term)
     return out * fractionalR0
 
-import numpy as np
-import numba as nb
 
-# Precomputed Gamma function values for v=5/6
-gamma_1_6 = 5.56631600178  # Gamma(1/6)
-gamma_11_6 = 0.94065585824  # Gamma(11/6)
 
 @nb.njit(nb.complex128(nb.complex128), cache=True)
 def _kv56_scalar(z):
     """Scalar implementation used as kernel for array version"""
+    # Precomputed Gamma function values for v=5/6
+    gamma_1_6 = 5.56631600178  # Gamma(1/6)
+    gamma_11_6 = 0.94065585824  # Gamma(11/6)
+    # Precompute constants for numerical stability
+    # Constants for the series expansion and asymptotic approximation
     v = 5.0 / 6.0
     z_abs = np.abs(z)
     
@@ -709,7 +746,7 @@ def _compute_block(rho_block, L0, cst, var_term):
     
     # Vectorized Bessel function calculation
     # u = np.round(u,2)
-    out[mask] = cst * u**(5/6) * kv56(u.astype(np.complex128)) # kv56(u.astype(np.complex128)) # kv(5/6, u)
+    out[mask] = cst * u**(5/6) * np.real(kv56(u.astype(np.complex128))) # kv56(u.astype(np.complex128)) # kv(5/6, u)
     
     return out
 
@@ -760,16 +797,16 @@ def _compute_block(rho_block, L0, cst, var_term):
 #     '''
 # )
 
-def _compute_block_gpu(rho_block, L0, cst, var_term):
-    rho_block_gpu = cp.asarray(rho_block)
-    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=np.float64)
-    mask = rho_block_gpu != 0
-    u = (2 * cp.pi * rho_block_gpu[mask]) / L0
-    if u.size == 0:
-        return out_gpu.get()
-    K_gpu = kv56_gpu_kernel(u)
-    out_gpu[mask] = cst * cp.power(u, 5.0/6.0) * K_gpu
-    return out_gpu.get()
+# def _compute_block_gpu(rho_block, L0, cst, var_term):
+#     rho_block_gpu = cp.asarray(rho_block)
+#     out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=np.float64)
+#     mask = rho_block_gpu != 0
+#     u = (2 * cp.pi * rho_block_gpu[mask]) / L0
+#     if u.size == 0:
+#         return out_gpu.get()
+#     K_gpu = kv56_gpu_kernel(u)
+#     out_gpu[mask] = cst * cp.power(u, 5.0/6.0) * K_gpu
+#     return out_gpu.get()
 
 def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask=None):
     """
@@ -882,24 +919,283 @@ def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridM
     
     return C
 
-def double_gaussian_influence(x, y, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
-    """
-    Computes the double Gaussian influence function for a deformable mirror.
+# def double_gaussian_influence(x, y, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
+#     """
+#     Computes the double Gaussian influence function for a deformable mirror.
 
+#     Parameters:
+#     x, y : float or np.ndarray
+#         Coordinates at which to evaluate the influence function.
+#     w1, w2 : float
+#         Weights of the two Gaussian components.
+#     sigma1, sigma2 : float
+#         Standard deviations of the two Gaussian components.
+
+#     Returns:
+#     float or np.ndarray
+#         Influence function value at the given coordinates.
+#     """
+#     gauss1 = w1 * np.exp(-(x**2 + y**2) / (2 * sigma1**2)) / (2 * np.pi * sigma1**2)
+#     gauss2 = w2 * np.exp(-(x**2 + y**2) / (2 * sigma2**2)) / (2 * np.pi * sigma2**2)
+#     return gauss1 + gauss2
+
+
+
+# from scipy import interpolate
+# import scipy.sparse as sparse
+
+# def set_influence_function(pitch=0.395, nIF=36, resolution=49, ratioTelDM=1, offset=[0,0], diameter=[], misReg=[]):
+
+    # validActuator = np.array([
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    # [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+    # [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+    # [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    # [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    # [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+    # [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    # [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+    # [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+    # [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    # [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    # [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+    # [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+    # [0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    # [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    # ],dtype=bool)
+
+#     N = 1000
+#     # Create coordinate grids
+#     # Use a reasonable range for x and y, e.g., -5 to 5
+#     x = np.linspace(-5, 5, N)
+#     y = np.linspace(-5, 5, N)
+#     X, Y = np.meshgrid(x, y)
+#     Z = double_gaussian_influence(X, Y)
+#     splineP = interpolate.splrep(np.linspace(-1.72,1.72,1000), Z[:,499])
+#     # assume offset = [0,0]
+#     xIF = np.linspace(-1, 1, nIF) * (nIF - 1) / 2 * pitch - offset[0]
+#     yIF = np.linspace(-1, 1, nIF) * (nIF - 1) / 2 * pitch - offset[1]
+#     xIF2, yIF2 = np.meshgrid(xIF, yIF, indexing='ij')
+#     actuatorCoord = np.transpose(xIF2) + 1j * np.flipud(np.transpose(yIF2))
+#     u0 = ratioTelDM * np.linspace(-1, 1, resolution) * (nIF - 1) / 2 * pitch
+    
+#     nValid = validActuator.sum()
+#     kIF = 0
+    
+#     u = u0.reshape(-1, 1) - xIF.reshape(1, -1)
+#     wu = np.zeros((resolution,nIF));
+#     index_u = (u >= -1.72) & (u <= 1.72)
+#     nu = index_u.sum()
+#     wu[index_u] = interpolate.splev(u[index_u], splineP)
+
+#     v = u0.reshape(-1, 1) - yIF.reshape(1, -1)
+#     wv = np.zeros((resolution,nIF));
+#     index_v = (v >= -1.72) & (v <= 1.72)
+#     nv = index_v.sum()
+#     wv[index_v] = interpolate.splev(v[index_v], splineP)   
+    
+#     m_modes = sparse.lil_matrix((resolution**2, nValid))
+#     m_modes = m_modes.tocsr()
+    
+#     m_modes = np.zeros((resolution**2, nValid))
+    
+#     indIF = np.arange(nIF**2)
+#     indIF = indIF[validActuator.flatten()]
+#     jIF, iIF = np.unravel_index(indIF, (nIF, nIF))
+#     kIF = np.arange(nValid) 
+    
+#     wv = sparse.csr_matrix(wv[:, iIF[kIF]]) 
+#     wu = sparse.csr_matrix(wu[:, jIF[kIF]])
+    
+#     # Iterate through valid indices
+#     for kIF in range(nValid):  
+#         print(kIF)
+#         # Compute outer product of column vectors
+#         buffer = wv[:, kIF] @ wu[:, kIF].T 
+#         # Flatten and assign to column of m_modes
+#         m_modes[:, kIF] = buffer.toarray().flatten()
+    
+    
+#     return m_modes
+
+def double_gaussian_influence(x, y, center_x=0, center_y=0, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
+    """
+    Computes the double Gaussian influence function for a deformable mirror,
+    allowing placement at any position on a grid of any dimensions.
+    
     Parameters:
+    ----------
     x, y : float or np.ndarray
         Coordinates at which to evaluate the influence function.
+    center_x, center_y : float
+        Center coordinates of the double Gaussian function.
     w1, w2 : float
         Weights of the two Gaussian components.
     sigma1, sigma2 : float
         Standard deviations of the two Gaussian components.
-
+    
     Returns:
+    -------
     float or np.ndarray
         Influence function value at the given coordinates.
     """
-    gauss1 = w1 * np.exp(-(x**2 + y**2) / (2 * sigma1**2)) / (2 * np.pi * sigma1**2)
-    gauss2 = w2 * np.exp(-(x**2 + y**2) / (2 * sigma2**2)) / (2 * np.pi * sigma2**2)
+    # Calculate distances from the center position
+    dx = x - center_x
+    dy = y - center_y
+    
+    # Compute the two Gaussian components
+    gauss1 = w1 * np.exp(-(dx**2 + dy**2) / (2 * sigma1**2)) / (2 * np.pi * sigma1**2)
+    gauss2 = w2 * np.exp(-(dx**2 + dy**2) / (2 * sigma2**2)) / (2 * np.pi * sigma2**2)
+    
     return gauss1 + gauss2
 
+def create_influence_grid(grid_shape, actuator_pos, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
+    """
+    Creates a grid of the specified shape with a double Gaussian placed at the given position.
+    
+    Parameters:
+    ----------
+    grid_shape : tuple
+        Shape of the grid (height, width).
+    actuator_pos : tuple
+        Position (y, x) where the center of the double Gaussian should be placed.
+    w1, w2, sigma1, sigma2 : float
+        Parameters for the double Gaussian influence function.
+    
+    Returns:
+    -------
+    np.ndarray
+        2D grid with the double Gaussian influence function.
+    """
+    height, width = grid_shape
+    y, x = np.ogrid[:height, :width]
+    
+    # Convert to float coordinates if needed
+    center_y, center_x = actuator_pos
+    
+    # Calculate the influence function on the grid
+    influence = double_gaussian_influence(x, y, center_x, center_y, w1, w2, sigma1, sigma2)
+    
+    return influence
 
+
+def extract_actuator_coordinates(valid_actuator_map):
+    """
+    Extract the (y, x) coordinates of all actuators (positions with value 1) from the map.
+    
+    Parameters:
+    ----------
+    valid_actuator_map : np.ndarray
+        Binary array where 1s indicate valid actuator positions
+    
+    Returns:
+    -------
+    list
+        List of (y, x) coordinate tuples for all actuators
+    """
+    # Find coordinates where value is 1 (True)
+    y_coords, x_coords = np.where(valid_actuator_map)
+    
+    # Return as list of coordinate tuples
+    return list(zip(y_coords, x_coords))
+
+def map_actuators_to_new_grid(actuator_coords, original_shape, new_shape):
+    """
+    Maps actuator coordinates from original grid to a new grid size, 
+    maintaining relative positions.
+    
+    Parameters:
+    ----------
+    actuator_coords : list
+        List of (y, x) coordinate tuples in the original grid
+    original_shape : tuple
+        Shape of the original grid (height, width)
+    new_shape : tuple
+        Shape of the new grid (height, width)
+    
+    Returns:
+    -------
+    list
+        List of (y, x) coordinate tuples in the new grid
+    """
+    orig_height, orig_width = original_shape
+    new_height, new_width = new_shape
+    
+    # Calculate scaling factors
+    y_scale = new_height / orig_height
+    x_scale = new_width / orig_width
+    
+    # Apply scaling to each coordinate
+    new_coords = []
+    for y, x in actuator_coords:
+        new_y = int(y * y_scale)
+        new_x = int(x * x_scale)
+        new_coords.append((new_y, new_x))
+    
+    return new_coords
+
+import matplotlib.pyplot as plt
+
+def set_influence_function(dmParams, resolution=49, display=False):
+    """
+    Generates a deformable mirror influence function based on the provided parameters.
+    Parameters:
+    ----------
+    dmParams : object
+        Contains deformable mirror parameters:
+        - validActuatorsSupport (np.ndarray): Binary array indicating valid actuator positions
+    resolution : int
+        Resolution of the output influence function grid.
+    Returns:
+    -------
+    modes : np.ndarray
+        2D array representing the influence function for each actuator.
+    """
+    print("-->> Computing influence function <<--\n")
+    # Extract actuator coordinates from the valid actuator map
+    actuator_coords = extract_actuator_coordinates(dmParams.validActuatorsSupport)
+    # Get the original shape of the valid actuator map
+    original_shape = dmParams.validActuatorsSupport.shape
+    # Map actuator coordinates to the new grid size
+    new_actuator_coords = map_actuators_to_new_grid(actuator_coords, original_shape, new_shape=(49,49))
+    
+    modes = np.zeros((resolution**2, dmParams.validActuators.sum()))
+    # Loop through each actuator coordinate
+    for i in range(dmParams.validActuators.sum()):
+        # Compute the influence function for the current actuator
+        IF = create_influence_grid((49,49),new_actuator_coords[i])
+        # Flatten and assign to the corresponding column in the modes array
+        modes[:,i] = IF.flatten()
+        if display:
+            plt.figure(1)
+            plt.clf()
+            plt.imshow(IF, interpolation='nearest')
+            plt.title(f'Influence Function for Actuator {i}')
+            plt.colorbar()
+            plt.show()
+            plt.axis('off')  # Remove the axis from the plot
+            plt.pause(0.01)
+
+    print("Influence function computed.")
+    return modes
