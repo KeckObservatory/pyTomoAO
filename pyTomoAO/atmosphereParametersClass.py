@@ -128,6 +128,11 @@ class atmosphereParameters:
         cos_z = math.cos(math.radians(self.zenithAngleInDeg))
         return self.r0_zenith * cos_z**(3/5)
 
+    @r0.setter
+    def r0(self, value: float):
+        """Setter for the observed Fried parameter (scaled by zenith angle)"""
+        raise AttributeError("r0 is a derived property and cannot be set directly.")
+
     @property
     def fractionnalR0(self) -> np.ndarray:
         """Relative turbulence strength per layer (sums to 1)"""
@@ -204,8 +209,8 @@ class atmosphereParameters:
             
         if len(arr) != self.nLayer:
             raise ValueError(f"{name} array length ({len(arr)}) "
-                             f"must match nLayer ({self.nLayer})")
-                             
+                            f"must match nLayer ({self.nLayer})")
+                            
         if min_value is not None and (arr < min_value).any():
             raise ValueError(f"All {name} values must be ≥ {min_value}")
             
@@ -250,15 +255,11 @@ if __name__ == "__main__":
             "windSpeed": [10, 20, 15]
         }
     }
-
+    
     try:
-        atm = atmosphereParameters(config)
-        print("Successfully initialized atmosphere parameters:")
-        print(f"- Scaled altitudes: {atm.altitude} m")
-        print(f"- Airmass: {atm.airmass:.2f}")
-        print(f"- Effective r0: {atm.r0:.3f} m")
-        print(f"- Wind directions (rad): {atm.windDirection}")
-        
+        atmParams = atmosphereParameters(config)
+        print("Successfully initialized atmosphere parameters.")
+        print(atmParams)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")
         
