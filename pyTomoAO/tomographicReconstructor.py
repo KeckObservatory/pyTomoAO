@@ -21,17 +21,9 @@ from pyTomoAO.tomographyParametersClass import tomographyParameters
 from scipy.io import loadmat
 from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
 
-
-# Import utility functions from tomography_utils
-# from tomography_utils import (
-#     sparseGradientMatrixAmplitudeWeighted,
-#     auto_correlation,
-#     cross_correlation
-# )
-
 # Configure logging
-#logging.basicConfig(level=logging.DEBUG)
-#logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.basicConfig(level=logging.INFO)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Define the scalar function outside the class so Numba can compile it properly
@@ -94,7 +86,7 @@ class tomographicReconstructor:
     """
     A class to compute a tomographic reconstructor for adaptive optics systems (LTAO or MOAO).
     """
-
+    # Constructor
     def __init__(self, config_file):
         """
         Initialize the tomographicReconstructor with a configuration file.
@@ -146,7 +138,8 @@ class tomographicReconstructor:
             print(self.tomoParams) 
         except (ValueError, TypeError) as e:
             print(f"\nConfiguration Error in Tomography parameters: {e}")
-
+    # ======================================================================
+    # Properties
     @property
     def reconstructor(self):
         """
@@ -198,7 +191,9 @@ class tomographicReconstructor:
             # Build reconstructor if needed
             self.reconstructor  
             return self._gridMask
-
+    # ======================================================================
+    # Magic Methods
+    # Getters and Setters
     def __getattr__(self, name):
         """
         Forwards attribute access to parameter classes if they contain the requested attribute.
@@ -266,18 +261,21 @@ class tomographicReconstructor:
             # If attribute wasn't set in any parameter class, set it on the main class
             if not attr_set:
                 super().__setattr__(name, value)
-
+    # ======================================================================
+    # Class Methods
     @classmethod
     def rotateWFS(cls,px,py, rotAngleInRadians):
         """
         This function rotate the WFS subapertures positions.
         
-        Args:
+        Parameters:
+        -----------
             px (1D array): The original WFS X subaperture position.
             py (1D array): The original WFS Y subaperture position.
             rotAngleInRadians (double): The rotation angle in radians.
         
         Returns:
+        --------
             pxx (1D array): The new WFS X subaperture position after rotation.
             pyy (1D array): The new WFS Y subapertuer position after rotation.
         """
@@ -290,7 +288,8 @@ class tomographicReconstructor:
         """
         Create a grid of guide star positions based on the specified parameters.
 
-        Args:
+        Parameters:
+        -----------
             sampling (int): Number of samples in each dimension for the grid.
             D (float): Diameter of the telescope, used to scale the grid.
             rotation_angle (float): Angle to rotate the grid in degrees.
@@ -298,6 +297,7 @@ class tomographicReconstructor:
             offset_y (float): Offset in the y-direction to apply to the grid.
 
         Returns:
+        --------
             tuple: Two 2D arrays representing the x and y coordinates of the guide stars.
         """
         
@@ -319,7 +319,8 @@ class tomographicReconstructor:
         """
         Calculate the scaled and shifted coordinates for a guide star.
 
-        Args:
+        Parameters:
+        -----------
             x (ndarray): The x-coordinates in Cartesian space.
             y (ndarray): The y-coordinates in Cartesian space.
             srcACdirectionVector (ndarray): Direction vectors for the guide stars.
@@ -329,6 +330,7 @@ class tomographicReconstructor:
             srcACheight (float): Height of the source guide star.
 
         Returns:
+        --------
             complex: The scaled and shifted coordinates as a complex number,
                     where the real part is the x-coordinate and the imaginary
                     part is the y-coordinate.
@@ -341,7 +343,8 @@ class tomographicReconstructor:
         
         # Return the scaled and shifted coordinates as a complex number
         return x * scale + beta[0] + 1j * (y * scale + beta[1])
-
+    # ======================================================================
+    # Static Methods
     @staticmethod
     def kv56_scalar(z):
         return _kv56_scalar(z)
@@ -370,6 +373,7 @@ class tomographicReconstructor:
         Optimized phase covariance matrix calculation using Von Karman turbulence model
         
         Parameters:
+        -----------
             *args: (rho1, [rho2], r0, L0, fractionalR0)
                 rho1, rho2: Complex coordinate arrays (x + iy)
                 r0: Fried parameter (m)
@@ -377,9 +381,9 @@ class tomographicReconstructor:
                 fractionalR0: Turbulence layer weighting factor
         
         Returns:
+        --------
             Covariance matrix with same dimensions as input coordinates
         """
-        
         # Validate input arguments
         if len(args) not in {4, 5}:
             raise ValueError("Expected 4 or 5 arguments: (rho1, [rho2], r0, L0, fractionalR0)")
@@ -458,7 +462,7 @@ class tomographicReconstructor:
         """
         Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
         
-        Parameters
+        Parameters:
         ----------
         validLenslet : 2D array
             Valid lenslet map
@@ -467,7 +471,7 @@ class tomographicReconstructor:
         overSampling : int
             Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
         
-        Returns
+        Returns:
         -------
         Gamma : scipy.sparse.csr_matrix
             Sparse gradient matrix.
@@ -600,7 +604,6 @@ class tomographicReconstructor:
         S : ndarray
             Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
         """
-        
         print("-->> Computing auto-correlation meta-matrix <<--\n")
         # ======================================================================
         # Parameter Extraction
@@ -666,8 +669,6 @@ class tomographicReconstructor:
         for c, i in enumerate(kGs):
             S_tmp[i-1] = buf[c]
         
-        # index = [5, 10, 15]
-        # diagonal_indices = np.diag_indices(nGs)
         # If you want these as a 1D array of indices    
         diagonal_indices_1d = np.diag_indices(nGs)[0] * nGs + np.diag_indices(nGs)[1]
         
@@ -723,7 +724,6 @@ class tomographicReconstructor:
         S : ndarray
             Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
         """
-        
         print("-->> Computing cross-correlation meta-matrix <<--\n")
         # ======================================================================
         # Parameter Extraction
@@ -797,7 +797,9 @@ class tomographicReconstructor:
 
 
     def build_reconstructor(self):
-        """Build the tomographic reconstructor from the parameters."""
+        """
+        Build the tomographic reconstructor from the self parameters.
+        """
         print("\nBuilding tomographic reconstructor...")
         start_time = time.perf_counter()
 
@@ -961,8 +963,9 @@ class tomographicReconstructor:
 
         plt.tight_layout()
         return fig
-
-    def test_against_matlab(self, matlab_data_dir):
+    # ======================================================================
+    # Test Methods
+    def _test_against_matlab(self, matlab_data_dir):
         """
         Test the reconstructor against MATLAB results.
         
@@ -1047,7 +1050,7 @@ class tomographicReconstructor:
 
         # Test with slopes generated with Matlab
         try:
-            for i in range(1, 4):
+            for i in range(2, 4):
                 mat_data = loadmat(f'{matlab_data_dir}/slopes_{i}.mat')
                 slopes = mat_data[f'slopes_{i}']
 
@@ -1068,14 +1071,14 @@ class tomographicReconstructor:
 # Example usage
 if __name__ == "__main__":
     # Create the reconstructor
-    reconstructor = tomographicReconstructor("tomography_config.yaml")
+    reconstructor = tomographicReconstructor("../examples/tomography_config.yaml")
 
     # Build the reconstructor (this happens automatically when accessing the reconstructor property)
     rec_matrix = reconstructor.reconstructor
     print(f"Reconstructor matrix shape: {rec_matrix.shape}")
 
     # Test against MATLAB results if needed
-    results = reconstructor.test_against_matlab('/Users/urielconod/tomographyDataTest')
+    results = reconstructor._test_against_matlab('/Users/urielconod/tomographyDataTest')
 
     # Example of wavefront reconstruction from slopes
     # (assuming you have slopes data available)
