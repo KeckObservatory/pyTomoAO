@@ -1,4 +1,3 @@
-# dmParametersClass.py
 import numpy as np
 from numbers import Number
 
@@ -83,6 +82,11 @@ class dmParameters:
         if (value < 0).any():
             raise ValueError("Actuator counts cannot be negative")
         self._nActuators = value
+        
+    @property
+    def nActuatorsSupport(self) -> np.ndarray:
+        """Number of actuators per dimension plus 2 (1D array, non-negative integers)"""
+        return self._nActuators + 4
 
     # === Actuator Map Handling ===
     @property
@@ -106,6 +110,22 @@ class dmParameters:
     def validActuators(self) -> np.ndarray:
         """2D boolean array of active actuators"""
         return np.array(self.validActuators_list, dtype=bool)
+    
+    @property
+    def validActuatorsSupport(self) -> np.ndarray:
+        """
+        2D boolean array of active actuators with zero padding of 2 on all sides.
+        Creates a larger array with zeros around the original validActuators.
+        """
+        valid_act = self.validActuators
+        # Create a new array with 2 extra elements in each dimension (padding)
+        shape = (valid_act.shape[0] + 4, valid_act.shape[1] + 4)
+        padded = np.zeros(shape, dtype=bool)
+        
+        # Place the original array in the center of the padded array
+        padded[2:-2, 2:-2] = valid_act
+        
+        return padded
 
     # === Helper Methods ===
     def _convert_to_array(self, value, name: str, dtype):
@@ -127,14 +147,20 @@ class dmParameters:
         valid_actuators = np.sum(self.validActuators)
         total_actuators = np.prod(self.validActuators.shape)
         
+        valid_support = np.sum(self.validActuatorsSupport)
+        total_support = np.prod(self.validActuatorsSupport.shape)
+        
         return (
             "Deformable Mirror Parameters:\n"
             f"  - Actuator Grid: {self.nActuators} (Total: {np.prod(self.nActuators)} actuators)\n"
+            f"  - Support Grid: {self.nActuatorsSupport} (Total: {np.prod(self.nActuatorsSupport)} actuators)\n"
             f"  - Actuator Pitch: {self._format_array_stats(self.dmPitch, unit='m')}\n"
             f"  - Mirror Heights: {self._format_array_stats(self.dmHeights, unit='m')}\n"
             f"  - Cross-Coupling: {self.dmCrossCoupling*100:.1f}%\n"
             f"  - Valid Actuators: {valid_actuators}/{total_actuators} "
             f"({valid_actuators/total_actuators:.1%})\n"
+            f"  - Valid Support Actuators: {valid_support}/{total_support} "
+            f"({valid_support/total_support:.1%})\n"
             #f"  - Actuator Map Preview:\n{self._format_actuator_preview()}"
         )
 
@@ -143,15 +169,6 @@ class dmParameters:
         if np.allclose(arr, arr[0]):
             return f"{arr[0]:.3f} {unit} (uniform)"
         return f"{np.min(arr):.3f}-{np.max(arr):.3f} {unit} (mean: {np.mean(arr):.3f})"
-
-#    def _format_actuator_preview(self, size: int = 5) -> str:
-#        """Format a preview of the actuator map"""
-#        preview = np.array2string(
-#            self.validActuators[:size, :size],
-#            prefix='    ',
-#            formatter={'bool': lambda x: 'X' if x else '.'}
-#        )
-#        return f"    {preview.replace('[','').replace(']','')}\n    ..." 
 
 # Example Usage
 if __name__ == "__main__":
@@ -174,5 +191,12 @@ if __name__ == "__main__":
         dmParams = dmParameters(config)
         print("Successfully initialized DM parameters.")
         print(dmParams)
+        print(f"Original nActuators: {dmParams.nActuators}")
+        print(f"Support Grid (nActuatorsSupport): {dmParams.nActuatorsSupport}")
+        
+        print("\nOriginal validActuators:")
+        print(dmParams.validActuators)
+        print("\nPadded validActuatorsSupport:")
+        print(dmParams.validActuatorsSupport)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")
