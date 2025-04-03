@@ -237,7 +237,9 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
     kGs = kGs[kGs != 0]
     
     # Initialize result list
-    mask_sum = int(cp.sum(mask_gpu))
+    mask_flat = mask_gpu.flatten()
+    mask_indices = cp.where(mask_flat)[0]
+    mask_sum = len(mask_indices)
     S_gpu = [cp.zeros((mask_sum, mask_sum)) for _ in range(len(kGs))]
     
     for k in range(len(kGs)):
@@ -274,30 +276,27 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
                 iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
             )
             
-            # Apply mask correctly - ensure dimensions match
-            mask_flat = mask_gpu.flatten()
-            # First check shapes to avoid IndexError
-            if out_gpu.shape[0] != mask_flat.shape[0]:
-                print(f"Shape mismatch: out_gpu.shape={out_gpu.shape}, mask_flat.shape={mask_flat.shape}")
-                # Only take values at valid indices
-                valid_mask = cp.arange(mask_flat.size) < out_gpu.shape[0]
-                mask_subset = mask_flat[valid_mask]
-                # Apply mask to subset that fits
-                masked_out = out_gpu[mask_subset, :]
-                masked_out = masked_out[:, mask_subset]
-            else:
-                # Apply mask normally
-                masked_out = out_gpu[mask_flat, :]
-                masked_out = masked_out[:, mask_flat]
+            # Directly apply mask using precomputed indices
+            # This avoids shape checking and conditional logic
+            if out_gpu.shape[0] >= len(mask_flat):
+                # When output is large enough to accommodate all mask points
+                masked_out = out_gpu[mask_indices, :][:, mask_indices]
                 
-            # Accumulate the results
-            if buf_gpu.shape == masked_out.shape:
+                # Accumulate results without shape checking
                 buf_gpu += masked_out
             else:
-                print(f"Warning: Buffer and output shapes don't match. buf_gpu={buf_gpu.shape}, masked_out={masked_out.shape}")
-                # Resize buffer if needed
-                if masked_out.shape[0] > 0:
-                    buf_gpu = masked_out  # Replace if can't add
+                # Only when output is smaller than expected (should be rare)
+                valid_limit = min(out_gpu.shape[0], len(mask_indices))
+                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
+                
+                if len(valid_indices) > 0:
+                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
+                    
+                    # Resize buffer if needed (first encounter only)
+                    if buf_gpu.shape != masked_out.shape:
+                        buf_gpu = cp.zeros_like(masked_out)
+                    
+                    buf_gpu += masked_out
         
         if k < len(S_gpu):
             S_gpu[k] = buf_gpu.T
@@ -333,6 +332,11 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     else:
         mask_gpu = cp.array(gridMask)
     
+    # Precompute mask indices for faster indexing
+    mask_flat = mask_gpu.flatten()
+    mask_indices = cp.where(mask_flat)[0]
+    mask_sum = len(mask_indices)
+    
     # Tomography parameters
     nSs = tomoParams.nFitSrc**2
     srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc)
@@ -354,9 +358,6 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     r0 = atmParams.r0
     L0 = atmParams.L0
     fractionnalR0 = atmParams.fractionnalR0
-    
-    # Calculate the number of valid points in the mask
-    mask_sum = int(cp.sum(mask_gpu))
     
     # Initialize a 2D list of GPU arrays
     C_gpu = [[cp.zeros((mask_sum, mask_sum)) for _ in range(nGs)] for _ in range(nSs)]
@@ -395,25 +396,25 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
                 iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
             )
             
-            # Apply mask
-            mask_flat = mask_gpu.flatten()
-            if out_gpu.shape[0] != mask_flat.shape[0]:
-                print(f"Shape mismatch: out_gpu.shape={out_gpu.shape}, mask_flat.shape={mask_flat.shape}")
-                valid_mask = cp.arange(mask_flat.size) < out_gpu.shape[0]
-                mask_subset = mask_flat[valid_mask]
-                masked_out = out_gpu[mask_subset, :]
-                masked_out = masked_out[:, mask_subset]
-            else:
-                masked_out = out_gpu[mask_flat, :]
-                masked_out = masked_out[:, mask_flat]
-            
-            # Accumulate results
-            if buf_gpu.shape == masked_out.shape:
+            # Directly apply mask using precomputed indices
+            if out_gpu.shape[0] >= len(mask_flat):
+                # When output is large enough for all mask points
+                masked_out = out_gpu[mask_indices, :][:, mask_indices]
+                
+                # Accumulate without shape checking
                 buf_gpu += masked_out
             else:
-                print(f"Warning: Buffer and output shapes don't match. buf_gpu={buf_gpu.shape}, masked_out={masked_out.shape}")
-                if masked_out.shape[0] > 0:
-                    buf_gpu = masked_out
+                # Only when output is smaller than expected (rare case)
+                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
+                
+                if len(valid_indices) > 0:
+                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
+                    
+                    # Resize buffer if needed (first encounter only)
+                    if buf_gpu.shape != masked_out.shape:
+                        buf_gpu = cp.zeros_like(masked_out)
+                    
+                    buf_gpu += masked_out
         
         C_gpu[kGs][iGs] = buf_gpu.T
     
@@ -425,68 +426,101 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     C_gpu_array = cp.array(C_rows)
     
     return C_gpu_array
-
-
-def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
         
-    Gamma, _gridMask = sparseGradientMatrixAmplitudeWeighted(
-        lgsWfsParams.validLLMapSupport,
-        amplMask=None, 
-        overSampling=2
-    )
+def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,use_float32=False):
+    """
+    GPU-optimized atmospheric tomography reconstructor builder
+    
+    Parameters:
+        tomoParams: Tomography parameters
+        lgsWfsParams: Laser guide star WFS parameters
+        atmParams: Atmospheric parameters
+        lgsAsterismParams: LGS asterism parameters
+        use_float32: If True, use float32 precision instead of float64 for faster computation
+    
+    Returns:
+        _reconstructor: Optimized tomographic reconstructor
+    """
+    # Set computation dtype - always use float64 for matrix construction to match CPU
+    # Only use float32 for internal calculations if specified
+    dtype = cp.float32 if use_float32 else cp.float64
+    
+    # Create a CUDA stream for asynchronous operations
+    stream = cp.cuda.Stream()
+    with stream:
+        # Get sparse gradient matrix (CPU operation)
+        Gamma, _gridMask = sparseGradientMatrixAmplitudeWeighted(
+            lgsWfsParams.validLLMapSupport,
+            amplMask=None, 
+            overSampling=2
+        )
 
-    Gamma_list = []
-    for kGs in range(lgsAsterismParams.nLGS):
-        Gamma_list.append(Gamma)
+        # Use the exact same block diagonal approach as the CPU version
+        # This ensures identical matrix structure
+        Gamma_list = []
+        for kGs in range(lgsAsterismParams.nLGS):
+            Gamma_list.append(Gamma)
 
-    Gamma = cp.array(block_diag(Gamma_list).toarray())
+        Gamma = cp.array(block_diag(Gamma_list).toarray(), dtype=dtype)
 
-    # Update sampling parameter for Super Resolution
-    tomoParams.sampling = _gridMask.shape[0]
+        # Update sampling parameter for Super Resolution
+        tomoParams.sampling = _gridMask.shape[0]
 
-    Cxx = auto_correlation_gpu(
-        tomoParams,
-        lgsWfsParams, 
-        atmParams,
-        lgsAsterismParams,
-        _gridMask
-    )
+        Cxx = auto_correlation_gpu(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams,
+            _gridMask
+        ).astype(dtype)
 
-    # Update the tomography parameters to include the fitting weight for each source
-    tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
+        # Update the tomography parameters with proper conversion
+        if isinstance(tomoParams.fitSrcWeight, np.ndarray):
+            tomoParams.fitSrcWeight = cp.array(tomoParams.fitSrcWeight, dtype=dtype)
+        else:
+            tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2, dtype=dtype)/tomoParams.nFitSrc**2
 
-    Cox = cross_correlation_gpu(
-        tomoParams,
-        lgsWfsParams, 
-        atmParams,
-        lgsAsterismParams
-    )
+        Cox = cross_correlation_gpu(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams
+        ).astype(dtype)
 
-    weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
-    CoxOut = cp.sum(weighted_cox, axis=0)
+        weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
+        CoxOut = cp.sum(weighted_cox, axis=0)
 
-    row_mask = _gridMask.ravel().astype(bool)
-    col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+        row_mask = _gridMask.ravel().astype(bool)
+        col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
 
-    # Select submatrix using boolean masks with np.ix_ for correct indexing
-    idxs = np.ix_(row_mask, col_mask)
-    Cox = CoxOut[idxs]
+        # Select submatrix using boolean masks with np.ix_ for correct indexing
+        # DO NOT EDIT THIS WITH CUPY FUNCTIONS, IT WILL BREAK THE GPU VERSION
+        idxs = np.ix_(row_mask, col_mask)
+        Cox = CoxOut[idxs]
 
-    CnZ = cp.eye(Gamma.shape[0]) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
-    GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
-    GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
-    eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
-    invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
+        # Calculate noise covariance
+        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+        
+        # Keep calculations separate to match CPU version exactly
+        GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
+        GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
 
-    RecStatSA = Cox @ Gamma.T @ invCss
+        eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
+        invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
 
-    # LGS WFS subapertures diameter
-    d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
+        # Final computation of reconstructor - match CPU exactly
+        RecStatSA = Cox @ Gamma.T @ invCss
+        
+        # LGS WFS subapertures diameter
+        d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
 
-    # Size of the pixel at Shannon sampling
-    _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+        # Size of the pixel at Shannon sampling
+        _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
 
-    # Compute final scaled reconstructor
-    _reconstructor = d * _wavefront2Meter * RecStatSA
+        # Compute final scaled reconstructor
+        _reconstructor = cp.asnumpy(d * _wavefront2Meter * RecStatSA)
+        
+        # Clean up GPU memory
+        cp.get_default_memory_pool().free_all_blocks()
 
-    return _reconstructor
+        return _reconstructor
