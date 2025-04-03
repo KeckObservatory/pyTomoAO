@@ -222,7 +222,8 @@ def compute_block_gpu(rho_block_gpu, L0, cst, var_term, use_float32=False):
     """GPU implementation of block computation"""
     dtype = cp.float32 if use_float32 else cp.float64
 
-    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=dtype)
+    var_term_gpu = cp.asarray(var_term, dtype=dtype)
+    out_gpu = cp.full(rho_block_gpu.shape, dtype=dtype, fill_value=var_term_gpu)
     mask_gpu = rho_block_gpu != 0
 
     if cp.any(mask_gpu):

@@ -1,6 +1,12 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import sys
+# Ensure the script is run from its own directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+sys.path.insert(0, script_dir)
 from test_auto import build_reconstructor as build_reconstructor_cpu
 from test_auto import auto_correlation as auto_correlation_cpu
 from test_auto import cross_correlation as cross_correlation_cpu
@@ -11,7 +17,14 @@ from test_auto_gpu import cross_correlation_gpu
 import time
 from test_auto import sparseGradientMatrixAmplitudeWeighted
 
-# Define the same parameter classes
+#%% Import cupy and print available devices
+print("Available GPU devices:")
+for i in range(cp.cuda.runtime.getDeviceCount()):
+    device = cp.cuda.Device(i)
+    print(f"Device {i}: {device}")
+
+
+#%% Define the same parameter classes
 class TomoParams:
     def __init__(self, nFitSrc, directionVectorSrc, fitSrcHeight):
         self.sampling = None
@@ -164,7 +177,7 @@ tomoParams.sampling =  gridMask.shape[0]
 # plt.title("CPU Reconstructor")
 # plt.show()
 
-# Create the reconstructor using GPU (float64)
+#Create the reconstructor using GPU (float64)
 print("\n=== Testing Reconstructor Performance (float64) ===")
 cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 
