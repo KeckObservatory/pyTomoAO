@@ -11,8 +11,8 @@ from test_auto import sparseGradientMatrixAmplitudeWeighted
 gamma_1_6 = 5.56631600178  # Gamma(1/6)
 gamma_11_6 = 0.94065585824  # Gamma(11/6)
 
-# Real-valued Bessel function kernel
-kv56_real_kernel = cp.ElementwiseKernel(
+# Real-valued Bessel function kernel for float64
+kv56_real_kernel_float64 = cp.ElementwiseKernel(
     'float64 z',
     'float64 K',
     '''
@@ -52,30 +52,92 @@ kv56_real_kernel = cp.ElementwiseKernel(
         K = prefactor * sum_terms;
     }
     ''',
-    name='kv56_real_kernel',
+    name='kv56_real_kernel_float64',
     preamble=f'''
     const double gamma_1_6 = {gamma_1_6};
     const double gamma_11_6 = {gamma_11_6};
     '''
 )
 
+# Real-valued Bessel function kernel for float32
+kv56_real_kernel_float32 = cp.ElementwiseKernel(
+    'float32 z',
+    'float32 K',
+    '''
+    float v = 5.0f / 6.0f;
+    float z_abs = fabsf(z);
+    if (z_abs < 2.0f) {
+        float sum_a = 0.0f;
+        float sum_b = 0.0f;
+        float term_a = powf(0.5f * z, v) / gamma_11_6_f;
+        float term_b = powf(0.5f * z, -v) / gamma_1_6_f;
+        sum_a = term_a;
+        sum_b = term_b;
+        float z_sq_over_4 = powf(0.5f * z, 2);
+        int k = 1;
+        float tol = 1e-7f;  // Less precision for float32
+        int max_iter = 1000;
+        for (int i = 0; i < max_iter; ++i) {
+            float factor_a = z_sq_over_4 / (k * (k + v));
+            term_a *= factor_a;
+            sum_a += term_a;
+            float factor_b = z_sq_over_4 / (k * (k - v));
+            term_b *= factor_b;
+            sum_b += term_b;
+            if (fabsf(term_a) < tol * fabsf(sum_a) && fabsf(term_b) < tol * fabsf(sum_b)) {
+                break;
+            }
+            k += 1;
+        }
+        K = M_PI_F * (sum_b - sum_a);
+    } else {
+        float z_inv = 1.0f / z;
+        float sum_terms = 1.0f + z_inv * (2.0f/9.0f + z_inv * (
+                    -7.0f/81.0f + z_inv * (175.0f/2187.0f + z_inv * (
+                        -2275.0f/19683.0f + z_inv * 5005.0f/177147.0f
+                    )))); 
+        float prefactor = sqrtf(M_PI_F / (2.0f * z)) * expf(-z);
+        K = prefactor * sum_terms;
+    }
+    ''',
+    name='kv56_real_kernel_float32',
+    preamble=f'''
+    const float gamma_1_6_f = {float(gamma_1_6)};
+    const float gamma_11_6_f = {float(gamma_11_6)};
+    const float M_PI_F = 3.14159265358979323846f;
+    '''
+)
 
-def _kv56_gpu(z_gpu):
+
+def _kv56_gpu(z_gpu, use_float32=False):
     """GPU implementation of K_{5/6} Bessel function using ElementwiseKernel"""
-    # Check if input is real or complex
+    # Determine which kernel to use based on input type or use_float32 flag
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     if cp.isrealobj(z_gpu):
-        # For real inputs, use the real kernel
-        out_gpu = cp.zeros_like(z_gpu, dtype=cp.float64)
-        kv56_real_kernel(cp.real(z_gpu), out_gpu)
+        # For real inputs, use the appropriate precision kernel
+        out_gpu = cp.zeros_like(z_gpu, dtype=dtype)
+        
+        if z_gpu.dtype == cp.float32 or use_float32:
+            # Convert input to float32 if needed
+            z_float32 = z_gpu.astype(cp.float32) if z_gpu.dtype != cp.float32 else z_gpu
+            kv56_real_kernel_float32(z_float32, out_gpu)
+        else:
+            # Use double precision kernel
+            kv56_real_kernel_float64(cp.real(z_gpu), out_gpu)
     else:
         print(z_gpu)
         raise ValueError("Input must be real-valued.")
+    
     return out_gpu
 
-def compute_block_gpu(rho_block_gpu, L0, cst, var_term):
+def compute_block_gpu(rho_block_gpu, L0, cst, var_term, use_float32=False):
     """GPU implementation of block computation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Initialize output with variance term
-    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=cp.float64)
+    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=dtype)
     
     # Find non-zero distances
     mask_gpu = rho_block_gpu != 0
@@ -86,8 +148,8 @@ def compute_block_gpu(rho_block_gpu, L0, cst, var_term):
         u_gpu = (2 * cp.pi * rho_nonzero) / L0
         
         # Calculate Bessel function
-        bessel_input = u_gpu.astype(cp.complex128)
-        bessel_output = _kv56_gpu(cp.real(bessel_input))
+        bessel_input = u_gpu.astype(cp.complex64 if use_float32 else cp.complex128)
+        bessel_output = _kv56_gpu(cp.real(bessel_input), use_float32)
         
         # Compute final values
         covariance_values = cst * u_gpu**(5/6) * cp.real(bessel_output)
@@ -97,8 +159,10 @@ def compute_block_gpu(rho_block_gpu, L0, cst, var_term):
         
     return out_gpu
 
-def rotateWFS_gpu(px_gpu, py_gpu, rotAngleInRadians):
+def rotateWFS_gpu(px_gpu, py_gpu, rotAngleInRadians, use_float32=False):
     """GPU version of the WFS rotation function"""
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     cos_angle = math.cos(rotAngleInRadians)
     sin_angle = math.sin(rotAngleInRadians)
     
@@ -107,8 +171,11 @@ def rotateWFS_gpu(px_gpu, py_gpu, rotAngleInRadians):
     
     return pxx_gpu, pyy_gpu
 
-def covariance_matrix_gpu(*args):
+def covariance_matrix_gpu(*args, use_float32=False):
     """GPU implementation of covariance matrix calculation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Validate input arguments
     if len(args) not in {4, 5}:
         raise ValueError("Expected 4 or 5 arguments: (rho1, [rho2], r0, L0, fractionalR0)")
@@ -148,7 +215,7 @@ def covariance_matrix_gpu(*args):
     # Block processing for large matrices
     block_size = 5000
     if max(n, m) > block_size:
-        out_gpu = cp.empty((n, m), dtype=cp.float64)
+        out_gpu = cp.empty((n, m), dtype=dtype)
         
         for i in range(0, n, block_size):
             i_end = min(i + block_size, n)
@@ -158,25 +225,28 @@ def covariance_matrix_gpu(*args):
                 
                 block_gpu = rho_gpu[i:i_end, j:j_end]
                 out_gpu[i:i_end, j:j_end] = compute_block_gpu(
-                    block_gpu, L0, cst, var_term
+                    block_gpu, L0, cst, var_term, use_float32
                 )
         
         out_gpu *= fractionalR0
         return out_gpu
 
     # Single block processing for smaller matrices
-    out_gpu = compute_block_gpu(rho_gpu, L0, cst, var_term)
+    out_gpu = compute_block_gpu(rho_gpu, L0, cst, var_term, use_float32)
     return out_gpu * fractionalR0
 
-def create_guide_star_grid_gpu(sampling, D, rotation_angle, offset_x, offset_y):
+def create_guide_star_grid_gpu(sampling, D, rotation_angle, offset_x, offset_y, use_float32=False):
     """GPU version of guide star grid creation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Create coordinate grids
-    x_range = cp.linspace(-1, 1, sampling) * D/2
-    y_range = cp.linspace(-1, 1, sampling) * D/2
+    x_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
+    y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
     x_gpu, y_gpu = cp.meshgrid(x_range, y_range)
     
     # Flatten, rotate, and apply offsets
-    x_flat, y_flat = rotateWFS_gpu(x_gpu.flatten(), y_gpu.flatten(), rotation_angle * 180/cp.pi)
+    x_flat, y_flat = rotateWFS_gpu(x_gpu.flatten(), y_gpu.flatten(), rotation_angle * 180/cp.pi, use_float32)
     x_flat = x_flat - offset_x * D
     y_flat = y_flat - offset_y * D
     
@@ -184,11 +254,14 @@ def create_guide_star_grid_gpu(sampling, D, rotation_angle, offset_x, offset_y):
     return x_flat.reshape(sampling, sampling), y_flat.reshape(sampling, sampling)
 
 def calculate_scaled_shifted_coords_gpu(x_gpu, y_gpu, srcACdirectionVector_gpu, gs_index, 
-                                        altitude, kLayer, srcACheight):
+                                        altitude, kLayer, srcACheight, use_float32=False):
     """GPU version of coordinate calculation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Convert NumPy arrays to CuPy if needed
     if isinstance(srcACdirectionVector_gpu, np.ndarray):
-        srcACdirectionVector_gpu = cp.array(srcACdirectionVector_gpu)
+        srcACdirectionVector_gpu = cp.array(srcACdirectionVector_gpu, dtype=dtype)
     
     # Calculate beta shift
     beta = srcACdirectionVector_gpu[:, gs_index] * altitude[kLayer]
@@ -199,23 +272,25 @@ def calculate_scaled_shifted_coords_gpu(x_gpu, y_gpu, srcACdirectionVector_gpu, 
     # Calculate scaled and shifted coordinates
     return x_gpu * scale + beta[0] + 1j * (y_gpu * scale + beta[1])
 
-def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask):
+def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask, use_float32=False):
     """GPU-optimized auto-correlation function"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Parameter extraction
     sampling = tomoParams.sampling
-    mask_gpu = cp.array(gridMask)
+    mask_gpu = cp.array(gridMask, dtype=bool)
     
     # Ensure gridMask is the right size
     if mask_gpu.shape[0] != sampling or mask_gpu.shape[1] != sampling:
         print(f"Warning: Mask shape {mask_gpu.shape} doesn't match sampling {sampling}.")
-        # Resize mask or adjust sampling
-        # Option 1: Generate a mask of the right size
+        # Generate a mask of the right size
         mask_gpu = cp.ones((sampling, sampling), dtype=bool)
     
     # LGS constellation parameters
     nGs = lgsAsterismParams.nLGS
     # Convert to GPU array
-    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS)
+    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS, dtype=dtype)
     srcACheight = lgsAsterismParams.LGSheight
     
     # WFS parameters
@@ -240,44 +315,45 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
     mask_flat = mask_gpu.flatten()
     mask_indices = cp.where(mask_flat)[0]
     mask_sum = len(mask_indices)
-    S_gpu = [cp.zeros((mask_sum, mask_sum)) for _ in range(len(kGs))]
+    S_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(len(kGs))]
     
     for k in range(len(kGs)):
         # Get the indices
         jGs, iGs = np.unravel_index(kGs[k] - 1, (nGs, nGs))
         
-        buf_gpu = cp.zeros((mask_sum, mask_sum))
+        buf_gpu = cp.zeros((mask_sum, mask_sum), dtype=dtype)
         
         # Create grids for guide stars
         x1_gpu, y1_gpu = create_guide_star_grid_gpu(
             sampling, D, wfsLensletsRotation[iGs], 
-            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs]
+            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs],
+            use_float32
         )
         
         x2_gpu, y2_gpu = create_guide_star_grid_gpu(
             sampling, D, wfsLensletsRotation[jGs], 
-            wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs]
+            wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs],
+            use_float32
         )
         
         for kLayer in range(nLayer):
             # Calculate coordinates
             iZ_gpu = calculate_scaled_shifted_coords_gpu(
                 x1_gpu, y1_gpu, srcACdirectionVector_gpu, iGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
             jZ_gpu = calculate_scaled_shifted_coords_gpu(
                 x2_gpu, y2_gpu, srcACdirectionVector_gpu, jGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
             # Compute covariance matrix
             out_gpu = covariance_matrix_gpu(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
+                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
             
             # Directly apply mask using precomputed indices
-            # This avoids shape checking and conditional logic
             if out_gpu.shape[0] >= len(mask_flat):
                 # When output is large enough to accommodate all mask points
                 masked_out = out_gpu[mask_indices, :][:, mask_indices]
@@ -302,7 +378,7 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
             S_gpu[k] = buf_gpu.T
     
     # Rearrange results into full matrix
-    S_tmp_gpu = [cp.zeros((mask_sum, mask_sum)) for _ in range(nGs**2)]
+    S_tmp_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs**2)]
     for c, i in enumerate(kGs):
         S_tmp_gpu[i-1] = S_gpu[c]
     
@@ -321,8 +397,11 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
     
     return S_gpu
 
-def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None):
+def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None, use_float32=False):
     """GPU-optimized cross-correlation function"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Parameter extraction
     sampling = tomoParams.sampling
     
@@ -330,7 +409,7 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     if gridMask is None:
         mask_gpu = cp.ones((sampling, sampling), dtype=bool)
     else:
-        mask_gpu = cp.array(gridMask)
+        mask_gpu = cp.array(gridMask, dtype=bool)
     
     # Precompute mask indices for faster indexing
     mask_flat = mask_gpu.flatten()
@@ -339,12 +418,12 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     
     # Tomography parameters
     nSs = tomoParams.nFitSrc**2
-    srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc)
+    srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc, dtype=dtype)
     srcCCheight = tomoParams.fitSrcHeight
     
     # LGS constellation parameters
     nGs = lgsAsterismParams.nLGS
-    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS)
+    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS, dtype=dtype)
     srcACheight = lgsAsterismParams.LGSheight
     
     # WFS parameters
@@ -360,40 +439,41 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     fractionnalR0 = atmParams.fractionnalR0
     
     # Initialize a 2D list of GPU arrays
-    C_gpu = [[cp.zeros((mask_sum, mask_sum)) for _ in range(nGs)] for _ in range(nSs)]
+    C_gpu = [[cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs)] for _ in range(nSs)]
     
     for k in range(nSs*nGs):
         # Get the indices kGs and jGs
         kGs, iGs = np.unravel_index(k, (nSs, nGs))
         
-        buf_gpu = cp.zeros((mask_sum, mask_sum))
+        buf_gpu = cp.zeros((mask_sum, mask_sum), dtype=dtype)
         
         # Create grids for the guide star
         x1_gpu, y1_gpu = create_guide_star_grid_gpu(
             sampling, D, wfsLensletsRotation[iGs], 
-            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs]
+            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs],
+            use_float32
         )
         
         # Create grid for the science target 
-        x_range = cp.linspace(-1, 1, sampling) * D/2
-        y_range = cp.linspace(-1, 1, sampling) * D/2
+        x_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
+        y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
         x2_gpu, y2_gpu = cp.meshgrid(x_range, y_range)
         
         for kLayer in range(nLayer):
             # Calculate coordinates
             iZ_gpu = calculate_scaled_shifted_coords_gpu(
                 x1_gpu, y1_gpu, srcACdirectionVector_gpu, iGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
             jZ_gpu = calculate_scaled_shifted_coords_gpu(
                 x2_gpu, y2_gpu, srcCCdirectionVector_gpu, kGs, 
-                altitude, kLayer, srcCCheight
+                altitude, kLayer, srcCCheight, use_float32
             )
             
             # Compute covariance matrix
             out_gpu = covariance_matrix_gpu(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
+                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
             
             # Directly apply mask using precomputed indices
@@ -423,11 +503,11 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     for row in C_gpu:
         C_rows.append(cp.concatenate(row, axis=1))
     
-    C_gpu_array = cp.array(C_rows)
+    C_gpu_array = cp.concatenate(C_rows, axis=0)
     
     return C_gpu_array
         
-def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,use_float32=False):
+def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
     """
     GPU-optimized atmospheric tomography reconstructor builder
     
@@ -441,8 +521,7 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
     Returns:
         _reconstructor: Optimized tomographic reconstructor
     """
-    # Set computation dtype - always use float64 for matrix construction to match CPU
-    # Only use float32 for internal calculations if specified
+    # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
     
     # Create a CUDA stream for asynchronous operations
@@ -471,7 +550,8 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
             lgsWfsParams, 
             atmParams,
             lgsAsterismParams,
-            _gridMask
+            _gridMask,
+            use_float32
         ).astype(dtype)
 
         # Update the tomography parameters with proper conversion
@@ -484,7 +564,8 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
             tomoParams,
             lgsWfsParams, 
             atmParams,
-            lgsAsterismParams
+            lgsAsterismParams,
+            use_float32=use_float32
         ).astype(dtype)
 
         weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]

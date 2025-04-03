@@ -18,6 +18,8 @@ class TomoParams:
         self.nFitSrc = nFitSrc
         self.directionVectorSrc = directionVectorSrc
         self.fitSrcHeight = fitSrcHeight
+        self.fitSrcWeight = np.ones(self.nFitSrc**2)/self.nFitSrc**2
+
 
 class LgsWfsParams:
     def __init__(self, DSupport, wfsLensletsRotation, wfsLensletsOffset, validLLMap):
@@ -96,7 +98,7 @@ _, gridMask = sparseGradientMatrixAmplitudeWeighted(
 )
 tomoParams.sampling =  gridMask.shape[0]
 #%%
-#Test the performance of the auto correlation
+# # Test the performance of the auto correlation
 # print("\n=== Testing Auto Correlation Performance ===")
 # cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 # start_time = time.time()
@@ -129,7 +131,7 @@ tomoParams.sampling =  gridMask.shape[0]
 # plt.title("CPU Reconstructor")
 # plt.show()
 
-# # Test the performance of the cross correlation
+# Test the performance of the cross correlation
 # print("\n=== Testing Cross Correlation Performance ===")
 # cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 # start_time = time.time()
@@ -162,48 +164,95 @@ tomoParams.sampling =  gridMask.shape[0]
 # plt.title("CPU Reconstructor")
 # plt.show()
 
-# Create the reconstructor using GPU
-print("\n=== Testing Reconstructor Performance ===")
+# Create the reconstructor using GPU (float64)
+print("\n=== Testing Reconstructor Performance (float64) ===")
 cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 start_time = time.time()
-R_gpu = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams)
+R_gpu_f64 = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False)
 end_time = time.time()
-print(f"GPU Reconstructor Execution time: {end_time - start_time:.2f} seconds")
+print(f"GPU Reconstructor (float64) Execution time: {end_time - start_time:.2f} seconds")
 
 # Create the reconstructor using CPU
 start_time_cpu = time.time()
 R_cpu = build_reconstructor_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams)
 end_time_cpu = time.time()
 print(f"CPU Reconstructor Execution time: {end_time_cpu - start_time_cpu:.2f} seconds")
-print(f"Speedup: {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
+print(f"Speedup (float64): {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
 
+# Verify float64 results
+print("\n=== Verification Analysis (float64) ===")
+abs_diff_f64 = np.abs(R_gpu_f64 - R_cpu)
+max_diff_f64 = np.max(abs_diff_f64)
+mean_diff_f64 = np.mean(abs_diff_f64)
+rel_diff_f64 = np.max(np.abs((R_gpu_f64 - R_cpu) / (R_cpu + np.finfo(float).eps)))
 
-# Verify final results
-if np.allclose(R_gpu, R_cpu, rtol=1e-5, atol=1e-8):
-    print("\nGPU and CPU reconstructors match!")
+print(f"Max absolute difference (float64): {max_diff_f64:.2e}")
+print(f"Mean absolute difference (float64): {mean_diff_f64:.2e}")
+print(f"Max relative difference (float64): {rel_diff_f64:.2e}")
+
+if np.allclose(R_gpu_f64, R_cpu, rtol=1e-5, atol=1e-8):
+    print("GPU (float64) and CPU reconstructors match!")
 else:
-    print("\nWarning: GPU and CPU reconstructors differ")
-    print(f"Max absolute difference: {np.max(np.abs(R_gpu - R_cpu))}")
-    
-    # Visualize final result difference
-    plt.figure(figsize=(15, 5))
-    plt.subplot(1, 3, 1)
-    plt.imshow(R_cpu, cmap='viridis')
-    plt.colorbar()
-    plt.title("CPU Reconstructor")
-    
-    plt.subplot(1, 3, 2)
-    plt.imshow(R_gpu, cmap='viridis')
-    plt.colorbar()
-    plt.title("GPU Reconstructor")
-    
-    plt.subplot(1, 3, 3)
-    plt.imshow(np.abs(R_cpu - R_gpu), cmap='hot')
-    plt.colorbar()
-    plt.title("Difference")
-    
-    plt.tight_layout()
-    plt.show()
+    print("Warning: GPU (float64) and CPU reconstructors differ")
 
+# Try GPU with float32 for even more speed
+print("\n=== Testing Reconstructor Performance (float32) ===")
+cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
+start_time = time.time()
+R_gpu_f32 = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=True)
+end_time = time.time()
+print(f"GPU Reconstructor (float32) Execution time: {end_time - start_time:.2f} seconds")
+
+# Verify float32 results
+print("\n=== Verification Analysis (float32) ===")
+abs_diff_f32 = np.abs(R_gpu_f32 - R_cpu)
+max_diff_f32 = np.max(abs_diff_f32)
+mean_diff_f32 = np.mean(abs_diff_f32)
+rel_diff_f32 = np.max(np.abs((R_gpu_f32 - R_cpu) / (R_cpu + np.finfo(float).eps)))
+
+print(f"Max absolute difference (float32): {max_diff_f32:.2e}")
+print(f"Mean absolute difference (float32): {mean_diff_f32:.2e}")
+print(f"Max relative difference (float32): {rel_diff_f32:.2e}")
+
+if np.allclose(R_gpu_f32, R_cpu, rtol=1e-4, atol=1e-6):
+    print("GPU (float32) and CPU reconstructors match within relaxed tolerances!")
+else:
+    print("Warning: GPU (float32) and CPU reconstructors differ significantly")
+
+# Visualize results
+plt.figure(figsize=(15, 10))
+
+# CPU Reconstructor
+plt.subplot(2, 3, 1)
+plt.imshow(R_cpu, cmap='viridis')
+plt.colorbar()
+plt.title("CPU Reconstructor")
+
+# GPU Reconstructor (float64)
+plt.subplot(2, 3, 2)
+plt.imshow(R_gpu_f64, cmap='viridis')
+plt.colorbar()
+plt.title("GPU Reconstructor (float64)")
+
+# Difference (float64)
+plt.subplot(2, 3, 3)
+plt.imshow(abs_diff_f64, cmap='hot')
+plt.colorbar()
+plt.title("Difference (float64)")
+
+# GPU Reconstructor (float32)
+plt.subplot(2, 3, 4)
+plt.imshow(R_gpu_f32, cmap='viridis')
+plt.colorbar()
+plt.title("GPU Reconstructor (float32)")
+
+# Difference (float32)
+plt.subplot(2, 3, 5)
+plt.imshow(abs_diff_f32, cmap='hot')
+plt.colorbar()
+plt.title("Difference (float32)")
+
+plt.tight_layout()
+plt.show()
 
 # %%
