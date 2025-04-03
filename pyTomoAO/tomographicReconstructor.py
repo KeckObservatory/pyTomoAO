@@ -20,6 +20,13 @@ from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 from scipy.io import loadmat
 from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
+CUDA_AVAILABLE = False
+try:
+    import cupy as cp
+    if cp.cuda.is_available():
+        CUDA_AVAILABLE = True
+except:
+    CUDA_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -82,6 +89,56 @@ def _kv56(z):
     return _kv56_scalar(z)
 
 
+# Precomputed Gamma function values for v=5/6
+gamma_1_6 = 5.56631600178  # Gamma(1/6)
+gamma_11_6 = 0.94065585824  # Gamma(11/6)
+
+# CuPy kernel for real-valued K_{5/6}
+kv56_gpu_kernel = cp.ElementwiseKernel(
+    'float64 z',
+    'float64 K',
+    '''
+    double v = 5.0 / 6.0;
+    double z_abs = fabs(z);
+    if (z_abs < 2.0) {
+        double sum_a = 0.0;
+        double sum_b = 0.0;
+        double term_a = pow(0.5 * z, v) / gamma_11_6;
+        double term_b = pow(0.5 * z, -v) / gamma_1_6;
+        sum_a = term_a;
+        sum_b = term_b;
+        double z_sq_over_4 = pow(0.5 * z, 2);
+        int k = 1;
+        double tol = 1e-15;
+        int max_iter = 1000;
+        for (int i = 0; i < max_iter; ++i) {
+            double factor_a = z_sq_over_4 / (k * (k + v));
+            term_a *= factor_a;
+            sum_a += term_a;
+            double factor_b = z_sq_over_4 / (k * (k - v));
+            term_b *= factor_b;
+            sum_b += term_b;
+            if (fabs(term_a) < tol * fabs(sum_a) && fabs(term_b) < tol * fabs(sum_b)) {
+                break;
+            }
+            k += 1;
+        }
+        K = M_PI * (sum_b - sum_a);
+    } else {
+        double z_inv = 1.0 / z;
+        double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
+                    -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (-980.0/6561.0)))); // TO DO: update corrected terms up to power 5 
+        double prefactor = sqrt(M_PI / (2.0 * z)) * exp(-z);
+        K = prefactor * sum_terms;
+    }
+    ''',
+    name='kv56_gpu_kernel',
+    preamble=f'''
+    const double gamma_1_6 = {gamma_1_6};
+    const double gamma_11_6 = {gamma_11_6};
+    '''
+)
+
 class tomographicReconstructor:
     """
     A class to compute a tomographic reconstructor for adaptive optics systems (LTAO or MOAO).
@@ -96,6 +153,8 @@ class tomographicReconstructor:
         config_file : str
             Path to the YAML configuration file
         """
+
+    
         # Load configuration
         with open(config_file, "r") as f:
             self.config = yaml.safe_load(f)
@@ -108,6 +167,7 @@ class tomographicReconstructor:
         self._reconstructor = None
         self._wavefront2Meter = None
         self._gridMask = None
+
 
     def _initialize_parameters(self):
         """Initialize all parameter classes from the configuration."""
@@ -343,6 +403,13 @@ class tomographicReconstructor:
         
         # Return the scaled and shifted coordinates as a complex number
         return x * scale + beta[0] + 1j * (y * scale + beta[1])
+
+    @staticmethod
+    def compute_block(rho_block, L0, cst, var_term):
+        if CUDA_AVAILABLE:
+            return tomographicReconstructor._compute_block_gpu(rho_block, L0, cst, var_term)
+        else:
+            return tomographicReconstructor._compute_block_cpu(rho_block, L0, cst, var_term)
     # ======================================================================
     # Static Methods
     @staticmethod
@@ -353,8 +420,21 @@ class tomographicReconstructor:
     def kv56(z):
         return _kv56(z)
 
+    
     @staticmethod
-    def compute_block(rho_block, L0, cst, var_term):
+    def _compute_block_gpu(rho_block, L0, cst, var_term):
+        rho_block_gpu = cp.asarray(rho_block)
+        out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=np.float64)
+        mask = rho_block_gpu != 0
+        u = (2 * cp.pi * rho_block_gpu[mask]) / L0
+        if u.size == 0:
+            return out_gpu.get()
+        K_gpu = kv56_gpu_kernel(u)
+        out_gpu[mask] = cst * cp.power(u, 5.0/6.0) * K_gpu
+        return out_gpu.get()
+
+    @staticmethod
+    def _compute_block_cpu(rho_block, L0, cst, var_term):
         """
         Vectorized computation of covariance values for a matrix block
         """
@@ -366,6 +446,7 @@ class tomographicReconstructor:
         # Vectorized Bessel function calculation with explicit conversion to real
         out[mask] = cst * u**(5/6) * np.real(_kv56(u.astype(np.complex128)))
         return out
+
     
     @staticmethod
     def covariance_matrix(*args):
@@ -565,7 +646,7 @@ class tomographicReconstructor:
         return Gamma, gridMask
     
     @staticmethod
-    def auto_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask):
+    def auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,gridMask):
         """
         Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
         
@@ -795,7 +876,6 @@ class tomographicReconstructor:
         
         return C
 
-
     def build_reconstructor(self):
         """
         Build the tomographic reconstructor from the self parameters.
@@ -821,6 +901,10 @@ class tomographicReconstructor:
         # Update sampling parameter for Super Resolution
         self.tomoParams.sampling = self._gridMask.shape[0]
 
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        print(f"CXX built in {execution_time:.4f} seconds")
+
         # ===== AUTO-COVARIANCE MATRIX =====
         print("Computing auto-correlation matrix...")
         Cxx = tomographicReconstructor.auto_correlation(
@@ -830,6 +914,11 @@ class tomographicReconstructor:
             self.lgsAsterismParams,
             self._gridMask
         )
+
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        print(f"CXX built in {execution_time:.4f} seconds")
+
 
         # ===== CROSS-COVARIANCE MATRIX =====
         print("Computing cross-correlation matrix...")
@@ -852,6 +941,10 @@ class tomographicReconstructor:
 
         # Select submatrix using boolean masks with np.ix_ for correct indexing
         Cox = CoxOut[np.ix_(row_mask, col_mask)]
+
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        print(f"COX built in {execution_time:.4f} seconds")
 
         # ===== COMPUTE THE RECONSTRUCTOR =====
         print("Computing final reconstructor...")
