@@ -2,11 +2,10 @@
 import numpy as np
 import cupy as cp
 from scipy.special import gamma
-import time
 import math
-from cupyx.scipy.special import gamma as cp_gamma
-import cupyx
-import os
+from cupyx.scipy.special import gamma
+from scipy.sparse import block_diag
+from test_auto import sparseGradientMatrixAmplitudeWeighted
 
 # Pre-computed gamma values
 gamma_1_6 = 5.56631600178  # Gamma(1/6)
@@ -427,121 +426,67 @@ def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams
     
     return C_gpu_array
 
-# Define the same parameter classes
-class TomoParams:
-    def __init__(self, sampling, nFitSrc, directionVectorSrc, fitSrcHeight):
-        self.sampling = sampling
-        self.nFitSrc = nFitSrc
-        self.directionVectorSrc = directionVectorSrc
-        self.fitSrcHeight = fitSrcHeight
 
-class LgsWfsParams:
-    def __init__(self, DSupport, wfsLensletsRotation, wfsLensletsOffset):
-        self.DSupport = DSupport
-        self.wfsLensletsRotation = wfsLensletsRotation
-        self.wfsLensletsOffset = wfsLensletsOffset
+def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
+        
+    Gamma, _gridMask = sparseGradientMatrixAmplitudeWeighted(
+        lgsWfsParams.validLLMapSupport,
+        amplMask=None, 
+        overSampling=2
+    )
 
-class AtmParams:
-    def __init__(self, nLayer, altitude, r0, L0, fractionnalR0):
-        self.nLayer = nLayer
-        self.altitude = altitude
-        self.r0 = r0
-        self.L0 = L0
-        self.fractionnalR0 = fractionnalR0
+    Gamma_list = []
+    for kGs in range(lgsAsterismParams.nLGS):
+        Gamma_list.append(Gamma)
 
-class LgsAsterismParams:
-    def __init__(self, nLGS, directionVectorLGS, LGSheight):
-        self.nLGS = nLGS
-        self.directionVectorLGS = directionVectorLGS
-        self.LGSheight = LGSheight
+    Gamma = cp.array(block_diag(Gamma_list).toarray())
 
-#%%
-DSupport = 8.0
-wfsLensletsRotation = np.zeros(4)
-wfsLensletsOffset = np.zeros((2, 4))
-nLayer = 2
-altitude = np.array([    0.  ,         577.35026919,  1154.70053838,  2309.40107676,
-4618.80215352,  9237.60430703, 18475.20861407])
-r0 = 0.171
-L0 = 30.0
-nFitSrc = 1
-directionVectorSrc = np.array([[0.0],
-                                [0.0]])
-fitSrcHeight = np.inf
-fractionnalR0 = np.array([0.46, 0.13, 0.04, 0.05, 0.12, 0.09, 0.11])
-nLGS = 4
-directionVectorLGS = np.array([[ 3.68458398e-05,  2.25615699e-21, -3.68458398e-05, -6.76847096e-21],
-                                [ 0.00000000e+00, 3.68458398e-05,  4.51231397e-21, -3.68458398e-05],
-                                [ 1.00000000e+00,  1.00000000e+00,  1.00000000e+00,  1.00000000e+00]])
-LGSheight = 103923.04845413263
-script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the current script
-gridMask_path = os.path.join(script_dir, "gridMask.npy")  # Construct the full path to the file
-gridMask = np.load(gridMask_path)  # Load the grid mask from the file
-sampling = gridMask.shape[0]  # Assuming square grid mask
+    # Update sampling parameter for Super Resolution
+    tomoParams.sampling = _gridMask.shape[0]
 
-# Create parameter objects
-tomoParams = TomoParams(sampling, nFitSrc, directionVectorSrc, fitSrcHeight)
-lgsWfsParams = LgsWfsParams(DSupport, wfsLensletsRotation, wfsLensletsOffset)
-atmParams = AtmParams(nLayer, altitude, r0, L0, fractionnalR0)
-lgsAsterismParams = LgsAsterismParams(nLGS, directionVectorLGS, LGSheight)
+    Cxx = auto_correlation_gpu(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams,
+        _gridMask
+    )
 
-#%%
-# Warm up GPU
-cp.cuda.Stream.null.synchronize()
-for i in range(2):
-    # Call and benchmark the GPU version
-    start_time = time.time()
-    S_gpu_auto = auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
-    cp.cuda.Stream.null.synchronize()  # Ensure all GPU operations complete
-    end_time = time.time()
+    # Update the tomography parameters to include the fitting weight for each source
+    tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
 
-    print(f"Auto GPU Execution time: {end_time - start_time:.2f} seconds")
+    Cox = cross_correlation_gpu(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams
+    )
 
-    # Call and benchmark the GPU version
-    start_time = time.time()
-    S_gpu_cross =cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
-    cp.cuda.Stream.null.synchronize()  # Ensure all GPU operations complete
-    end_time = time.time()
-    # Convert result back to CPU for comparison/output
-    S_gpu_cross = cp.asnumpy(S_gpu_cross)
-    S_gpu_auto = cp.asnumpy(S_gpu_auto)
+    weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
+    CoxOut = cp.sum(weighted_cox, axis=0)
 
-    print(f"Cross GPU Execution time: {end_time - start_time:.2f} seconds")
+    row_mask = _gridMask.ravel().astype(bool)
+    col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
 
-# Optional: Compare with CPU version if needed
-#%%
-from test_auto import auto_correlation as auto_correlation_cpu
-from test_auto import cross_correlation as cross_correlation_cpu
-from test_auto import _kv56 as _kv56_cpu
-from numba import cuda
-import numpy as np
-import time
-#Trigger jit
-_kv56_cpu(np.array([0.5], dtype=np.complex128))  # Pre-compile the CPU version
+    # Select submatrix using boolean masks with np.ix_ for correct indexing
+    idxs = np.ix_(row_mask, col_mask)
+    Cox = CoxOut[idxs]
 
-start_time_cpu = time.time()
-S_cpu_auto = auto_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
-end_time_cpu = time.time()
-print(f"CPU Execution time: {end_time_cpu - start_time_cpu:.2f} seconds")
-print(f"Speedup: {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
+    CnZ = cp.eye(Gamma.shape[0]) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+    GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
+    GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
+    eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
+    invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
 
-# Verify results
-if np.allclose(S_gpu_auto, S_cpu_auto, rtol=1e-5, atol=1e-8):
-    print("GPU and CPU results match!")
-else:
-    print("Warning: GPU and CPU results differ")
-    print(f"Max absolute difference: {np.max(np.abs(S_gpu_auto - S_cpu_auto))}")
+    RecStatSA = Cox @ Gamma.T @ invCss
 
-start_time_cpu = time.time()
-S_cpu_cross = cross_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
-end_time_cpu = time.time()
-print(f"CPU Execution time: {end_time_cpu - start_time_cpu:.2f} seconds")
-print(f"Speedup: {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
+    # LGS WFS subapertures diameter
+    d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
 
-if np.allclose(S_gpu_cross, S_cpu_cross, rtol=1e-5, atol=1e-8):
-    print("GPU and CPU results match!")
-else:
-    print("Warning: GPU and CPU results differ")
-    print(f"Max absolute difference: {np.max(np.abs(S_gpu_cross - S_cpu_cross))}")
+    # Size of the pixel at Shannon sampling
+    _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
 
-#%%
+    # Compute final scaled reconstructor
+    _reconstructor = d * _wavefront2Meter * RecStatSA
+
+    return _reconstructor
