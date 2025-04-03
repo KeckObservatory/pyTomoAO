@@ -9,5 +9,5 @@ __all__ = [
     'lgsAsterismParametersClass',
     'lgsWfsParametersClass',
     'atmosphereParametersClass',
-    'tomographyParametersClass'
+    'tomographyParametersClass',
 ]

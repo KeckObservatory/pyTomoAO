@@ -20,124 +20,18 @@ from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 from scipy.io import loadmat
 from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
-CUDA_AVAILABLE = False
 try:
     import cupy as cp
-    if cp.cuda.is_available():
-        CUDA_AVAILABLE = True
+    from .tomographyUtilsGPU import _auto_correlation, _cross_correlation
+    print("CUDA is available. Using GPU for computations.")
 except:
-    CUDA_AVAILABLE = False
+    from .tomographyUtilsCPU import _auto_correlation, _cross_correlation
+    print("CUDA is not available. Using CPU for computations.")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-# Define the scalar function outside the class so Numba can compile it properly
-@nb.njit(nb.complex128(nb.complex128), cache=True)
-def _kv56_scalar(z):
-    """Scalar implementation used as kernel for array version"""
-    # Precomputed Gamma function values for v=5/6
-    gamma_1_6 = 5.56631600178  # Gamma(1/6)
-    gamma_11_6 = 0.94065585824  # Gamma(11/6)
-    # Precompute constants for numerical stability
-    # Constants for the series expansion and asymptotic approximation
-    v = 5.0 / 6.0
-    z_abs = np.abs(z)
-    if z_abs < 2.0:
-        # Series expansion for small |z|
-        sum_a = 0.0j
-        sum_b = 0.0j
-        term_a = (0.5 * z)**v / gamma_11_6
-        term_b = (0.5 * z)**-v / gamma_1_6
-        sum_a += term_a
-        sum_b += term_b
-        z_sq_over_4 = (0.5 * z)**2
-        k = 1
-        tol = 1e-15
-        max_iter = 1000
-        for _ in range(max_iter):
-            factor_a = z_sq_over_4 / (k * (k + v))
-            term_a *= factor_a
-            sum_a += term_a
-            factor_b = z_sq_over_4 / (k * (k - v))
-            term_b *= factor_b
-            sum_b += term_b
-            if abs(term_a) < tol * abs(sum_a) and abs(term_b) < tol * abs(sum_b):
-                break
-            k += 1
-        K = np.pi * (sum_b - sum_a)
-    else:
-        # Asymptotic expansion for large |z|
-        z_inv = 1.0 / z
-        sum_terms = 1.0 + (2.0/9.0)*z_inv + (-7.0/81.0)*z_inv**2 + \
-                    (175.0/2187.0)*z_inv**3 + (-2275.0/19683.0)*z_inv**4 + \
-                    (5005.0/177147.0)*z_inv**5  #+ (-2662660.0/4782969.0)*z_inv**6
-        prefactor = np.sqrt(np.pi/(2.0*z)) * np.exp(-z)
-        K = prefactor * sum_terms
-    return K
-
-# Vectorized version outside the class
-@nb.vectorize([nb.complex128(nb.complex128),  # Complex input
-            nb.complex128(nb.float64)],    # Real input
-            nopython=True, target='parallel')
-def _kv56(z):
-    """
-    Modified Bessel function K_{5/6}(z) for numpy arrays
-    Handles both real and complex inputs efficiently
-    """
-    return _kv56_scalar(z)
-
-
-# Precomputed Gamma function values for v=5/6
-gamma_1_6 = 5.56631600178  # Gamma(1/6)
-gamma_11_6 = 0.94065585824  # Gamma(11/6)
-
-# CuPy kernel for real-valued K_{5/6}
-kv56_gpu_kernel = cp.ElementwiseKernel(
-    'float64 z',
-    'float64 K',
-    '''
-    double v = 5.0 / 6.0;
-    double z_abs = fabs(z);
-    if (z_abs < 2.0) {
-        double sum_a = 0.0;
-        double sum_b = 0.0;
-        double term_a = pow(0.5 * z, v) / gamma_11_6;
-        double term_b = pow(0.5 * z, -v) / gamma_1_6;
-        sum_a = term_a;
-        sum_b = term_b;
-        double z_sq_over_4 = pow(0.5 * z, 2);
-        int k = 1;
-        double tol = 1e-15;
-        int max_iter = 1000;
-        for (int i = 0; i < max_iter; ++i) {
-            double factor_a = z_sq_over_4 / (k * (k + v));
-            term_a *= factor_a;
-            sum_a += term_a;
-            double factor_b = z_sq_over_4 / (k * (k - v));
-            term_b *= factor_b;
-            sum_b += term_b;
-            if (fabs(term_a) < tol * fabs(sum_a) && fabs(term_b) < tol * fabs(sum_b)) {
-                break;
-            }
-            k += 1;
-        }
-        K = M_PI * (sum_b - sum_a);
-    } else {
-        double z_inv = 1.0 / z;
-        double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
-                    -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (-980.0/6561.0)))); // TO DO: update corrected terms up to power 5 
-        double prefactor = sqrt(M_PI / (2.0 * z)) * exp(-z);
-        K = prefactor * sum_terms;
-    }
-    ''',
-    name='kv56_gpu_kernel',
-    preamble=f'''
-    const double gamma_1_6 = {gamma_1_6};
-    const double gamma_11_6 = {gamma_11_6};
-    '''
-)
 
 class tomographicReconstructor:
     """
@@ -153,8 +47,6 @@ class tomographicReconstructor:
         config_file : str
             Path to the YAML configuration file
         """
-
-    
         # Load configuration
         with open(config_file, "r") as f:
             self.config = yaml.safe_load(f)
@@ -323,221 +215,6 @@ class tomographicReconstructor:
                 super().__setattr__(name, value)
     # ======================================================================
     # Class Methods
-    @classmethod
-    def rotateWFS(cls,px,py, rotAngleInRadians):
-        """
-        This function rotate the WFS subapertures positions.
-        
-        Parameters:
-        -----------
-            px (1D array): The original WFS X subaperture position.
-            py (1D array): The original WFS Y subaperture position.
-            rotAngleInRadians (double): The rotation angle in radians.
-        
-        Returns:
-        --------
-            pxx (1D array): The new WFS X subaperture position after rotation.
-            pyy (1D array): The new WFS Y subapertuer position after rotation.
-        """
-        pxx = px * math.cos(rotAngleInRadians) - py * math.sin(rotAngleInRadians)
-        pyy= py * math.cos(rotAngleInRadians) + px * math.sin(rotAngleInRadians)
-        return pxx, pyy
-
-    @classmethod
-    def create_guide_star_grid(cls, sampling, D, rotation_angle, offset_x, offset_y):
-        """
-        Create a grid of guide star positions based on the specified parameters.
-
-        Parameters:
-        -----------
-            sampling (int): Number of samples in each dimension for the grid.
-            D (float): Diameter of the telescope, used to scale the grid.
-            rotation_angle (float): Angle to rotate the grid in degrees.
-            offset_x (float): Offset in the x-direction to apply to the grid.
-            offset_y (float): Offset in the y-direction to apply to the grid.
-
-        Returns:
-        --------
-            tuple: Two 2D arrays representing the x and y coordinates of the guide stars.
-        """
-        
-        # Create a grid of points in Cartesian coordinates
-        x, y = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
-                            np.linspace(-1, 1, sampling) * D/2)
-        
-        # Flatten the grid, rotate the positions, and apply the specified offsets
-        x, y = cls.rotateWFS(x.flatten(), y.flatten(), rotation_angle * 180/np.pi)
-        x = x - offset_x * D  # Apply x offset
-        y = y - offset_y * D  # Apply y offset
-        
-        # Reshape the modified coordinates back to the original grid shape
-        return x.reshape(sampling, sampling), y.reshape(sampling, sampling)
-
-    @classmethod
-    def calculate_scaled_shifted_coords(cls, x, y, srcACdirectionVector, gs_index, 
-                                        altitude, kLayer, srcACheight):
-        """
-        Calculate the scaled and shifted coordinates for a guide star.
-
-        Parameters:
-        -----------
-            x (ndarray): The x-coordinates in Cartesian space.
-            y (ndarray): The y-coordinates in Cartesian space.
-            srcACdirectionVector (ndarray): Direction vectors for the guide stars.
-            gs_index (int): Index of the guide star being processed.
-            altitude (ndarray): Altitudes of the turbulence layers.
-            kLayer (int): Index of the current turbulence layer.
-            srcACheight (float): Height of the source guide star.
-
-        Returns:
-        --------
-            complex: The scaled and shifted coordinates as a complex number,
-                    where the real part is the x-coordinate and the imaginary
-                    part is the y-coordinate.
-        """
-        # Calculate the beta shift based on the direction vector and altitude
-        beta = srcACdirectionVector[:, gs_index] * altitude[kLayer]
-        
-        # Calculate the scaling factor based on the altitude and source height
-        scale = 1 - altitude[kLayer] / srcACheight
-        
-        # Return the scaled and shifted coordinates as a complex number
-        return x * scale + beta[0] + 1j * (y * scale + beta[1])
-
-    @staticmethod
-    def compute_block(rho_block, L0, cst, var_term):
-        if CUDA_AVAILABLE:
-            return tomographicReconstructor._compute_block_gpu(rho_block, L0, cst, var_term)
-        else:
-            return tomographicReconstructor._compute_block_cpu(rho_block, L0, cst, var_term)
-    # ======================================================================
-    # Static Methods
-    @staticmethod
-    def kv56_scalar(z):
-        return _kv56_scalar(z)
-        
-    @staticmethod
-    def kv56(z):
-        return _kv56(z)
-
-    
-    @staticmethod
-    def _compute_block_gpu(rho_block, L0, cst, var_term):
-        rho_block_gpu = cp.asarray(rho_block)
-        out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=np.float64)
-        mask = rho_block_gpu != 0
-        u = (2 * cp.pi * rho_block_gpu[mask]) / L0
-        if u.size == 0:
-            return out_gpu.get()
-        K_gpu = kv56_gpu_kernel(u)
-        out_gpu[mask] = cst * cp.power(u, 5.0/6.0) * K_gpu
-        return out_gpu.get()
-
-    @staticmethod
-    def _compute_block_cpu(rho_block, L0, cst, var_term):
-        """
-        Vectorized computation of covariance values for a matrix block
-        """
-        # Initialize output with variance term
-        out = np.full(rho_block.shape, var_term, dtype=np.float64)
-        # Find non-zero distances and compute covariance
-        mask = rho_block != 0
-        u = (2 * np.pi * rho_block[mask]) / L0
-        # Vectorized Bessel function calculation with explicit conversion to real
-        out[mask] = cst * u**(5/6) * np.real(_kv56(u.astype(np.complex128)))
-        return out
-
-    
-    @staticmethod
-    def covariance_matrix(*args):
-        """
-        Optimized phase covariance matrix calculation using Von Karman turbulence model
-        
-        Parameters:
-        -----------
-            *args: (rho1, [rho2], r0, L0, fractionalR0)
-                rho1, rho2: Complex coordinate arrays (x + iy)
-                r0: Fried parameter (m)
-                L0: Outer scale (m)
-                fractionalR0: Turbulence layer weighting factor
-        
-        Returns:
-        --------
-            Covariance matrix with same dimensions as input coordinates
-        """
-        # Validate input arguments
-        if len(args) not in {4, 5}:
-            raise ValueError("Expected 4 or 5 arguments: (rho1, [rho2], r0, L0, fractionalR0)")
-        
-        # Parse arguments and flatten coordinates
-        rho1 = args[0].flatten()
-        auto_covariance = len(args) == 4
-        if auto_covariance:
-            r0, L0, fractionalR0 = args[1:]
-            rho2 = rho1
-        else:
-            rho2, r0, L0, fractionalR0 = args[1], args[2], args[3], args[4]
-            rho2 = rho2.flatten()
-
-        # ==================================================================
-        # Precompute constants (critical performance improvement)
-        # ==================================================================
-        # Gamma function values precomputed for numerical stability
-        GAMMA_6_5 = gamma(6/5)
-        GAMMA_11_6 = gamma(11/6)
-        GAMMA_5_6 = gamma(5/6)
-        
-        # Base constant components
-        BASE_CONST = (24 * GAMMA_6_5 / 5) ** (5/6)
-        SCALE_FACTOR = (GAMMA_11_6 / (2**(5/6) * np.pi**(8/3)))
-        
-        # L0/r0 ratio raised to 5/3 power
-        L0_r0_ratio = (L0 / r0) ** (5/3)
-        
-        # Final constant for non-zero distances
-        cst = BASE_CONST * SCALE_FACTOR * L0_r0_ratio
-        
-        # Variance term for zero distances (r=0 case)
-        var_term = (BASE_CONST * GAMMA_11_6 * GAMMA_5_6 / 
-                (2 * np.pi**(8/3))) * L0_r0_ratio
-
-        # ==================================================================
-        # Calculate pairwise distances
-        # ==================================================================
-        # Vectorized distance calculation using broadcasting
-        rho = np.abs(rho1[:, np.newaxis] - rho2)
-        n, m = rho.shape
-
-        # ==================================================================
-        # Block processing for large matrices (>5000 elements per dimension)
-        # ==================================================================
-        block_size = 5000
-        if max(n, m) > block_size:
-            # Preallocate output array for memory efficiency
-            out = np.empty((n, m), dtype=np.float64)
-            
-            # Process row blocks
-            for i in range(0, n, block_size):
-                i_end = min(i + block_size, n)
-                
-                # Process column blocks
-                for j in range(0, m, block_size):
-                    j_end = min(j + block_size, m)
-                    
-                    # Process current block
-                    block = rho[i:i_end, j:j_end]
-                    out[i:i_end, j:j_end] = tomographicReconstructor.compute_block(
-                        block, L0, cst, var_term
-                    )
-            
-            # Apply fractional weighting
-            out *= fractionalR0
-            return out
-
-        # Single block processing for smaller matrices
-        out = tomographicReconstructor.compute_block(rho, L0, cst, var_term)
-        return out * fractionalR0
-    
     @staticmethod
     def sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
         """
@@ -649,233 +326,17 @@ class tomographicReconstructor:
     def auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,gridMask):
         """
         Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
-        
-        Parameters:
-        -----------
-        tomoParams : object
-            Contains tomography parameters:
-            - sampling (int): Number of grid samples per axis
-            - mask (ndarray): 2D boolean grid mask
-        
-        lgsWfsParams : object
-            LGS WFS parameters:
-            - D (float): Telescope diameter [m]
-            - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-            - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-        
-        atmParams : object
-            Atmospheric parameters:
-            - nLayer (int): Number of turbulence layers
-            - altitude (ndarray): Layer altitudes [m]
-            - r0 (float): Fried parameter [m]
-            - L0 (float): Outer scale [m]
-            - fractionnalR0 (ndarray): Turbulence strength per layer
-        
-        lgsAsterismParams : object
-            LGS constellation parameters:
-            - nLGS (int): Number of LGS
-            - directionVectorLGS (ndarray): Direction vectors
-            - LGSheight (ndarray): LGS heights [m]
-
-        gridMask : ndarray
-            2D boolean mask for valid grid points
-
-        Returns:
-        --------
-        S : ndarray
-            Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
-        """
-        print("-->> Computing auto-correlation meta-matrix <<--\n")
-        # ======================================================================
-        # Parameter Extraction
-        # ======================================================================
-        # Tomography parameters
-        sampling = tomoParams.sampling
-        mask = gridMask
-        
-        # LGS constellation parameters
-        nGs = lgsAsterismParams.nLGS
-        srcACdirectionVector = lgsAsterismParams.directionVectorLGS
-        srcACheight  = lgsAsterismParams.LGSheight
-        
-        # WFS parameters
-        D = lgsWfsParams.DSupport  
-        wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
-        wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
-        
-        # Atmospheric parameters
-        nLayer = atmParams.nLayer
-        altitude = atmParams.altitude
-        r0 = atmParams.r0
-        L0 = atmParams.L0
-        fractionnalR0 = atmParams.fractionnalR0
-        
-        # Generate indices for the upper triangular part of the matrix
-        kGs = np.triu(np.arange(1, nGs**2 + 1).reshape(nGs, nGs).T, 1).T.reshape(nGs**2)
-        kGs[0] = 1
-        kGs = kGs[kGs != 0]
-        
-        # Initialize a list of zero matrices based on the mask
-        S = [np.zeros((np.sum(mask),np.sum(mask))) for _ in range(len(kGs))]
-        
-        for k in range(len(kGs)):
-            # Get the indices iGs and jGs from the index kGs(k)
-            jGs, iGs = np.unravel_index(kGs[k] - 1, (nGs, nGs))  # Adjust for 0-based index in Python
-            
-            buf = 0
-            
-            # Create grids for the first and second guide stars
-            x1, y1 = tomographicReconstructor.create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
-                                            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs])
-            x2, y2 = tomographicReconstructor.create_guide_star_grid(sampling, D, wfsLensletsRotation[jGs], 
-                                            wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs])
-            
-            for kLayer in range(nLayer):
-                # Calculate the scaled and shifted coordinates for the first and second guide stars
-                iZ = tomographicReconstructor.calculate_scaled_shifted_coords(x1, y1, srcACdirectionVector, iGs, altitude, kLayer, srcACheight)
-                jZ = tomographicReconstructor.calculate_scaled_shifted_coords(x2, y2, srcACdirectionVector, jGs, altitude, kLayer, srcACheight)
-                
-                # Compute the covariance matrix
-                out = tomographicReconstructor.covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
-                out = out[mask.flatten(),:]
-                out = out[:,mask.flatten()]
-                # Accumulate the results
-                buf += out
-            
-            S[k] = buf.T
-        
-        # Rearrange the results into a full nGs x nGs matrix
-        buf = S
-        S_tmp = [np.zeros((np.sum(mask), np.sum(mask))) for _ in range(nGs**2)]
-        for c, i in enumerate(kGs):
-            S_tmp[i-1] = buf[c]
-        
-        # If you want these as a 1D array of indices    
-        diagonal_indices_1d = np.diag_indices(nGs)[0] * nGs + np.diag_indices(nGs)[1]
-        
-        for i in diagonal_indices_1d:
-            S_tmp[i] = S_tmp[0]   
-        
-        S_tmp = np.stack(S_tmp, axis=0)
-        S = S_tmp.reshape(nGs, nGs, np.sum(mask), np.sum(mask))\
-            .transpose(0, 2, 1, 3).reshape(nGs*np.sum(mask), nGs*np.sum(mask))
-            
-        # Make the matrix symmetric
-        S = np.tril(S) + np.triu(S.T, 1)
-        
-        return S
+        """        
+        return _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
     
     @staticmethod
     def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask=None):
         """
         Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
-        
-        Parameters:
-        -----------
-        tomoParams : object
-            Contains tomography parameters:
-            - sampling (int): Number of grid samples per axis
-            - mask (ndarray): 2D boolean grid mask
-        
-        lgsWfsParams : object
-            LGS WFS parameters:
-            - D (float): Telescope diameter [m]
-            - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-            - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-        
-        atmParams : object
-            Atmospheric parameters:
-            - nLayer (int): Number of turbulence layers
-            - altitude (ndarray): Layer altitudes [m]
-            - r0 (float): Fried parameter [m]
-            - L0 (float): Outer scale [m]
-            - fractionnalR0 (ndarray): Turbulence strength per layer
-        
-        lgsAsterismParams : object
-            LGS constellation parameters:
-            - nLGS (int): Number of LGS
-            - directionVectorLGS (ndarray): Direction vectors
-            - LGSheight (ndarray): LGS heights [m]
-        
-        gridMask : ndarray
-            2D boolean mask for valid grid points
-        
-        Returns:
-        --------
-        S : ndarray
-            Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
         """
-        print("-->> Computing cross-correlation meta-matrix <<--\n")
-        # ======================================================================
-        # Parameter Extraction
-        # ======================================================================
-        # Tomography parameters
-        sampling = tomoParams.sampling
-        
-        if gridMask is None:
-            mask = np.ones((sampling,sampling),dtype=bool)
-        else:
-            mask = gridMask
-            
-        
-        nSs  = tomoParams.nFitSrc**2
-        srcCCdirectionVector = tomoParams.directionVectorSrc
-        srcCCheight = tomoParams.fitSrcHeight
-        
-        # LGS constellation parameters
-        nGs = lgsAsterismParams.nLGS
-        srcACdirectionVector = lgsAsterismParams.directionVectorLGS
-        srcACheight  = lgsAsterismParams.LGSheight
-        
-        # WFS parameters
-        D = lgsWfsParams.DSupport  
-        wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
-        wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
-        
-        # Atmospheric parameters
-        nLayer = atmParams.nLayer
-        altitude = atmParams.altitude
-        r0 = atmParams.r0
-        L0 = atmParams.L0
-        fractionnalR0 = atmParams.fractionnalR0
-        
-        # Initialize a 2d list (nSs,nGs) of zero matrices of size (sampling**2,sampling**2)
-        C = [[np.zeros((np.sum(sampling**2),np.sum(sampling**2))) for _ in range(nGs)] for _ in range(nSs)]
-        
-        for k in range(nSs*nGs):
-            # Get the indices kGs and jGs 
-            kGs, iGs = np.unravel_index(k, (nSs, nGs)) 
-            
-            buf = 0
-            
-            # Create grids for the first and second guide stars
-            x1, y1 = tomographicReconstructor.create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
-                                            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs])
-            
-            x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
-                                np.linspace(-1, 1, sampling) * D/2)
-            
-            for kLayer in range(nLayer):
-                # Calculate the scaled and shifted coordinates for the first and second guide stars
-                iZ = tomographicReconstructor.calculate_scaled_shifted_coords(x1, y1, srcACdirectionVector, 
-                                                    iGs, altitude, kLayer, srcACheight)
-                jZ = tomographicReconstructor.calculate_scaled_shifted_coords(x2, y2, srcCCdirectionVector, 
-                                                    kGs, altitude, kLayer, srcCCheight)
-                
-                # Compute the covariance matrix
-                out = tomographicReconstructor.covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
-                out = out[mask.flatten(),:]
-                out = out[:,mask.flatten()]
-                # Accumulate the results
-                buf += out
-            
-            C[kGs][iGs] = buf.T
-        
-        # Rearrange the results into a single array
-        C = np.array([np.concatenate(row, axis=1) for row in C])
-        
-        return C
-
+        return _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+    # ======================================================================
+    # Build Reconstructor
     def build_reconstructor(self):
         """
         Build the tomographic reconstructor from the self parameters.
@@ -975,7 +436,8 @@ class tomographicReconstructor:
         self.RecStatSA = RecStatSA
 
         return self._reconstructor
-
+    
+    # Reconstruct Wavefront
     def reconstruct_wavefront(self, slopes):
         """
         Reconstruct the wavefront from slopes using the computed reconstructor.
@@ -1008,6 +470,7 @@ class tomographicReconstructor:
 
         return mask
 
+    # Visualize Reconstruction
     def visualize_reconstruction(self, slopes, reference_wavefront=None):
         """
         Visualize the reconstruction results and optionally compare with reference.
@@ -1164,7 +627,7 @@ class tomographicReconstructor:
 # Example usage
 if __name__ == "__main__":
     # Create the reconstructor
-    reconstructor = tomographicReconstructor("../examples/tomography_config.yaml")
+    reconstructor = tomographicReconstructor("../examples/benchmark/tomography_config.yaml")
 
     # Build the reconstructor (this happens automatically when accessing the reconstructor property)
     rec_matrix = reconstructor.reconstructor
