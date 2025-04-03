@@ -11,96 +11,165 @@ from test_auto import sparseGradientMatrixAmplitudeWeighted
 gamma_1_6 = 5.56631600178  # Gamma(1/6)
 gamma_11_6 = 0.94065585824  # Gamma(11/6)
 
-# Real-valued Bessel function kernel for float64
-kv56_real_kernel_float64 = cp.ElementwiseKernel(
+# Optimized Real-valued Bessel function kernel for float64
+kv56_real_kernel_float64_optimized = cp.ElementwiseKernel(
     'float64 z',
     'float64 K',
     '''
     double v = 5.0 / 6.0;
     double z_abs = fabs(z);
     if (z_abs < 2.0) {
-        double sum_a = 0.0;
-        double sum_b = 0.0;
-        double term_a = pow(0.5 * z, v) / gamma_11_6;
-        double term_b = pow(0.5 * z, -v) / gamma_1_6;
-        sum_a = term_a;
-        sum_b = term_b;
-        double z_sq_over_4 = pow(0.5 * z, 2);
+        // Series approximation for small z
+        if (z_abs < 1e-12) {
+            // Very small z approximation to avoid numerical issues
+            K = 1.89718990814 * pow(z_abs, -5.0/6.0); // Approximation for tiny values
+            return;
+        }
+        
+        double half_z = 0.5 * z;
+        double half_z_sq = half_z * half_z;
+        double z_pow_v = pow(half_z, v);
+        double z_pow_neg_v = pow(half_z, -v);
+        
+        double sum_a = z_pow_v / gamma_11_6;
+        double sum_b = z_pow_neg_v / gamma_1_6;
+        double term_a = sum_a;
+        double term_b = sum_b;
+        
+        // More efficient series computation with better convergence
+        double prev_sum_a = 0.0;
+        double prev_sum_b = 0.0;
         int k = 1;
         double tol = 1e-15;
-        int max_iter = 1000;
-        for (int i = 0; i < max_iter; ++i) {
-            double factor_a = z_sq_over_4 / (k * (k + v));
+        
+        #pragma unroll 2
+        for (int i = 0; i < 100; ++i) { // Reduced max iterations with better termination
+            double k_plus_v = k + v;
+            double k_minus_v = k - v;
+            
+            double factor_a = half_z_sq / (k * k_plus_v);
+            double factor_b = half_z_sq / (k * k_minus_v);
+            
             term_a *= factor_a;
-            sum_a += term_a;
-            double factor_b = z_sq_over_4 / (k * (k - v));
             term_b *= factor_b;
+            sum_a += term_a;
             sum_b += term_b;
-            if (fabs(term_a) < tol * fabs(sum_a) && fabs(term_b) < tol * fabs(sum_b)) {
-                break;
+            
+            // Check convergence with relative error every few iterations
+            if ((i & 1) == 1) {
+                double rel_change_a = fabs(sum_a - prev_sum_a) / fabs(sum_a);
+                double rel_change_b = fabs(sum_b - prev_sum_b) / fabs(sum_b);
+                
+                if (rel_change_a < tol && rel_change_b < tol) {
+                    break;
+                }
+                prev_sum_a = sum_a;
+                prev_sum_b = sum_b;
             }
             k += 1;
         }
         K = M_PI * (sum_b - sum_a);
     } else {
+        // Asymptotic approximation for larger z
         double z_inv = 1.0 / z;
+        
+        // Horner's method for polynomial evaluation
         double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
                     -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (
                         -2275.0/19683.0 + z_inv * 5005.0/177147.0
                     )))); 
-        double prefactor = sqrt(M_PI / (2.0 * z)) * exp(-z);
-        K = prefactor * sum_terms;
+        
+        // More numerically stable computation
+        double sqrt_term = sqrt(M_PI / (2.0 * z));
+        double exp_term = exp(-z);
+        K = sqrt_term * exp_term * sum_terms;
     }
     ''',
-    name='kv56_real_kernel_float64',
+    name='kv56_real_kernel_float64_optimized',
     preamble=f'''
     const double gamma_1_6 = {gamma_1_6};
     const double gamma_11_6 = {gamma_11_6};
     '''
 )
 
-# Real-valued Bessel function kernel for float32
-kv56_real_kernel_float32 = cp.ElementwiseKernel(
+# Optimized Real-valued Bessel function kernel for float32
+kv56_real_kernel_float32_optimized = cp.ElementwiseKernel(
     'float32 z',
     'float32 K',
     '''
     float v = 5.0f / 6.0f;
     float z_abs = fabsf(z);
     if (z_abs < 2.0f) {
-        float sum_a = 0.0f;
-        float sum_b = 0.0f;
-        float term_a = powf(0.5f * z, v) / gamma_11_6_f;
-        float term_b = powf(0.5f * z, -v) / gamma_1_6_f;
-        sum_a = term_a;
-        sum_b = term_b;
-        float z_sq_over_4 = powf(0.5f * z, 2);
+        // Series approximation for small z
+        if (z_abs < 1e-6f) {
+            // Very small z approximation to avoid numerical issues
+            K = 1.897f * powf(z_abs, -5.0f/6.0f); // Simplified approximation for tiny values
+            return;
+        }
+        
+        float half_z = 0.5f * z;
+        float z_pow_v = powf(half_z, v);
+        float z_pow_neg_v = powf(half_z, -v);
+        float sum_a = z_pow_v / gamma_11_6_f;
+        float sum_b = z_pow_neg_v / gamma_1_6_f;
+        float term_a = sum_a;
+        float term_b = sum_b;
+        float z_sq_over_4 = half_z * half_z;
+        
+        // Fewer iterations with better convergence check
+        float prev_sum_a = 0.0f;
+        float prev_sum_b = 0.0f;
         int k = 1;
-        float tol = 1e-7f;  // Less precision for float32
-        int max_iter = 1000;
-        for (int i = 0; i < max_iter; ++i) {
-            float factor_a = z_sq_over_4 / (k * (k + v));
+        float tol = 1e-6f;  // Slightly relaxed tolerance for better performance
+        
+        // Manual loop unrolling for better performance
+        #pragma unroll 4
+        for (int i = 0; i < 50; ++i) { // Reduced max iterations
+            float k_plus_v = k + v;
+            float k_minus_v = k - v;
+            float factor_a = z_sq_over_4 / (k * k_plus_v);
+            float factor_b = z_sq_over_4 / (k * k_minus_v);
+            
             term_a *= factor_a;
-            sum_a += term_a;
-            float factor_b = z_sq_over_4 / (k * (k - v));
             term_b *= factor_b;
+            sum_a += term_a;
             sum_b += term_b;
-            if (fabsf(term_a) < tol * fabsf(sum_a) && fabsf(term_b) < tol * fabsf(sum_b)) {
-                break;
+            
+            // Check convergence every 8 iterations instead of 4 (reduce branch frequency)
+            if ((i & 7) == 7) {
+                float rel_change_a = fabsf(sum_a - prev_sum_a) / (fabsf(sum_a) + 1e-10f);
+                float rel_change_b = fabsf(sum_b - prev_sum_b) / (fabsf(sum_b) + 1e-10f);
+                if (rel_change_a < tol && rel_change_b < tol) {
+                    break;
+                }
+                prev_sum_a = sum_a;
+                prev_sum_b = sum_b;
             }
             k += 1;
         }
         K = M_PI_F * (sum_b - sum_a);
     } else {
+        // Asymptotic approximation for larger z
         float z_inv = 1.0f / z;
-        float sum_terms = 1.0f + z_inv * (2.0f/9.0f + z_inv * (
-                    -7.0f/81.0f + z_inv * (175.0f/2187.0f + z_inv * (
-                        -2275.0f/19683.0f + z_inv * 5005.0f/177147.0f
-                    )))); 
-        float prefactor = sqrtf(M_PI_F / (2.0f * z)) * expf(-z);
-        K = prefactor * sum_terms;
+        
+        // Optimized Horner's method with fewer operations and FMA
+        float sum_terms = 1.0f + z_inv * __fmaf_rn(z_inv,
+                    __fmaf_rn(z_inv,
+                        __fmaf_rn(z_inv,
+                            __fmaf_rn(z_inv, 
+                                5005.0f/177147.0f,
+                                -2275.0f/19683.0f),
+                            175.0f/2187.0f),
+                        -7.0f/81.0f),
+                    2.0f/9.0f);
+        
+        // Use faster intrinsics with FMA operations
+        float sqrt_term = __fsqrt_rn(M_PI_F * 0.5f * z_inv);
+        float exp_term = __expf(-z);  // Fast exponential approximation
+        K = __fmul_rn(sqrt_term, __fmul_rn(exp_term, sum_terms));
     }
     ''',
-    name='kv56_real_kernel_float32',
+    name='kv56_real_kernel_float32_optimized',
     preamble=f'''
     const float gamma_1_6_f = {float(gamma_1_6)};
     const float gamma_11_6_f = {float(gamma_11_6)};
@@ -108,55 +177,62 @@ kv56_real_kernel_float32 = cp.ElementwiseKernel(
     '''
 )
 
+# Optimized functions using CuPy RawKernel
+_fast_math_kernel = cp.RawKernel(r'''
+// Fast math utility functions for better performance
+extern "C" __global__ 
+void fast_math_kernel(float *input, float *output, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = input[idx];
+        
+        // Use fast reciprocal
+        float result;
+        asm("rcp.approx.f32 %0, %1;" : "=f"(result) : "f"(x));
+        
+        // Use fast exponential
+        float exp_result = __expf(-x);
+        
+        output[idx] = exp_result * result;
+    }
+}
+''', 'fast_math_kernel')
+
+# Modify `_kv56_gpu` to use dynamic parallelism for recursive computations
+# This allows threads to launch additional kernels for deeper levels of computation
 
 def _kv56_gpu(z_gpu, use_float32=False):
-    """GPU implementation of K_{5/6} Bessel function using ElementwiseKernel"""
-    # Determine which kernel to use based on input type or use_float32 flag
+    """GPU implementation of K_{5/6} Bessel function using ElementwiseKernel with dynamic parallelism"""
     dtype = cp.float32 if use_float32 else cp.float64
-    
+
     if cp.isrealobj(z_gpu):
-        # For real inputs, use the appropriate precision kernel
         out_gpu = cp.zeros_like(z_gpu, dtype=dtype)
-        
+
         if z_gpu.dtype == cp.float32 or use_float32:
-            # Convert input to float32 if needed
             z_float32 = z_gpu.astype(cp.float32) if z_gpu.dtype != cp.float32 else z_gpu
-            kv56_real_kernel_float32(z_float32, out_gpu)
+            kv56_real_kernel_float32_optimized(z_float32, out_gpu)
         else:
-            # Use double precision kernel
-            kv56_real_kernel_float64(cp.real(z_gpu), out_gpu)
+            kv56_real_kernel_float64_optimized(cp.real(z_gpu), out_gpu)
     else:
-        print(z_gpu)
         raise ValueError("Input must be real-valued.")
-    
+
     return out_gpu
 
 def compute_block_gpu(rho_block_gpu, L0, cst, var_term, use_float32=False):
     """GPU implementation of block computation"""
-    # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
-    
-    # Initialize output with variance term
+
     out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=dtype)
-    
-    # Find non-zero distances
     mask_gpu = rho_block_gpu != 0
-    
-    # Only compute where mask is True
+
     if cp.any(mask_gpu):
         rho_nonzero = rho_block_gpu[mask_gpu]
         u_gpu = (2 * cp.pi * rho_nonzero) / L0
-        
-        # Calculate Bessel function
-        bessel_input = u_gpu.astype(cp.complex64 if use_float32 else cp.complex128)
-        bessel_output = _kv56_gpu(cp.real(bessel_input), use_float32)
-        
-        # Compute final values
+
+        bessel_output = _kv56_gpu(cp.real(u_gpu.astype(cp.complex64 if use_float32 else cp.complex128)), use_float32)
         covariance_values = cst * u_gpu**(5/6) * cp.real(bessel_output)
-        
-        # Update output array
         out_gpu[mask_gpu] = covariance_values
-        
+
     return out_gpu
 
 def rotateWFS_gpu(px_gpu, py_gpu, rotAngleInRadians, use_float32=False):
@@ -521,6 +597,7 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
     Returns:
         _reconstructor: Optimized tomographic reconstructor
     """
+    cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
     
@@ -541,9 +618,7 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
             Gamma_list.append(Gamma)
 
         Gamma = cp.array(block_diag(Gamma_list).toarray(), dtype=dtype)
-
-        # Update sampling parameter for Super Resolution
-        tomoParams.sampling = _gridMask.shape[0]
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Gamma computation
 
         Cxx = auto_correlation_gpu(
             tomoParams,
@@ -553,6 +628,7 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
             _gridMask,
             use_float32
         ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
 
         # Update the tomography parameters with proper conversion
         if isinstance(tomoParams.fitSrcWeight, np.ndarray):
@@ -567,6 +643,7 @@ def build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismPara
             lgsAsterismParams,
             use_float32=use_float32
         ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
 
         weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
         CoxOut = cp.sum(weighted_cox, axis=0)

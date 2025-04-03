@@ -167,6 +167,7 @@ tomoParams.sampling =  gridMask.shape[0]
 # Create the reconstructor using GPU (float64)
 print("\n=== Testing Reconstructor Performance (float64) ===")
 cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
+
 start_time = time.time()
 R_gpu_f64 = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False)
 end_time = time.time()
