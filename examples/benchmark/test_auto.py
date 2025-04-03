@@ -5,6 +5,7 @@ from scipy.special import kv, gamma
 import time 
 import numba as nb
 import math
+import os
 # Define the scalar function outside the class so Numba can compile it properly
 @nb.njit(nb.complex128(nb.complex128), cache=True)
 def _kv56_scalar(z):
@@ -273,10 +274,124 @@ def auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,gridM
     
     return S
 
+def cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,gridMask=None):
+    """
+    Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
+    
+    Parameters:
+    -----------
+    tomoParams : object
+        Contains tomography parameters:
+        - sampling (int): Number of grid samples per axis
+        - mask (ndarray): 2D boolean grid mask
+    
+    lgsWfsParams : object
+        LGS WFS parameters:
+        - D (float): Telescope diameter [m]
+        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
+        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
+    
+    atmParams : object
+        Atmospheric parameters:
+        - nLayer (int): Number of turbulence layers
+        - altitude (ndarray): Layer altitudes [m]
+        - r0 (float): Fried parameter [m]
+        - L0 (float): Outer scale [m]
+        - fractionnalR0 (ndarray): Turbulence strength per layer
+    
+    lgsAsterismParams : object
+        LGS constellation parameters:
+        - nLGS (int): Number of LGS
+        - directionVectorLGS (ndarray): Direction vectors
+        - LGSheight (ndarray): LGS heights [m]
+    
+    gridMask : ndarray
+        2D boolean mask for valid grid points
+    
+    Returns:
+    --------
+    S : ndarray
+        Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
+    """
+    print("-->> Computing cross-correlation meta-matrix <<--\n")
+    # ======================================================================
+    # Parameter Extraction
+    # ======================================================================
+    # Tomography parameters
+    sampling = tomoParams.sampling
+    
+    if gridMask is None:
+        mask = np.ones((sampling,sampling),dtype=bool)
+    else:
+        mask = gridMask
+        
+    
+    nSs  = tomoParams.nFitSrc**2
+    srcCCdirectionVector = tomoParams.directionVectorSrc
+    srcCCheight = tomoParams.fitSrcHeight
+    
+    # LGS constellation parameters
+    nGs = lgsAsterismParams.nLGS
+    srcACdirectionVector = lgsAsterismParams.directionVectorLGS
+    srcACheight  = lgsAsterismParams.LGSheight
+    
+    # WFS parameters
+    D = lgsWfsParams.DSupport  
+    wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
+    wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
+    
+    # Atmospheric parameters
+    nLayer = atmParams.nLayer
+    altitude = atmParams.altitude
+    r0 = atmParams.r0
+    L0 = atmParams.L0
+    fractionnalR0 = atmParams.fractionnalR0
+    
+    # Initialize a 2d list (nSs,nGs) of zero matrices of size (sampling**2,sampling**2)
+    C = [[np.zeros((np.sum(sampling**2),np.sum(sampling**2))) for _ in range(nGs)] for _ in range(nSs)]
+    
+    for k in range(nSs*nGs):
+        # Get the indices kGs and jGs 
+        kGs, iGs = np.unravel_index(k, (nSs, nGs)) 
+        
+        buf = 0
+        
+        # Create grids for the first and second guide stars
+        x1, y1 = create_guide_star_grid(sampling, D, wfsLensletsRotation[iGs], 
+                                        wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs])
+        
+        x2, y2 = np.meshgrid(np.linspace(-1, 1, sampling) * D/2,
+                            np.linspace(-1, 1, sampling) * D/2)
+        
+        for kLayer in range(nLayer):
+            # Calculate the scaled and shifted coordinates for the first and second guide stars
+            iZ = calculate_scaled_shifted_coords(x1, y1, srcACdirectionVector, 
+                                                iGs, altitude, kLayer, srcACheight)
+            jZ = calculate_scaled_shifted_coords(x2, y2, srcCCdirectionVector, 
+                                                kGs, altitude, kLayer, srcCCheight)
+            
+            # Compute the covariance matrix
+            out = covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
+            out = out[mask.flatten(),:]
+            out = out[:,mask.flatten()]
+            # Accumulate the results
+            buf += out
+        
+        C[kGs][iGs] = buf.T
+    
+    # Rearrange the results into a single array
+    C = np.array([np.concatenate(row, axis=1) for row in C])
+    
+    return C
+
+
 # Fake classes to simulate the required parameters
 class TomoParams:
-    def __init__(self, sampling):
+    def __init__(self, sampling, nFitSrc, directionVectorSrc, fitSrcHeight):
         self.sampling = sampling
+        self.nFitSrc = nFitSrc
+        self.directionVectorSrc = directionVectorSrc
+        self.fitSrcHeight = fitSrcHeight
 
 class LgsWfsParams:
     def __init__(self, DSupport, wfsLensletsRotation, wfsLensletsOffset):
@@ -309,17 +424,23 @@ if __name__ == "__main__":
     4618.80215352,  9237.60430703, 18475.20861407])
     r0 = 0.171
     L0 = 30.0
+    nFitSrc = 1
+    directionVectorSrc = np.array([[0.0],
+                                   [0.0]])
+    fitSrcHeight = np.inf
     fractionnalR0 = np.array([0.46, 0.13, 0.04, 0.05, 0.12, 0.09, 0.11])
     nLGS = 4
     directionVectorLGS = np.array([[ 3.68458398e-05,  2.25615699e-21, -3.68458398e-05, -6.76847096e-21],
                                     [ 0.00000000e+00, 3.68458398e-05,  4.51231397e-21, -3.68458398e-05],
                                     [ 1.00000000e+00,  1.00000000e+00,  1.00000000e+00,  1.00000000e+00]])
     LGSheight = 103923.04845413263
-    gridMask = np.load("gridMask.npy")  # Load the grid mask from a file
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the current script
+    gridMask_path = os.path.join(script_dir, "gridMask.npy")  # Construct the full path to the file
+    gridMask = np.load(gridMask_path)  # Load the grid mask from the file
     sampling = gridMask.shape[0]  # Assuming square grid mask
 
     # Create parameter objects
-    tomoParams = TomoParams(sampling)
+    tomoParams = TomoParams(sampling, nFitSrc, directionVectorSrc, fitSrcHeight)
     lgsWfsParams = LgsWfsParams(DSupport, wfsLensletsRotation, wfsLensletsOffset)
     atmParams = AtmParams(nLayer, altitude, r0, L0, fractionnalR0)
     lgsAsterismParams = LgsAsterismParams(nLGS, directionVectorLGS, LGSheight)
@@ -330,6 +451,13 @@ if __name__ == "__main__":
     end_time = time.time()
 
     print(f"Auto-correlation matrix shape: {S.shape}")
+    print(f"Execution time: {end_time - start_time:.2f} seconds")
+
+    start_time = time.time()
+    S = cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+    end_time = time.time()
+
+    print(f"Cross-correlation matrix shape: {S.shape}")
     print(f"Execution time: {end_time - start_time:.2f} seconds")
 
 # %%

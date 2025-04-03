@@ -6,6 +6,7 @@ import time
 import math
 from cupyx.scipy.special import gamma as cp_gamma
 import cupyx
+import os
 
 # Pre-computed gamma values
 gamma_1_6 = 5.56631600178  # Gamma(1/6)
@@ -322,10 +323,117 @@ def auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
     
     return S_gpu
 
+def cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None):
+    """GPU-optimized cross-correlation function"""
+    # Parameter extraction
+    sampling = tomoParams.sampling
+    
+    # Handle mask
+    if gridMask is None:
+        mask_gpu = cp.ones((sampling, sampling), dtype=bool)
+    else:
+        mask_gpu = cp.array(gridMask)
+    
+    # Tomography parameters
+    nSs = tomoParams.nFitSrc**2
+    srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc)
+    srcCCheight = tomoParams.fitSrcHeight
+    
+    # LGS constellation parameters
+    nGs = lgsAsterismParams.nLGS
+    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS)
+    srcACheight = lgsAsterismParams.LGSheight
+    
+    # WFS parameters
+    D = lgsWfsParams.DSupport
+    wfsLensletsRotation = lgsWfsParams.wfsLensletsRotation
+    wfsLensletsOffset = lgsWfsParams.wfsLensletsOffset
+    
+    # Atmospheric parameters
+    nLayer = atmParams.nLayer
+    altitude = atmParams.altitude
+    r0 = atmParams.r0
+    L0 = atmParams.L0
+    fractionnalR0 = atmParams.fractionnalR0
+    
+    # Calculate the number of valid points in the mask
+    mask_sum = int(cp.sum(mask_gpu))
+    
+    # Initialize a 2D list of GPU arrays
+    C_gpu = [[cp.zeros((mask_sum, mask_sum)) for _ in range(nGs)] for _ in range(nSs)]
+    
+    for k in range(nSs*nGs):
+        # Get the indices kGs and jGs
+        kGs, iGs = np.unravel_index(k, (nSs, nGs))
+        
+        buf_gpu = cp.zeros((mask_sum, mask_sum))
+        
+        # Create grids for the guide star
+        x1_gpu, y1_gpu = create_guide_star_grid_gpu(
+            sampling, D, wfsLensletsRotation[iGs], 
+            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs]
+        )
+        
+        # Create grid for the science target 
+        x_range = cp.linspace(-1, 1, sampling) * D/2
+        y_range = cp.linspace(-1, 1, sampling) * D/2
+        x2_gpu, y2_gpu = cp.meshgrid(x_range, y_range)
+        
+        for kLayer in range(nLayer):
+            # Calculate coordinates
+            iZ_gpu = calculate_scaled_shifted_coords_gpu(
+                x1_gpu, y1_gpu, srcACdirectionVector_gpu, iGs, 
+                altitude, kLayer, srcACheight
+            )
+            
+            jZ_gpu = calculate_scaled_shifted_coords_gpu(
+                x2_gpu, y2_gpu, srcCCdirectionVector_gpu, kGs, 
+                altitude, kLayer, srcCCheight
+            )
+            
+            # Compute covariance matrix
+            out_gpu = covariance_matrix_gpu(
+                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
+            )
+            
+            # Apply mask
+            mask_flat = mask_gpu.flatten()
+            if out_gpu.shape[0] != mask_flat.shape[0]:
+                print(f"Shape mismatch: out_gpu.shape={out_gpu.shape}, mask_flat.shape={mask_flat.shape}")
+                valid_mask = cp.arange(mask_flat.size) < out_gpu.shape[0]
+                mask_subset = mask_flat[valid_mask]
+                masked_out = out_gpu[mask_subset, :]
+                masked_out = masked_out[:, mask_subset]
+            else:
+                masked_out = out_gpu[mask_flat, :]
+                masked_out = masked_out[:, mask_flat]
+            
+            # Accumulate results
+            if buf_gpu.shape == masked_out.shape:
+                buf_gpu += masked_out
+            else:
+                print(f"Warning: Buffer and output shapes don't match. buf_gpu={buf_gpu.shape}, masked_out={masked_out.shape}")
+                if masked_out.shape[0] > 0:
+                    buf_gpu = masked_out
+        
+        C_gpu[kGs][iGs] = buf_gpu.T
+    
+    # Convert list of lists to a CuPy array for final processing
+    C_rows = []
+    for row in C_gpu:
+        C_rows.append(cp.concatenate(row, axis=1))
+    
+    C_gpu_array = cp.array(C_rows)
+    
+    return C_gpu_array
+
 # Define the same parameter classes
 class TomoParams:
-    def __init__(self, sampling):
+    def __init__(self, sampling, nFitSrc, directionVectorSrc, fitSrcHeight):
         self.sampling = sampling
+        self.nFitSrc = nFitSrc
+        self.directionVectorSrc = directionVectorSrc
+        self.fitSrcHeight = fitSrcHeight
 
 class LgsWfsParams:
     def __init__(self, DSupport, wfsLensletsRotation, wfsLensletsOffset):
@@ -356,42 +464,54 @@ altitude = np.array([    0.  ,         577.35026919,  1154.70053838,  2309.40107
 4618.80215352,  9237.60430703, 18475.20861407])
 r0 = 0.171
 L0 = 30.0
+nFitSrc = 1
+directionVectorSrc = np.array([[0.0],
+                                [0.0]])
+fitSrcHeight = np.inf
 fractionnalR0 = np.array([0.46, 0.13, 0.04, 0.05, 0.12, 0.09, 0.11])
 nLGS = 4
 directionVectorLGS = np.array([[ 3.68458398e-05,  2.25615699e-21, -3.68458398e-05, -6.76847096e-21],
                                 [ 0.00000000e+00, 3.68458398e-05,  4.51231397e-21, -3.68458398e-05],
                                 [ 1.00000000e+00,  1.00000000e+00,  1.00000000e+00,  1.00000000e+00]])
 LGSheight = 103923.04845413263
-gridMask = np.load("gridMask.npy")  # Load the grid mask from a file
+script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the current script
+gridMask_path = os.path.join(script_dir, "gridMask.npy")  # Construct the full path to the file
+gridMask = np.load(gridMask_path)  # Load the grid mask from the file
 sampling = gridMask.shape[0]  # Assuming square grid mask
 
 # Create parameter objects
-tomoParams = TomoParams(6)  # Using a small sampling value for testing
+tomoParams = TomoParams(sampling, nFitSrc, directionVectorSrc, fitSrcHeight)
 lgsWfsParams = LgsWfsParams(DSupport, wfsLensletsRotation, wfsLensletsOffset)
 atmParams = AtmParams(nLayer, altitude, r0, L0, fractionnalR0)
 lgsAsterismParams = LgsAsterismParams(nLGS, directionVectorLGS, LGSheight)
-# Update the tomoParams to match the actual sampling used
-tomoParams = TomoParams(sampling)
 
 #%%
 # Warm up GPU
 cp.cuda.Stream.null.synchronize()
+for i in range(2):
+    # Call and benchmark the GPU version
+    start_time = time.time()
+    S_gpu_auto = auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+    cp.cuda.Stream.null.synchronize()  # Ensure all GPU operations complete
+    end_time = time.time()
 
-# Call and benchmark the GPU version
-start_time = time.time()
-S_gpu = auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
-cp.cuda.Stream.null.synchronize()  # Ensure all GPU operations complete
-end_time = time.time()
+    print(f"Auto GPU Execution time: {end_time - start_time:.2f} seconds")
 
-# Convert result back to CPU for comparison/output
-S = cp.asnumpy(S_gpu)
+    # Call and benchmark the GPU version
+    start_time = time.time()
+    S_gpu_cross =cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+    cp.cuda.Stream.null.synchronize()  # Ensure all GPU operations complete
+    end_time = time.time()
+    # Convert result back to CPU for comparison/output
+    S_gpu_cross = cp.asnumpy(S_gpu_cross)
+    S_gpu_auto = cp.asnumpy(S_gpu_auto)
 
-print(f"GPU Auto-correlation matrix shape: {S.shape}")
-print(f"GPU Execution time: {end_time - start_time:.2f} seconds")
+    print(f"Cross GPU Execution time: {end_time - start_time:.2f} seconds")
 
 # Optional: Compare with CPU version if needed
 #%%
 from test_auto import auto_correlation as auto_correlation_cpu
+from test_auto import cross_correlation as cross_correlation_cpu
 from test_auto import _kv56 as _kv56_cpu
 from numba import cuda
 import numpy as np
@@ -400,23 +520,28 @@ import time
 _kv56_cpu(np.array([0.5], dtype=np.complex128))  # Pre-compile the CPU version
 
 start_time_cpu = time.time()
-S_cpu = auto_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+S_cpu_auto = auto_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
 end_time_cpu = time.time()
 print(f"CPU Execution time: {end_time_cpu - start_time_cpu:.2f} seconds")
 print(f"Speedup: {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
 
 # Verify results
-if np.allclose(S, S_cpu, rtol=1e-5, atol=1e-8):
+if np.allclose(S_gpu_auto, S_cpu_auto, rtol=1e-5, atol=1e-8):
     print("GPU and CPU results match!")
 else:
     print("Warning: GPU and CPU results differ")
-    print(f"Max absolute difference: {np.max(np.abs(S - S_cpu))}")
-#%%
-import matplotlib.pyplot as plt
+    print(f"Max absolute difference: {np.max(np.abs(S_gpu_auto - S_cpu_auto))}")
 
-plt.imshow(S_cpu)
-plt.show()
-plt.imshow(S)
-plt.show()
+start_time_cpu = time.time()
+S_cpu_cross = cross_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+end_time_cpu = time.time()
+print(f"CPU Execution time: {end_time_cpu - start_time_cpu:.2f} seconds")
+print(f"Speedup: {(end_time_cpu - start_time_cpu) / (end_time - start_time):.2f}x")
+
+if np.allclose(S_gpu_cross, S_cpu_cross, rtol=1e-5, atol=1e-8):
+    print("GPU and CPU results match!")
+else:
+    print("Warning: GPU and CPU results differ")
+    print(f"Max absolute difference: {np.max(np.abs(S_gpu_cross - S_cpu_cross))}")
 
 #%%
