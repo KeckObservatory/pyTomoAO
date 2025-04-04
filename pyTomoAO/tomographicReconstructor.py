@@ -8,18 +8,13 @@
 
 import yaml
 import numpy as np
-import numba as nb
-import math
-import time
 import logging
 import matplotlib.pyplot as plt
-from scipy.sparse import block_diag
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters 
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 from scipy.io import loadmat
-from scipy.special import kv, gamma  # kv is the Bessel function of the second kind
 try:  
     CUDA = True
     import cupy as cp
@@ -245,12 +240,12 @@ class tomographicReconstructor:
         return Cox
     # ======================================================================
     # Build Reconstructor
-    def build_reconstructor(self,use_float32=True):
+    def build_reconstructor(self,use_float32=False):
         """
         Build the tomographic reconstructor from the self parameters.
         """
         if CUDA:
-            _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor(self.tomoParams, self.lgsWfsParams, self.atmParams, self.lgsAsterismParams, use_float32)
+            _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor(self.tomoParams, self.lgsWfsParams, self.atmParams, self.lgsAsterismParams, use_float32=True)
         else:
             _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor(self.tomoParams, self.lgsWfsParams, self.atmParams, self.lgsAsterismParams)
         self._reconstructor = _reconstructor
