@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import tomoAO
 from tomoAO.Reconstruction.reconClassType import tomoReconstructor
 import sys
-sys.path.insert(0, "/home/whetstone/keck/pyTomoAO")
+sys.path.insert(0, "/home/aodev/uriel/pyTomoAO")
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 import time
 import numpy as np
