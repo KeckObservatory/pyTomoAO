@@ -3,7 +3,9 @@ import numpy as np
 import cupy as cp
 from scipy.special import gamma
 import math
-from cupyx.scipy.special import gamma as cp_gamma
+from cupyx.scipy.special import gamma
+from scipy.sparse import block_diag
+#from test_auto import sparseGradientMatrixAmplitudeWeighted
 
 # Pre-computed gamma values
 gamma_1_6 = 5.56631600178  # Gamma(1/6)
@@ -196,6 +198,9 @@ void fast_math_kernel(float *input, float *output, int n) {
 }
 ''', 'fast_math_kernel')
 
+# Modify `_kv56_gpu` to use dynamic parallelism for recursive computations
+# This allows threads to launch additional kernels for deeper levels of computation
+
 def _kv56(z_gpu, use_float32=False):
     """GPU implementation of K_{5/6} Bessel function using ElementwiseKernel with dynamic parallelism"""
     dtype = cp.float32 if use_float32 else cp.float64
@@ -213,48 +218,28 @@ def _kv56(z_gpu, use_float32=False):
 
     return out_gpu
 
-def _compute_block(rho_block_gpu, L0, cst, var_term):
-    """
-    Vectorized computation of covariance values for a matrix block. GPU version
-    """
-    # Initialize output with variance term
-    out_gpu = cp.full(rho_block_gpu.shape, var_term, dtype=cp.float64)
-    
-    # Find non-zero distances
+def _compute_block(rho_block_gpu, L0, cst, var_term, use_float32=False):
+    """GPU implementation of block computation"""
+    dtype = cp.float32 if use_float32 else cp.float64
+
+    var_term_gpu = cp.asarray(var_term, dtype=dtype)
+    out_gpu = cp.full(rho_block_gpu.shape, dtype=dtype, fill_value=var_term_gpu)
     mask_gpu = rho_block_gpu != 0
-    
-    # Only compute where mask is True
+
     if cp.any(mask_gpu):
         rho_nonzero = rho_block_gpu[mask_gpu]
         u_gpu = (2 * cp.pi * rho_nonzero) / L0
-        
-        # Calculate Bessel function
-        bessel_input = u_gpu.astype(cp.complex128)
-        bessel_output = _kv56(cp.real(bessel_input))
-        
-        # Compute final values
+
+        bessel_output = _kv56(cp.real(u_gpu.astype(cp.complex64 if use_float32 else cp.complex128)), use_float32)
         covariance_values = cst * u_gpu**(5/6) * cp.real(bessel_output)
-        
-        # Update output array
         out_gpu[mask_gpu] = covariance_values
-        
+
     return out_gpu
 
-def _rotateWFS(px_gpu, py_gpu, rotAngleInRadians):
-    """
-    This function rotate the WFS subapertures positions. GPU version.
+def _rotateWFS(px_gpu, py_gpu, rotAngleInRadians, use_float32=False):
+    """GPU version of the WFS rotation function"""
+    dtype = cp.float32 if use_float32 else cp.float64
     
-    Parameters:
-    -----------
-        px (1D array): The original WFS X subaperture position.
-        py (1D array): The original WFS Y subaperture position.
-        rotAngleInRadians (double): The rotation angle in radians.
-    
-    Returns:
-    --------
-        pxx (1D array): The new WFS X subaperture position after rotation.
-        pyy (1D array): The new WFS Y subapertuer position after rotation.
-    """
     cos_angle = math.cos(rotAngleInRadians)
     sin_angle = math.sin(rotAngleInRadians)
     
@@ -263,22 +248,11 @@ def _rotateWFS(px_gpu, py_gpu, rotAngleInRadians):
     
     return pxx_gpu, pyy_gpu
 
-def _covariance_matrix(*args):
-    """
-    Optimized phase covariance matrix calculation using Von Karman turbulence model. GPU version.
+def _covariance_matrix(*args, use_float32=False):
+    """GPU implementation of covariance matrix calculation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
     
-    Parameters:
-    -----------
-        *args: (rho1, [rho2], r0, L0, fractionalR0)
-            rho1, rho2: Complex coordinate arrays (x + iy)
-            r0: Fried parameter (m)
-            L0: Outer scale (m)
-            fractionalR0: Turbulence layer weighting factor
-    
-    Returns:
-    --------
-        Covariance matrix with same dimensions as input coordinates
-    """
     # Validate input arguments
     if len(args) not in {4, 5}:
         raise ValueError("Expected 4 or 5 arguments: (rho1, [rho2], r0, L0, fractionalR0)")
@@ -318,7 +292,7 @@ def _covariance_matrix(*args):
     # Block processing for large matrices
     block_size = 5000
     if max(n, m) > block_size:
-        out_gpu = cp.empty((n, m), dtype=cp.float64)
+        out_gpu = cp.empty((n, m), dtype=dtype)
         
         for i in range(0, n, block_size):
             i_end = min(i + block_size, n)
@@ -328,39 +302,28 @@ def _covariance_matrix(*args):
                 
                 block_gpu = rho_gpu[i:i_end, j:j_end]
                 out_gpu[i:i_end, j:j_end] = _compute_block(
-                    block_gpu, L0, cst, var_term
+                    block_gpu, L0, cst, var_term, use_float32
                 )
         
         out_gpu *= fractionalR0
         return out_gpu
 
     # Single block processing for smaller matrices
-    out_gpu = _compute_block(rho_gpu, L0, cst, var_term)
+    out_gpu = _compute_block(rho_gpu, L0, cst, var_term, use_float32)
     return out_gpu * fractionalR0
 
-def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
-    """
-    Create a grid of guide star positions based on the specified parameters. GPU version.
-
-    Parameters:
-    -----------
-        sampling (int): Number of samples in each dimension for the grid.
-        D (float): Diameter of the telescope, used to scale the grid.
-        rotation_angle (float): Angle to rotate the grid in degrees.
-        offset_x (float): Offset in the x-direction to apply to the grid.
-        offset_y (float): Offset in the y-direction to apply to the grid.
-
-    Returns:
-    --------
-        tuple: Two 2D arrays representing the x and y coordinates of the guide stars.
-    """
+def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y, use_float32=False):
+    """GPU version of guide star grid creation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Create coordinate grids
-    x_range = cp.linspace(-1, 1, sampling) * D/2
-    y_range = cp.linspace(-1, 1, sampling) * D/2
+    x_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
+    y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
     x_gpu, y_gpu = cp.meshgrid(x_range, y_range)
     
     # Flatten, rotate, and apply offsets
-    x_flat, y_flat = _rotateWFS(x_gpu.flatten(), y_gpu.flatten(), rotation_angle * 180/cp.pi)
+    x_flat, y_flat = _rotateWFS(x_gpu.flatten(), y_gpu.flatten(), rotation_angle * 180/cp.pi, use_float32)
     x_flat = x_flat - offset_x * D
     y_flat = y_flat - offset_y * D
     
@@ -368,29 +331,14 @@ def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
     return x_flat.reshape(sampling, sampling), y_flat.reshape(sampling, sampling)
 
 def _calculate_scaled_shifted_coords(x_gpu, y_gpu, srcACdirectionVector_gpu, gs_index, 
-                                        altitude, kLayer, srcACheight):
-    """
-    Calculate the scaled and shifted coordinates for a guide star. GPU version.
-
-    Parameters:
-    -----------
-        x (ndarray): The x-coordinates in Cartesian space.
-        y (ndarray): The y-coordinates in Cartesian space.
-        srcACdirectionVector (ndarray): Direction vectors for the guide stars.
-        gs_index (int): Index of the guide star being processed.
-        altitude (ndarray): Altitudes of the turbulence layers.
-        kLayer (int): Index of the current turbulence layer.
-        srcACheight (float): Height of the source guide star.
-
-    Returns:
-    --------
-        complex: The scaled and shifted coordinates as a complex number,
-                where the real part is the x-coordinate and the imaginary
-                part is the y-coordinate.
-    """
+                                        altitude, kLayer, srcACheight, use_float32=False):
+    """GPU version of coordinate calculation"""
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
     # Convert NumPy arrays to CuPy if needed
     if isinstance(srcACdirectionVector_gpu, np.ndarray):
-        srcACdirectionVector_gpu = cp.array(srcACdirectionVector_gpu)
+        srcACdirectionVector_gpu = cp.array(srcACdirectionVector_gpu, dtype=dtype)
     
     # Calculate beta shift
     beta = srcACdirectionVector_gpu[:, gs_index] * altitude[kLayer]
@@ -401,62 +349,27 @@ def _calculate_scaled_shifted_coords(x_gpu, y_gpu, srcACdirectionVector_gpu, gs_
     # Calculate scaled and shifted coordinates
     return x_gpu * scale + beta[0] + 1j * (y_gpu * scale + beta[1])
 
-def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask):
-    """
-    Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
-    GPU version.
+def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask, use_float32=False):
+    """GPU-optimized auto-correlation function"""
+    print("-->> Computing auto-correlation matrix <<--\n")
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
     
-    Parameters:
-    -----------
-    tomoParams : object
-        Contains tomography parameters:
-        - sampling (int): Number of grid samples per axis
-        - mask (ndarray): 2D boolean grid mask
-    
-    lgsWfsParams : object
-        LGS WFS parameters:
-        - D (float): Telescope diameter [m]
-        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-    
-    atmParams : object
-        Atmospheric parameters:
-        - nLayer (int): Number of turbulence layers
-        - altitude (ndarray): Layer altitudes [m]
-        - r0 (float): Fried parameter [m]
-        - L0 (float): Outer scale [m]
-        - fractionnalR0 (ndarray): Turbulence strength per layer
-    
-    lgsAsterismParams : object
-        LGS constellation parameters:
-        - nLGS (int): Number of LGS
-        - directionVectorLGS (ndarray): Direction vectors
-        - LGSheight (ndarray): LGS heights [m]
-
-    gridMask : ndarray
-        2D boolean mask for valid grid points
-
-    Returns:
-    --------
-    S : ndarray
-        Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
-    """
-    print("-->> Computing auto-correlation meta-matrix <<--\n")
     # Parameter extraction
+    tomoParams.sampling = gridMask.shape[0]
     sampling = tomoParams.sampling
-    mask_gpu = cp.array(gridMask)
+    mask_gpu = cp.array(gridMask, dtype=bool)
     
     # Ensure gridMask is the right size
     if mask_gpu.shape[0] != sampling or mask_gpu.shape[1] != sampling:
         print(f"Warning: Mask shape {mask_gpu.shape} doesn't match sampling {sampling}.")
-        # Resize mask or adjust sampling
-        # Option 1: Generate a mask of the right size
+        # Generate a mask of the right size
         mask_gpu = cp.ones((sampling, sampling), dtype=bool)
     
     # LGS constellation parameters
     nGs = lgsAsterismParams.nLGS
     # Convert to GPU array
-    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS)
+    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS, dtype=dtype)
     srcACheight = lgsAsterismParams.LGSheight
     
     # WFS parameters
@@ -478,73 +391,73 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     kGs = kGs[kGs != 0]
     
     # Initialize result list
-    mask_sum = int(cp.sum(mask_gpu))
-    S_gpu = [cp.zeros((mask_sum, mask_sum)) for _ in range(len(kGs))]
+    mask_flat = mask_gpu.flatten()
+    mask_indices = cp.where(mask_flat)[0]
+    mask_sum = len(mask_indices)
+    S_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(len(kGs))]
     
     for k in range(len(kGs)):
         # Get the indices
         jGs, iGs = np.unravel_index(kGs[k] - 1, (nGs, nGs))
         
-        buf_gpu = cp.zeros((mask_sum, mask_sum))
+        buf_gpu = cp.zeros((mask_sum, mask_sum), dtype=dtype)
         
         # Create grids for guide stars
         x1_gpu, y1_gpu = _create_guide_star_grid(
             sampling, D, wfsLensletsRotation[iGs], 
-            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs]
+            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs],
+            use_float32
         )
         
         x2_gpu, y2_gpu = _create_guide_star_grid(
             sampling, D, wfsLensletsRotation[jGs], 
-            wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs]
+            wfsLensletsOffset[0, jGs], wfsLensletsOffset[1, jGs],
+            use_float32
         )
         
         for kLayer in range(nLayer):
             # Calculate coordinates
             iZ_gpu = _calculate_scaled_shifted_coords(
                 x1_gpu, y1_gpu, srcACdirectionVector_gpu, iGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
             jZ_gpu = _calculate_scaled_shifted_coords(
                 x2_gpu, y2_gpu, srcACdirectionVector_gpu, jGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
             # Compute covariance matrix
             out_gpu = _covariance_matrix(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
+                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
             
-            # Apply mask correctly - ensure dimensions match
-            mask_flat = mask_gpu.flatten()
-            # First check shapes to avoid IndexError
-            if out_gpu.shape[0] != mask_flat.shape[0]:
-                print(f"Shape mismatch: out_gpu.shape={out_gpu.shape}, mask_flat.shape={mask_flat.shape}")
-                # Only take values at valid indices
-                valid_mask = cp.arange(mask_flat.size) < out_gpu.shape[0]
-                mask_subset = mask_flat[valid_mask]
-                # Apply mask to subset that fits
-                masked_out = out_gpu[mask_subset, :]
-                masked_out = masked_out[:, mask_subset]
-            else:
-                # Apply mask normally
-                masked_out = out_gpu[mask_flat, :]
-                masked_out = masked_out[:, mask_flat]
+            # Directly apply mask using precomputed indices
+            if out_gpu.shape[0] >= len(mask_flat):
+                # When output is large enough to accommodate all mask points
+                masked_out = out_gpu[mask_indices, :][:, mask_indices]
                 
-            # Accumulate the results
-            if buf_gpu.shape == masked_out.shape:
+                # Accumulate results without shape checking
                 buf_gpu += masked_out
             else:
-                print(f"Warning: Buffer and output shapes don't match. buf_gpu={buf_gpu.shape}, masked_out={masked_out.shape}")
-                # Resize buffer if needed
-                if masked_out.shape[0] > 0:
-                    buf_gpu = masked_out  # Replace if can't add
+                # Only when output is smaller than expected (should be rare)
+                valid_limit = min(out_gpu.shape[0], len(mask_indices))
+                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
+                
+                if len(valid_indices) > 0:
+                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
+                    
+                    # Resize buffer if needed (first encounter only)
+                    if buf_gpu.shape != masked_out.shape:
+                        buf_gpu = cp.zeros_like(masked_out)
+                    
+                    buf_gpu += masked_out
         
         if k < len(S_gpu):
             S_gpu[k] = buf_gpu.T
     
     # Rearrange results into full matrix
-    S_tmp_gpu = [cp.zeros((mask_sum, mask_sum)) for _ in range(nGs**2)]
+    S_tmp_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs**2)]
     for c, i in enumerate(kGs):
         S_tmp_gpu[i-1] = S_gpu[c]
     
@@ -563,47 +476,12 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     
     return S_gpu
 
-def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None):
-    """
-    Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
-    GPU version.
+def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None, use_float32=False):
+    """GPU-optimized cross-correlation function"""
+    print("-->> Computing cross-correlation matrix <<--\n")
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
     
-    Parameters:
-    -----------
-    tomoParams : object
-        Contains tomography parameters:
-        - sampling (int): Number of grid samples per axis
-        - mask (ndarray): 2D boolean grid mask
-    
-    lgsWfsParams : object
-        LGS WFS parameters:
-        - D (float): Telescope diameter [m]
-        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-    
-    atmParams : object
-        Atmospheric parameters:
-        - nLayer (int): Number of turbulence layers
-        - altitude (ndarray): Layer altitudes [m]
-        - r0 (float): Fried parameter [m]
-        - L0 (float): Outer scale [m]
-        - fractionnalR0 (ndarray): Turbulence strength per layer
-    
-    lgsAsterismParams : object
-        LGS constellation parameters:
-        - nLGS (int): Number of LGS
-        - directionVectorLGS (ndarray): Direction vectors
-        - LGSheight (ndarray): LGS heights [m]
-    
-    gridMask : ndarray
-        2D boolean mask for valid grid points
-    
-    Returns:
-    --------
-    S : ndarray
-        Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
-    """
-    print("-->> Computing cross-correlation meta-matrix <<--\n")
     # Parameter extraction
     sampling = tomoParams.sampling
     
@@ -611,16 +489,21 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
     if gridMask is None:
         mask_gpu = cp.ones((sampling, sampling), dtype=bool)
     else:
-        mask_gpu = cp.array(gridMask)
+        mask_gpu = cp.array(gridMask, dtype=bool)
+    
+    # Precompute mask indices for faster indexing
+    mask_flat = mask_gpu.flatten()
+    mask_indices = cp.where(mask_flat)[0]
+    mask_sum = len(mask_indices)
     
     # Tomography parameters
     nSs = tomoParams.nFitSrc**2
-    srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc)
+    srcCCdirectionVector_gpu = cp.array(tomoParams.directionVectorSrc, dtype=dtype)
     srcCCheight = tomoParams.fitSrcHeight
     
     # LGS constellation parameters
     nGs = lgsAsterismParams.nLGS
-    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS)
+    srcACdirectionVector_gpu = cp.array(lgsAsterismParams.directionVectorLGS, dtype=dtype)
     srcACheight = lgsAsterismParams.LGSheight
     
     # WFS parameters
@@ -635,65 +518,63 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
     L0 = atmParams.L0
     fractionnalR0 = atmParams.fractionnalR0
     
-    # Calculate the number of valid points in the mask
-    mask_sum = int(cp.sum(mask_gpu))
-    
     # Initialize a 2D list of GPU arrays
-    C_gpu = [[cp.zeros((mask_sum, mask_sum)) for _ in range(nGs)] for _ in range(nSs)]
+    C_gpu = [[cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs)] for _ in range(nSs)]
     
     for k in range(nSs*nGs):
         # Get the indices kGs and jGs
         kGs, iGs = np.unravel_index(k, (nSs, nGs))
         
-        buf_gpu = cp.zeros((mask_sum, mask_sum))
+        buf_gpu = cp.zeros((mask_sum, mask_sum), dtype=dtype)
         
         # Create grids for the guide star
         x1_gpu, y1_gpu = _create_guide_star_grid(
             sampling, D, wfsLensletsRotation[iGs], 
-            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs]
+            wfsLensletsOffset[0, iGs], wfsLensletsOffset[1, iGs],
+            use_float32
         )
         
         # Create grid for the science target 
-        x_range = cp.linspace(-1, 1, sampling) * D/2
-        y_range = cp.linspace(-1, 1, sampling) * D/2
+        x_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
+        y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D/2
         x2_gpu, y2_gpu = cp.meshgrid(x_range, y_range)
         
         for kLayer in range(nLayer):
             # Calculate coordinates
-            iZ_gpu = calculate_scaled_shifted_coords(
+            iZ_gpu = _calculate_scaled_shifted_coords(
                 x1_gpu, y1_gpu, srcACdirectionVector_gpu, iGs, 
-                altitude, kLayer, srcACheight
+                altitude, kLayer, srcACheight, use_float32
             )
             
-            jZ_gpu = calculate_scaled_shifted_coords(
+            jZ_gpu = _calculate_scaled_shifted_coords(
                 x2_gpu, y2_gpu, srcCCdirectionVector_gpu, kGs, 
-                altitude, kLayer, srcCCheight
+                altitude, kLayer, srcCCheight, use_float32
             )
             
             # Compute covariance matrix
-            out_gpu = covariance_matrix(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer]
+            out_gpu = _covariance_matrix(
+                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
             
-            # Apply mask
-            mask_flat = mask_gpu.flatten()
-            if out_gpu.shape[0] != mask_flat.shape[0]:
-                print(f"Shape mismatch: out_gpu.shape={out_gpu.shape}, mask_flat.shape={mask_flat.shape}")
-                valid_mask = cp.arange(mask_flat.size) < out_gpu.shape[0]
-                mask_subset = mask_flat[valid_mask]
-                masked_out = out_gpu[mask_subset, :]
-                masked_out = masked_out[:, mask_subset]
-            else:
-                masked_out = out_gpu[mask_flat, :]
-                masked_out = masked_out[:, mask_flat]
-            
-            # Accumulate results
-            if buf_gpu.shape == masked_out.shape:
+            # Directly apply mask using precomputed indices
+            if out_gpu.shape[0] >= len(mask_flat):
+                # When output is large enough for all mask points
+                masked_out = out_gpu[mask_indices, :][:, mask_indices]
+                
+                # Accumulate without shape checking
                 buf_gpu += masked_out
             else:
-                print(f"Warning: Buffer and output shapes don't match. buf_gpu={buf_gpu.shape}, masked_out={masked_out.shape}")
-                if masked_out.shape[0] > 0:
-                    buf_gpu = masked_out
+                # Only when output is smaller than expected (rare case)
+                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
+                
+                if len(valid_indices) > 0:
+                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
+                    
+                    # Resize buffer if needed (first encounter only)
+                    if buf_gpu.shape != masked_out.shape:
+                        buf_gpu = cp.zeros_like(masked_out)
+                    
+                    buf_gpu += masked_out
         
         C_gpu[kGs][iGs] = buf_gpu.T
     
@@ -702,6 +583,213 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
     for row in C_gpu:
         C_rows.append(cp.concatenate(row, axis=1))
     
-    C_gpu_array = cp.array(C_rows)
+    C_gpu_array = cp.concatenate(C_rows, axis=0)
     
     return C_gpu_array
+
+def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
+    """
+    Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
+    
+    Parameters:
+    ----------
+    validLenslet : 2D array
+        Valid lenslet map
+    amplMask : 2D array
+        Amplitudes Weight Mask (default=None). 
+    overSampling : int
+        Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
+    
+    Returns:
+    -------
+    Gamma : scipy.sparse.csr_matrix
+        Sparse gradient matrix.
+    gridMask : 2D array
+        Mask used for the reconstructed phase.
+    """
+    print("-->> Computing sparse gradient matrix <<--\n")
+    
+    import numpy as np
+    # Get dimensions and counts
+    nLenslet = validLenslet.shape[0]  # Size of lenslet array
+    nMap = overSampling * nLenslet + 1  # Size of oversampled grid
+    nValidLenslet_ = np.count_nonzero(validLenslet)  # Number of valid lenslets
+    
+    # Create default amplitude mask if none provided
+    if amplMask is None:
+        amplMask = np.ones((nMap, nMap))
+
+    # Set up stencil parameters based on oversampling factor
+    if overSampling == 2:
+        # 3x3 stencil for 2x oversampling
+        stencil_size = 3
+        s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4])  # x-gradient weights
+        s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4])  # y-gradient weights
+        num_points = 9
+    elif overSampling == 4:
+        # 5x5 stencil for 4x oversampling
+        stencil_size = 5
+        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16])  # x-gradient weights
+        s0y = s0x.reshape(5,5).T.flatten()  # y-gradient weights (transpose of x)
+        num_points = 25
+    else:
+        raise ValueError("overSampling must be 2 or 4")
+
+    # Initialize stencil position arrays
+    i0x = np.tile(np.arange(1, stencil_size+1), stencil_size)  # Row indices
+    j0x = np.repeat(np.arange(1, stencil_size+1), stencil_size)  # Column indices
+    i0y = i0x.copy()  # Same pattern for y-gradient
+    j0y = j0x.copy()
+    
+    # Initialize arrays to store sparse matrix entries
+    i_x = np.zeros(num_points * nValidLenslet_)  # Row indices for x-gradient
+    j_x = np.zeros(num_points * nValidLenslet_)  # Column indices for x-gradient
+    s_x = np.zeros(num_points * nValidLenslet_)  # Values for x-gradient
+    i_y = np.zeros(num_points * nValidLenslet_)  # Row indices for y-gradient
+    j_y = np.zeros(num_points * nValidLenslet_)  # Column indices for y-gradient
+    s_y = np.zeros(num_points * nValidLenslet_)  # Values for y-gradient
+    
+    # Create grid for mask
+    iMap0, jMap0 = np.meshgrid(np.arange(1, stencil_size+1), np.arange(1, stencil_size+1))
+    gridMask = np.zeros((nMap, nMap), dtype=bool)
+    u = np.arange(1, num_points+1)  # Counter for filling arrays
+
+    # Build sparse matrix by iterating over lenslets
+    for jLenslet in range(1, nLenslet + 1):
+        jOffset = overSampling * (jLenslet - 1)  # Column offset in oversampled grid
+        for iLenslet in range(1, nLenslet + 1):
+            if validLenslet[iLenslet - 1, jLenslet - 1]:  # Only process valid lenslets
+                # Calculate indices in amplitude mask
+                I = (iLenslet - 1) * overSampling + 1
+                J = (jLenslet - 1) * overSampling + 1
+                
+                # Check if amplitude mask is valid for this lenslet
+                if np.sum(amplMask[I-1:I+overSampling, J-1:J+overSampling]) == (overSampling + 1) ** 2:
+                    iOffset = overSampling * (iLenslet - 1)  # Row offset in oversampled grid
+                    # Fill in gradient arrays
+                    i_x[u - 1] = i0x + iOffset
+                    j_x[u - 1] = j0x + jOffset
+                    s_x[u - 1] = s0x
+                    i_y[u - 1] = i0y + iOffset
+                    j_y[u - 1] = j0y + jOffset
+                    s_y[u - 1] = s0y
+                    u = u + num_points
+                    gridMask[iMap0 + iOffset - 1, jMap0 + jOffset - 1] = True
+
+    # Create sparse matrix in CSR format
+    # Convert indices to linear indices
+    from scipy.sparse import csr_matrix
+    import numpy as np
+    
+    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order='F')
+    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order='F')
+    v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
+    
+    # Construct final sparse gradient matrix
+    Gamma = csr_matrix((np.concatenate((s_x, s_y)), (v.flatten() - 1, np.concatenate((indx, indy)))),
+                    shape=(2 * nValidLenslet_, nMap ** 2))
+    Gamma = Gamma[:, gridMask.ravel()]  # Apply mask to reduce matrix size
+
+    return Gamma, gridMask
+
+def _build_reconstructor(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
+    """
+    GPU-optimized atmospheric tomography reconstructor builder
+    
+    Parameters:
+        tomoParams: Tomography parameters
+        lgsWfsParams: Laser guide star WFS parameters
+        atmParams: Atmospheric parameters
+        lgsAsterismParams: LGS asterism parameters
+        use_float32: If True, use float32 precision instead of float64 for faster computation
+    
+    Returns:
+        _reconstructor: Optimized tomographic reconstructor
+    """
+    cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
+    # Create a CUDA stream for asynchronous operations
+    stream = cp.cuda.Stream()
+    with stream:
+        # Get sparse gradient matrix (CPU operation)
+        Gamma, _gridMask = _sparseGradientMatrixAmplitudeWeighted(
+            lgsWfsParams.validLLMapSupport,
+            amplMask=None, 
+            overSampling=2
+        )
+
+        # Use the exact same block diagonal approach as the CPU version
+        # This ensures identical matrix structure
+        Gamma_list = []
+        for kGs in range(lgsAsterismParams.nLGS):
+            Gamma_list.append(Gamma)
+
+        Gamma = cp.array(block_diag(Gamma_list).toarray(), dtype=dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Gamma computation
+
+        Cxx = _auto_correlation(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams,
+            _gridMask,
+            use_float32
+        ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
+
+        tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
+        # Update the tomography parameters with proper conversion
+        if isinstance(tomoParams.fitSrcWeight, np.ndarray):
+            tomoParams.fitSrcWeight = cp.array(tomoParams.fitSrcWeight, dtype=dtype)
+        else:
+            tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2, dtype=dtype)/tomoParams.nFitSrc**2
+
+        Cox = _cross_correlation(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams,
+            use_float32=use_float32
+        ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
+
+        weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
+        CoxOut = cp.sum(weighted_cox, axis=0)
+
+        row_mask = _gridMask.ravel().astype(bool)
+        col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+
+        # Select submatrix using boolean masks with np.ix_ for correct indexing
+        # DO NOT EDIT THIS WITH CUPY FUNCTIONS, IT WILL BREAK THE GPU VERSION
+        idxs = np.ix_(row_mask, col_mask)
+        Cox = CoxOut[idxs]
+
+        # Calculate noise covariance
+        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+        
+        # Keep calculations separate to match CPU version exactly
+        GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
+        GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
+
+        eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
+        invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
+
+        # Final computation of reconstructor - match CPU exactly
+        RecStatSA = Cox @ Gamma.T @ invCss
+        
+        # LGS WFS subapertures diameter
+        d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
+
+        # Size of the pixel at Shannon sampling
+        _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+
+        # Compute final scaled reconstructor
+        _reconstructor = cp.asnumpy(d * _wavefront2Meter * RecStatSA)
+        
+        # Clean up GPU memory
+        cp.get_default_memory_pool().free_all_blocks()
+
+        return _reconstructor, Gamma, _gridMask, Cxx, Cox, CnZ, RecStatSA

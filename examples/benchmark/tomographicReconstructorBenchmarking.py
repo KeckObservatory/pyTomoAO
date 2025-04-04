@@ -35,7 +35,7 @@ def benchmark_reconstructor(library, num_iterations=5):
         reconstructor = tomographicReconstructor(config_path)
     elif library == "tomoAO":
         ao_mode = "MLAO"
-        config_dir = "../../../PyTomo/Demo/"
+        config_dir = "/home/aodev/uriel/PyTomo/Demo/"
         config_file = "config.ini"
         
         # Read the ini file and replace occurrences of the specified path
@@ -44,7 +44,7 @@ def benchmark_reconstructor(library, num_iterations=5):
         
         # Replace the path
         old_path = "/home/joaomonteiro/Desktop/"
-        new_path = "/home/whetstone/keck/"  # Replace with your desired folder name
+        new_path = "/home/aodev/uriel/"  # Replace with your desired folder name
         config_data = config_data.replace(old_path, new_path)
         
         # Write the updated content back to the ini file
@@ -81,7 +81,7 @@ def benchmark_reconstructor(library, num_iterations=5):
 library1 = "pyTomoAO"
 mean_time1, statistics1 = benchmark_reconstructor(library1)
 
-# Example usage:
+#Example usage:
 # library2 = "tomoAO"
 # mean_time2, statistics2 = benchmark_reconstructor(library2)
 

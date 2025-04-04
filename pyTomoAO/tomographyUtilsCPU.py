@@ -2,6 +2,7 @@ import numpy as np
 import math
 import numba as nb
 from scipy.special import gamma
+from scipy.sparse import block_diag
 
 @nb.njit(nb.complex128(nb.complex128), cache=False)
 def _kv56_scalar(z):
@@ -282,6 +283,7 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,grid
     # Parameter Extraction
     # ======================================================================
     # Tomography parameters
+    tomoParams.sampling = gridMask.shape[0]
     sampling = tomoParams.sampling
     mask = gridMask
     
@@ -401,6 +403,11 @@ def _cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,grid
     # Parameter Extraction
     # ======================================================================
     # Tomography parameters
+    try:    
+        tomoParams.sampling = gridMask.shape[0]
+    except:
+        tomoParams.sampling = 49
+
     sampling = tomoParams.sampling
     
     if gridMask is None:
@@ -466,3 +473,171 @@ def _cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,grid
     C = np.array([np.concatenate(row, axis=1) for row in C])
     
     return C
+
+def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
+    """
+    Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
+    
+    Parameters:
+    ----------
+    validLenslet : 2D array
+        Valid lenslet map
+    amplMask : 2D array
+        Amplitudes Weight Mask (default=None). 
+    overSampling : int
+        Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
+    
+    Returns:
+    -------
+    Gamma : scipy.sparse.csr_matrix
+        Sparse gradient matrix.
+    gridMask : 2D array
+        Mask used for the reconstructed phase.
+    """
+    print("-->> Computing sparse gradient matrix <<--\n")
+    
+    import numpy as np
+    # Get dimensions and counts
+    nLenslet = validLenslet.shape[0]  # Size of lenslet array
+    nMap = overSampling * nLenslet + 1  # Size of oversampled grid
+    nValidLenslet_ = np.count_nonzero(validLenslet)  # Number of valid lenslets
+    
+    # Create default amplitude mask if none provided
+    if amplMask is None:
+        amplMask = np.ones((nMap, nMap))
+
+    # Set up stencil parameters based on oversampling factor
+    if overSampling == 2:
+        # 3x3 stencil for 2x oversampling
+        stencil_size = 3
+        s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4])  # x-gradient weights
+        s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4])  # y-gradient weights
+        num_points = 9
+    elif overSampling == 4:
+        # 5x5 stencil for 4x oversampling
+        stencil_size = 5
+        s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16])  # x-gradient weights
+        s0y = s0x.reshape(5,5).T.flatten()  # y-gradient weights (transpose of x)
+        num_points = 25
+    else:
+        raise ValueError("overSampling must be 2 or 4")
+
+    # Initialize stencil position arrays
+    i0x = np.tile(np.arange(1, stencil_size+1), stencil_size)  # Row indices
+    j0x = np.repeat(np.arange(1, stencil_size+1), stencil_size)  # Column indices
+    i0y = i0x.copy()  # Same pattern for y-gradient
+    j0y = j0x.copy()
+    
+    # Initialize arrays to store sparse matrix entries
+    i_x = np.zeros(num_points * nValidLenslet_)  # Row indices for x-gradient
+    j_x = np.zeros(num_points * nValidLenslet_)  # Column indices for x-gradient
+    s_x = np.zeros(num_points * nValidLenslet_)  # Values for x-gradient
+    i_y = np.zeros(num_points * nValidLenslet_)  # Row indices for y-gradient
+    j_y = np.zeros(num_points * nValidLenslet_)  # Column indices for y-gradient
+    s_y = np.zeros(num_points * nValidLenslet_)  # Values for y-gradient
+    
+    # Create grid for mask
+    iMap0, jMap0 = np.meshgrid(np.arange(1, stencil_size+1), np.arange(1, stencil_size+1))
+    gridMask = np.zeros((nMap, nMap), dtype=bool)
+    u = np.arange(1, num_points+1)  # Counter for filling arrays
+
+    # Build sparse matrix by iterating over lenslets
+    for jLenslet in range(1, nLenslet + 1):
+        jOffset = overSampling * (jLenslet - 1)  # Column offset in oversampled grid
+        for iLenslet in range(1, nLenslet + 1):
+            if validLenslet[iLenslet - 1, jLenslet - 1]:  # Only process valid lenslets
+                # Calculate indices in amplitude mask
+                I = (iLenslet - 1) * overSampling + 1
+                J = (jLenslet - 1) * overSampling + 1
+                
+                # Check if amplitude mask is valid for this lenslet
+                if np.sum(amplMask[I-1:I+overSampling, J-1:J+overSampling]) == (overSampling + 1) ** 2:
+                    iOffset = overSampling * (iLenslet - 1)  # Row offset in oversampled grid
+                    # Fill in gradient arrays
+                    i_x[u - 1] = i0x + iOffset
+                    j_x[u - 1] = j0x + jOffset
+                    s_x[u - 1] = s0x
+                    i_y[u - 1] = i0y + iOffset
+                    j_y[u - 1] = j0y + jOffset
+                    s_y[u - 1] = s0y
+                    u = u + num_points
+                    gridMask[iMap0 + iOffset - 1, jMap0 + jOffset - 1] = True
+
+    # Create sparse matrix in CSR format
+    # Convert indices to linear indices
+    from scipy.sparse import csr_matrix
+    import numpy as np
+    
+    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order='F')
+    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order='F')
+    v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
+    
+    # Construct final sparse gradient matrix
+    Gamma = csr_matrix((np.concatenate((s_x, s_y)), (v.flatten() - 1, np.concatenate((indx, indy)))),
+                    shape=(2 * nValidLenslet_, nMap ** 2))
+    Gamma = Gamma[:, gridMask.ravel()]  # Apply mask to reduce matrix size
+
+    return Gamma, gridMask
+
+def _build_reconstructor(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
+        
+    Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
+        lgsWfsParams.validLLMapSupport,
+        amplMask=None, 
+        overSampling=2
+    )
+    GammaBeta = Gamma/(2*math.pi)
+
+    Gamma_list = []
+    for kGs in range(lgsAsterismParams.nLGS):
+        Gamma_list.append(Gamma)
+
+    Gamma = block_diag(Gamma_list)
+
+    # Update sampling parameter for Super Resolution
+    tomoParams.sampling = gridMask.shape[0]
+
+    Cxx = _auto_correlation(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams,
+        gridMask
+    )
+
+    # Update the tomography parameters to include the fitting weight for each source
+    tomoParams.fitSrcWeight = np.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
+
+    Cox = _cross_correlation(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams
+    )
+
+    CoxOut = 0
+    for i in range(tomoParams.nFitSrc**2):
+        CoxOut = CoxOut + Cox[i,:,:]*tomoParams.fitSrcWeight[i]
+
+    row_mask = gridMask.ravel().astype(bool)
+    col_mask = np.tile(gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+
+    # Select submatrix using boolean masks with np.ix_ for correct indexing
+    Cox = CoxOut[np.ix_(row_mask, col_mask)]
+
+    CnZ = np.eye(Gamma.shape[0]) * 1/10 * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
+    invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
+
+    RecStatSA = Cox @ Gamma.T @ invCss
+
+    # LGS WFS subapertures diameter
+    d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
+
+    # Size of the pixel at Shannon sampling
+    _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+
+    # Compute final scaled reconstructor
+    _reconstructor = d * _wavefront2Meter * RecStatSA
+
+    return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
