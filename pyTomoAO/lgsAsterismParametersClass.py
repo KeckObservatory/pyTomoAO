@@ -1,6 +1,6 @@
 # lgsAsterismParametersClass.py
 from numbers import Number
-from atmosphereParametersClass import atmosphereParameters
+from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 import math
 import numpy as np
 
@@ -199,20 +199,21 @@ if __name__ == "__main__":
             "windSpeed": [10, 20, 15]
         }
     }
-        
+    
     atmParams = atmosphereParameters(atmConfig)
     
     config = {
         "lgs_asterism": {
             "radiusAst": 30.0,       # arcseconds
             "LGSwavelength": 589e-9, # meters (sodium wavelength)
-            "baseLGSHeight": 90000   # meters (90km nominal sodium layer height)
+            "baseLGSHeight": 90000,   # meters (90km nominal sodium layer height)
+            "nLGS": 4
         }
     }
-
+    
     try:
         lgsAsterismParams = lgsAsterismParameters(config, atmParams)
-        print(f"LGS height at current airmass: {lgsAsterismParams.LGSheight:.1f} m")
-        
+        print("Successfully initialized LGS asterism parameters.")
+        print(lgsAsterismParams)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")

@@ -1,356 +1,527 @@
-#%%
-import yaml
 import numpy as np
-import math
-import time
-from scipy.sparse import coo_matrix, block_diag, csr_matrix, eye, lil_matrix
-from scipy.interpolate import splrep, splev 
-from numpy.linalg import pinv
 import matplotlib.pyplot as plt
-
-# Import your utility functions from tomography_utils
-from tomography_utils import (
-    p_bilinearSplineInterp,
-    cart2pol,
-    make_biharm_operator,
-    sparseGradientMatrixAmplitudeWeighted,
-    sparseGradientMatrix3x3Stencil
-)
-
-#%%
-"""
-This main function encapsulates the translation of the original MATLAB script
-into Python, detailing the creation of various matrices (Gx, Cnn, iCxx, Ha, Hx)
-for a GNAO MCAO reconstructor. It follows the same flow as the MATLAB code,
-except that most configuration parameters come from a YAML file.
-"""
-# ---------------------------------------
-# 1) Load parameters from config.yaml
-# ---------------------------------------
-with open("tomography_config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-
-# ===== LGS WFS PARAMETERS =====
-D             = config["lgs_wfs_parameters"]["D"]
-nLenslet      = config["lgs_wfs_parameters"]["nLenslet"]
-nPx           = config["lgs_wfs_parameters"]["nPx"]
-fieldStopSize = config["lgs_wfs_parameters"]["fieldStopSize"]
-nLGS          = config["lgs_wfs_parameters"]["nLGS"]
-
-validLLMap_list        = config["lgs_wfs_parameters"]["validLLMap"]
-validActuatorMap_list  = config["lgs_wfs_parameters"]["validActuatorMap"]
-
-# Convert these to boolean NumPy arrays
-validLLMap       = np.array(validLLMap_list, dtype=bool)
-validActuatorMap = np.array(validActuatorMap_list, dtype=bool)
-
-# ===== DM PARAMETERS =====
-dmHeights        = np.array(config["dm_parameters"]["dmHeights"])
-dmPitch          = np.array(config["dm_parameters"]["dmPitch"])
-dmCrossCoupling  = config["dm_parameters"]["dmCrossCoupling"]
-nActuators       = np.array(config["dm_parameters"]["nActuators"])
-validActuators_3dlist = config["dm_parameters"]["validActuators"]
-# In your original code, you only use one DM layer, so we take the first:
-validActuators = []
-validActuators.append(np.array(validActuators_3dlist, dtype=bool))
-
-# ===== ATMOSPHERE PARAMETERS =====
-nLayer        = config["atmosphere_parameters"]["nLayer"]
-zenithAngleInDeg = config["atmosphere_parameters"]["zenithAngleInDeg"]
-altitude      = np.array(config["atmosphere_parameters"]["altitude"]) * 1e3
-L0            = config["atmosphere_parameters"]["L0"]
-r0            = config["atmosphere_parameters"]["r0"]
-fractionnalR0 = np.array(config["atmosphere_parameters"]["fractionnalR0"])
-wavelength    = config["atmosphere_parameters"]["wavelength"]
-
-# Compute airmass if you replicate the original logic
-airmass  = 1.0 / math.cos(math.radians(zenithAngleInDeg))
-altitude = altitude * airmass
-
-# ===== LGS ASTERISM =====
-radiusAst      = config["lgs_asterism"]["radiusAst"]
-LGSwavelength  = config["lgs_asterism"]["LGSwavelength"]
-baseLGSHeight  = config["lgs_asterism"].get("baseLGSHeight", 90000.0)
-LGSheight      = baseLGSHeight * airmass
-arcsec2radian  = math.pi/180.0/3600.0
-
-# ===== NOISE PARAMETERS (OPTIONAL) =====
-# For example, the code uses iNoiseVar = 1 / 1e-14. 
-# Let's say config noise_parameters.iNoiseVar = 1e14, so iNoiseVar = 1 / 1e-14
-iNoiseVar = 1.0 / float(config["noise_parameters"]["iNoiseVar"])
-
-# ===== OPTMIZATION PARAMETERS (!!!!!!!!! TO BE MOVED in the tomography_config.yaml !!!!!!!) =====
-fitSrcHeight = np.inf
-nFitSrc = 7  # number of source for optimization  array of nFitSrc x nFitSrc
-fovOptimizaton = 85 # optimization box size in arcseconds if nFitSrc > 1
+import logging
+import yaml
 
 
-# %% ------------------------------------------------------------
-# Influence matrix (Gaussian IF model) demonstration
-# ------------------------------------------------------------
-ratioTelDm = 1.0
-offset     = np.zeros(2)
-
-c   = 1.0/np.sqrt(np.log(1.0/dmCrossCoupling))
-df  = 1e-10
-mx  = np.sqrt(-np.log(df))*c
-xvals = np.linspace(-mx, mx, 1001)
-fvals = np.exp(-xvals**2/c**2)
-
-dmInfFuncMatrix = None
-iDmInfFuncMatrix = None
-nValidActuatorTotal = 0
-layersNPixel = []
-D_m = []
-
-# We'll store the final "modes" in a Python list, one entry per DM layer
-modes = [None]*nDmLayer
-iFCell = [None]*nDmLayer  # holds the inverse of F for each layer
-
-nValidActuatorsArr = []
-for i in range(nDmLayer):
-    tmp = validActuators[i]
-    nValidActuatorsArr.append(np.count_nonzero(tmp))
-actCoordVector = np.zeros(nDmLayer)
-
-# Loop over each DM layer
-for kDmLayer in range(nDmLayer):
-    # ------------------------------------------------------------
-    # 1) Build the "gaussian" array and the spline
-    #    (Equivalent to "gaussian(:,1) = x*dmPitch(kDmLayer); gaussian(:,2) = f; splineP = spline(...).")
-    # ------------------------------------------------------------
-    # In MATLAB, 'x' was multiplied by dmPitch, and 'f' was the Gaussian samples.
-    # We'll store them if needed, but usually only the spline is essential:
-    gaussian = np.column_stack([
-        xvals * dmPitch[kDmLayer],  # "x * dmPitch(kDmLayer)"
-        fvals                       # "f"
-    ])
-    # Build the spline (similar to "spline(x*dmPitch(kDmLayer), f)")
-    splineP = splrep(xvals * dmPitch[kDmLayer], fvals, s=0)
-
-    # ------------------------------------------------------------
-    # 2) Build the DM actuator coordinate grid (xIF,yIF), then complex form
-    # ------------------------------------------------------------
-    nA = nActuators[kDmLayer]
-    pitch = dmPitch[kDmLayer]
-
-    # In MATLAB:
-    #  xIF = linspace(-1,1,nA)*(nA-1)/2*dmPitch(kDmLayer) - offset(1)
-    #  yIF = linspace(-1,1,nA)*(nA-1)/2*dmPitch(kDmLayer) - offset(2)
-    xIF = np.linspace(-1, 1, nA) * ((nA - 1)/2) * pitch - offset[0]
-    yIF = np.linspace(-1, 1, nA) * ((nA - 1)/2) * pitch - offset[1]
-
-    # ndgrid => np.meshgrid
-    xIF2, yIF2 = np.meshgrid(xIF, yIF)
-    # In MATLAB: actCoordVector{kDmLayer} = yIF2 + 1i*flip(xIF2)
-    # We'll follow that logic exactly:
-    # 'flip(xIF2)' in the first dimension => np.flipud(xIF2)
-    # The real part is from 'yIF2', the imaginary from 'flip'
-    actCoord = yIF2 + 1j*np.flipud(xIF2)
-
-    # Suppose you have a list to store 'actCoordVector':
-    actCoordVector[kDmLayer] = actCoord
-
-    # ------------------------------------------------------------
-    # 3) Compute D_m (width in real space), layersNPixel, etc.
-    # ------------------------------------------------------------
-    D_m[kDmLayer] = np.max(actCoord.real) - np.min(actCoord.real)
-    do = dSub
-    layersNPixel[kDmLayer] = int(round(D_m[kDmLayer] / do)) + 1
-
-    # Update a total count of valid actuators across DMs
-    nValidActuatorTotal += nValidActuatorsArr[kDmLayer]
-
-    # ------------------------------------------------------------
-    # 4) Build the 1D coordinate 'u0' that samples the DM grid
-    #    "u0 = ratioTelDm .* linspace(-1,1,layersNPixel(kDmLayer))*(nA-1)/2 * pitch"
-    # ------------------------------------------------------------
-    u0 = (ratioTelDm *
-          np.linspace(-1, 1, layersNPixel[kDmLayer]) *
-          ((nA - 1) / 2) * pitch)
-
-    # ------------------------------------------------------------
-    # 5) Build 'u' and 'v' by subtracting the actuator coords xIF,yIF
-    #    Then fill in 'wu' and 'wv' via spline interpolation
-    # ------------------------------------------------------------
-    # Equivalent to: u = bsxfun(@minus, u0', xIF);
-    # We'll do broadcasting in Python:
-    u = u0[:, None] - xIF[None, :]
-    wu = np.zeros_like(u)
-
-    limit_val = gaussian[-1, 0]  # "gaussian(end,1)" in MATLAB
-    index_v = (u >= -limit_val) & (u <= limit_val)
-    # Evaluate the spline at those points
-    wu[index_v] = splev(u[index_v], splineP)
-
-    # Now for v and wv
-    v = u0[:, None] - yIF[None, :]
-    wv = np.zeros_like(v)
-    index_v2 = (v >= -limit_val) & (v <= limit_val)
-    wv[index_v2] = splev(v[index_v2], splineP)
-
-    # ------------------------------------------------------------
-    # 6) Build the "m_modes" sparse matrix
-    #    in MATLAB: spalloc(layersNPixel^2, nValid, nu*nv)
-    # ------------------------------------------------------------
-    nPix2 = layersNPixel[kDmLayer]*layersNPixel[kDmLayer]
-    nValid = nValidActuatorsArr[kDmLayer]
-    # We'll use a LIL matrix for efficient assignment
-    m_modes = lil_matrix((nPix2, nValid), dtype=float)
-
-    # "indIF = 1:nActuators(kDmLayer)^2; indIF(~validActuators{kDmLayer}) = [];"
-    indIF = np.arange(nA*nA)  # 0-based
-    valid_map = validActuators[kDmLayer].ravel()  # flatten the boolean
-    indIF = indIF[valid_map]
-
-    # "iIF,jIF = ind2sub(...)"
-    iIF, jIF = np.unravel_index(indIF, (nA, nA))
-
-    print(f' @(influenceFunction)> Computing the 2D DM zonal modes... ({nValid:4d},    ')
-
-    # In MATLAB: "for kIF = 1:nValid"
-    # Here we do 0-based: "for idx in range(nValid):"
-    for idxIF in range(nValid):
-        # wv[:, iIF[idxIF]] and wu[:, jIF[idxIF]]
-        row_wv = wv[:, iIF[idxIF]]  # shape (layersNPixel,)
-        col_wu = wu[:, jIF[idxIF]]  # shape (layersNPixel,)
-
-        # "buffer = wv(:,kIF)*wu(:,kIF)' => outer product
-        buffer_2d = np.outer(row_wv, col_wu)  # shape: (layersNPixel, layersNPixel)
-
-        # Flatten in column-major or row-major?  
-        # MATLAB "buffer(:)" is column-major by default. If we want to replicate exactly,
-        # we might do buffer_2d.T.ravel() or specify order='F'.
-        # But typically row-major is standard in Python.  
-        # We'll replicate MATLAB’s column-major with order='F':
-        m_modes[:, idxIF] = buffer_2d.ravel(order='F')
-
-        # Print progress (like MATLAB's "\b\b\b\b%4d"):
-        print(f'\b\b\b\b{idxIF+1:4d}', end='')
-    print('')  # newline
-
-    # Convert to a more standard CSR format
-    m_modes = m_modes.tocsr()
-
-    # In MATLAB: "modes{kDmLayer} = m_modes;"
-    modes[kDmLayer] = m_modes
-
-    # "F = 2*modes{kDmLayer};"
-    F = 2.0 * m_modes
-
-    # "dmInfFuncMatrix = blkdiag(dmInfFuncMatrix,F);"
-    if dmInfFuncMatrix is None:
-        # first time
-        dmInfFuncMatrix = F
-    else:
-        dmInfFuncMatrix = block_diag((dmInfFuncMatrix, F))
-
-    # "iF = pinv(full(F));"
-    # toarray() converts CSR -> dense for pinv
-    iF = pinv(F.toarray())
-    iFCell[kDmLayer] = iF
-
-    # "iDmInfFuncMatrix = blkdiag(iDmInfFuncMatrix,iF);"
-    if iDmInfFuncMatrix is None:
-        iDmInfFuncMatrix = csr_matrix(iF)
-    else:
-        iDmInfFuncMatrix = block_diag((iDmInfFuncMatrix, csr_matrix(iF)))
-
-
-# %% --------------------------------------------------------------------------
-# Hx and Ha
-# --------------------------------------------------------------------------
-outputWavefrontMask = validActuatorMap  # presumably a boolean 2D map
-# In MATLAB: "[x,y] = meshgrid(linspace(-1,1,nLenslet+1)*D/2);"
-x_grid, y_grid = np.meshgrid(
-    np.linspace(-1, 1, nLenslet+1)*(D/2),
-    np.linspace(-1, 1, nLenslet+1)*(D/2)
-)
-outputPhaseGrid = x_grid[outputWavefrontMask] + 1j*y_grid[outputWavefrontMask]
-
-nStar = nFitSrc
-
-# We create Python lists-of-lists for Hx and Ha
-Hx = [[None for _ in range(nLayer)]  for _ in range(nStar)]
-Ha = [[None for _ in range(nDmLayer)] for _ in range(nStar)]
-
-intHa = [None]*nStar
-intHx = [None]*nStar
-
-for kGs in range(nStar):
-    # ---- Build Hx ----
-    for kAtmLayer in range(nLayer):
-        pitchAtmLayer = dSub / overSampling[kAtmLayer]
-        height        = altitude[kAtmLayer]
-        # pupil center in layer
-        beta  = directionVectorFitSrc[:, kGs]*height   # shape (3,) in MATLAB, but we only use x,y
-        scale = 1 - height/fitSrcHeight
-
-        # Prepare the (x,y) coords for interpolation
-        xi_ = outputPhaseGrid.real * scale + beta[0]
-        yi_ = outputPhaseGrid.imag * scale + beta[1]
-
-        # atmGrid[kAtmLayer] might be (xarray, yarray)
-        x_atm = atmGrid[kAtmLayer][0]
-        y_atm = atmGrid[kAtmLayer][1]
-
-        # p_bilinearSplineInterp(...) is your Python equivalent to "p_bilinearSplineInterp.m"
-        Hx[kGs][kAtmLayer] = p_bilinearSplineInterp(
-            x_atm, y_atm, pitchAtmLayer,
-            xi_, yi_
-        )
+logger = logging.getLogger(__name__)
+class fitting:
+    """
+    A class for handling deformable mirror fitting operations with influence function computation.
+    Forwards attribute access to dmGeometry when appropriate.
+    """
     
-    # ---- Build Ha (the DM "propagator") ----
-    for kdL in range(nDmLayer):
-        pitchDmLayer = dSub
-        height       = dmHeights[kdL]
-        beta  = directionVectorFitSrc[:, kGs]*height
-        scale = 1 - height/fitSrcHeight
-
-        # We retrieve the actuator coordinate array
-        actCoord = actCoordVector[kdL]  # from above
-
-        dmin_ = np.min(actCoord.real)
-        dmax_ = np.max(actCoord.real)
-        Dx = (layersNPixel[kdL]-1)*pitchDmLayer
-        sx = dmin_ - (Dx - (dmax_ - dmin_))/2
-
-        # Equivalent to "[x,y] = meshgrid(linspace(0,1,layersNPixel)*Dx + sx);"
-        x_lin = np.linspace(0, 1, layersNPixel[kdL]) * Dx + sx
-        y_lin = x_lin  # same size
-        x_dm, y_dm = np.meshgrid(x_lin, y_lin)
-
-        # Interpolate
-        xi_ = outputPhaseGrid.real * scale + beta[0]
-        yi_ = outputPhaseGrid.imag * scale + beta[1]
-
-        Ha[kGs][kdL] = p_bilinearSplineInterp(
-            x_dm, y_dm, pitchDmLayer,
-            xi_, yi_
+    def __init__(self, dmParams):
+        """
+        Initialize the fitting class.
+        
+        Parameters:
+        ----------
+        dmParams : object
+            An instance of a class containing DM geometry parameters
+        """
+        self.dmParams = dmParams
+        # Initialize other class attributes as needed
+        self.modes = None
+        self.resolution = 49  # Default resolution
+        self._fitting_matrix = np.array([])
+        self._influence_functions = np.array([])
+    
+    def __getattr__(self, name):
+        """
+        Forwards attribute access to the dmParams class if it contains the requested attribute.
+        
+        Parameters:
+        ----------
+        name : str
+            Name of the attribute to access
+            
+        Returns:
+        -------
+        The requested attribute from dmParams
+            
+        Raises:
+        ------
+        AttributeError
+            If the attribute doesn't exist in either class
+        """
+        if hasattr(self.dmParams, name):
+            return getattr(self.dmParams, name)
+        raise AttributeError(f"Neither 'fitting' nor 'dmParams' has attribute '{name}'")
+    
+    def __setattr__(self, name, value):
+        """
+        Forwards attribute setting to the dmParams class if it contains the specified attribute.
+        
+        Parameters:
+        ----------
+        name : str
+            Name of the attribute to set
+        value : any
+            Value to assign to the attribute
+        """
+        # Special case for initialization and our own attributes
+        if name in ["dmParams", "modes", "resolution", "_fitting_matrix", "_influence_functions"] or not hasattr(self, "dmGeometry"):
+            object.__setattr__(self, name, value)
+        elif hasattr(self.dmParams, name):
+            setattr(self.dmParams, name, value)
+        else:
+            object.__setattr__(self, name, value)
+    
+    @property
+    def F(self):
+        logger.debug("Accessing the fitting matrix property.")
+        return self._fitting_matrix
+        
+    @F.setter
+    def F(self, value):
+        logger.debug("Setting the fitting matrix property.")
+        if isinstance(value, np.ndarray) and value.ndim == 2:
+            self._fitting_matrix = value
+        else:
+            logger.error("Invalid fitting matrix value. Must be a 2D numpy array.")
+            raise ValueError("Fitting matrix must be a 2D numpy array.")
+    
+    @property
+    def fitting_matrix(self):
+        logger.debug("Accessing the full name fitting_matrix property.")
+        return self._fitting_matrix
+        
+    @fitting_matrix.setter
+    def fitting_matrix(self, value):
+        self.F = value
+    
+    @property
+    def IF(self):
+        logger.debug("Accessing the influence functions property.")
+        return self._influence_functions
+        
+    @IF.setter
+    def IF(self, value):
+        logger.debug("Setting the influence functions property.")
+        if isinstance(value, np.ndarray) and value.ndim == 2:
+            self._influence_functions = value
+        else:
+            logger.error("Invalid influence functions value. Must be a 2D numpy array.")
+            raise ValueError("Influence functions must be a 2D numpy array.")
+    
+    @property
+    def influence_functions(self):
+        logger.debug("Accessing the full name influence_functions property.")
+        return self._influence_functions
+        
+    @influence_functions.setter
+    def influence_functions(self, value):
+        self.IF = value
+    
+    def fit(self, opd_map):
+        """
+        Multiplies the OPD map by the fitting matrix to obtain the command vector.
+        
+        Parameters:
+        ----------
+        opd_map : np.ndarray
+            The Optical Path Difference (OPD) map to be fitted.
+            
+        Returns:
+        -------
+        np.ndarray
+            The command vector to send to the DM.
+            
+        Raises:
+        ------
+        ValueError
+            If the fitting matrix is not set.
+        """
+        logger.info("Performing fitting of the OPD map.")
+        if self.F.size == 0:
+            logger.error("Fitting matrix is not set.")
+            raise ValueError("Fitting matrix is not set.")
+        
+        command_vector = np.dot(self.F, opd_map.flatten())
+        logger.debug("Fitting completed. Command vector shape: %s", command_vector.shape)
+        return command_vector
+    
+    def double_gaussian_influence(self, x, y, center_x=0, center_y=0, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
+        """
+        Computes the double Gaussian influence function for a deformable mirror,
+        allowing placement at any position on a grid of any dimensions.
+        
+        Parameters:
+        ----------
+        x, y : float or np.ndarray
+            Coordinates at which to evaluate the influence function.
+        center_x, center_y : float
+            Center coordinates of the double Gaussian function.
+        w1, w2 : float
+            Weights of the two Gaussian components.
+        sigma1, sigma2 : float
+            Standard deviations of the two Gaussian components.
+        
+        Returns:
+        -------
+        float or np.ndarray
+            Influence function value at the given coordinates.
+        """
+        # Calculate distances from the center position
+        dx = x - center_x
+        dy = y - center_y
+        
+        # Compute the two Gaussian components
+        gauss1 = w1 * np.exp(-(dx**2 + dy**2) / (2 * sigma1**2)) / (2 * np.pi * sigma1**2)
+        gauss2 = w2 * np.exp(-(dx**2 + dy**2) / (2 * sigma2**2)) / (2 * np.pi * sigma2**2)
+        
+        return gauss1 + gauss2
+    
+    def create_influence_grid(self, grid_shape, actuator_pos, w1=2, w2=-1, sigma1=0.5, sigma2=0.85):
+        """
+        Creates a grid of the specified shape with a double Gaussian placed at the given position.
+        
+        Parameters:
+        ----------
+        grid_shape : tuple
+            Shape of the grid (height, width).
+        actuator_pos : tuple
+            Position (y, x) where the center of the double Gaussian should be placed.
+        w1, w2, sigma1, sigma2 : float
+            Parameters for the double Gaussian influence function.
+        
+        Returns:
+        -------
+        np.ndarray
+            2D grid with the double Gaussian influence function.
+        """
+        height, width = grid_shape
+        y, x = np.ogrid[:height, :width]
+        
+        # Convert to float coordinates if needed
+        center_y, center_x = actuator_pos
+        
+        # Calculate the influence function on the grid
+        influence = self.double_gaussian_influence(x, y, center_x, center_y, w1, w2, sigma1, sigma2)
+        
+        return influence
+    
+    def extract_actuator_coordinates(self, valid_actuator_map):
+        """
+        Extract the (y, x) coordinates of all actuators (positions with value 1) from the map.
+        
+        Parameters:
+        ----------
+        valid_actuator_map : np.ndarray
+            Binary array where 1s indicate valid actuator positions
+        
+        Returns:
+        -------
+        list
+            List of (y, x) coordinate tuples for all actuators
+        """
+        # Find coordinates where value is 1 (True)
+        y_coords, x_coords = np.where(valid_actuator_map)
+        
+        # Return as list of coordinate tuples
+        return list(zip(y_coords, x_coords))
+    
+    def map_actuators_to_new_grid(self, actuator_coords, original_shape, new_shape, stretch_factor=1.03):
+        """
+        Maps actuator coordinates from original grid to a new grid size,
+        maintaining relative positions and stretching beyond [-1, 1] by the stretch factor.
+        
+        Parameters:
+        ----------
+        actuator_coords : list
+            List of (y, x) coordinate tuples in the original grid
+        original_shape : tuple
+            Shape of the original grid (height, width)
+        new_shape : tuple
+            Shape of the new grid (height, width)
+        stretch_factor : float, optional
+            Factor to stretch the normalized coordinates (default: 1.03)
+            
+        Returns:
+        -------
+        list
+            List of (y, x) coordinate tuples in the new grid, normalized and stretched
+        """
+        orig_height, orig_width = original_shape
+        new_height, new_width = new_shape
+        
+        # Create new coordinates list
+        new_coords = []
+        
+        for y, x in actuator_coords:
+            # First, convert to [0, 1] range by dividing by original dimensions
+            normalized_y = y / (orig_height - 1)  # -1 to account for 0-indexing
+            normalized_x = x / (orig_width - 1)
+            
+            # Then, convert from [0, 1] to [-1, 1] range
+            new_y = 2 * normalized_y - 1
+            new_x = 2 * normalized_x - 1
+            
+            # Apply the stretch factor to extend beyond [-1, 1]
+            new_y = new_y * stretch_factor
+            new_x = new_x * stretch_factor
+            
+            # Finally, scale to new dimensions if needed
+            if new_shape != (-1, -1):  # Assuming (-1, -1) means "keep normalized"
+                new_y = new_y * (new_height - 1) / 2 + (new_height - 1) / 2
+                new_x = new_x * (new_width - 1) / 2 + (new_width - 1) / 2
+            
+            new_coords.append((new_y, new_x))
+        
+        self.actuator_coordinates = new_coords
+        return new_coords
+    
+    def map_actuators_to_new_grid_old(self, actuator_coords, original_shape, new_shape):
+        """
+        Maps actuator coordinates from original grid to a new grid size,
+        maintaining relative positions.
+        Parameters:
+        ----------
+        actuator_coords : list
+        List of (y, x) coordinate tuples in the original grid
+        original_shape : tuple
+        Shape of the original grid (height, width)
+        new_shape : tuple
+        Shape of the new grid (height, width)
+        Returns:
+        -------
+        list
+        List of (y, x) coordinate tuples in the new grid
+        """
+        orig_height, orig_width = original_shape
+        new_height, new_width = new_shape
+        # Calculate scaling factors
+        y_scale = new_height / orig_height
+        x_scale = new_width / orig_width
+        # Apply scaling to each coordinate
+        new_coords = []
+        for y, x in actuator_coords:
+            new_y = y * y_scale+0.5#int(y  y_scale)*
+            new_x = x * x_scale+0.5#int(x  x_scale)*
+            new_coords.append((new_y, new_x))
+        
+        self.actuator_coordinates = new_coords
+        return new_coords
+    
+    def set_influence_function(self, dmParams=None, resolution=None, display=False, w1=2, w2=-1, sigma1=0.5*2, sigma2=0.85*2):
+        """
+        Generates a deformable mirror influence function based on the provided parameters.
+        
+        Parameters:
+        ----------
+        dmParams : object, optional
+            Contains deformable mirror parameters.
+            If None, uses the associated dmGeometry.
+        resolution : int, optional
+            Resolution of the output influence function grid.
+            If None, uses the class default resolution.
+        display : bool, optional
+            Whether to display plots of the influence functions.
+            
+        Returns:
+        -------
+        modes : np.ndarray
+            2D array representing the influence function for each actuator.
+        """
+        if dmParams is None:
+            dmParams = self.dmParams
+        
+        if resolution is None:
+            resolution = self.resolution
+        
+        print("-->> Computing influence function <<--\n")
+        
+        # Extract actuator coordinates from the valid actuator map
+        actuator_coords = self.extract_actuator_coordinates(dmParams.validActuatorsSupport)
+        
+        # Get the original shape of the valid actuator map
+        original_shape = dmParams.validActuatorsSupport.shape
+        # Map actuator coordinates to the new grid size
+        new_actuator_coords = self.map_actuators_to_new_grid(
+            actuator_coords, 
+            original_shape, 
+            new_shape=(resolution, resolution)
         )
+        
+        # Create modes array to store influence functions
+        modes = np.zeros((resolution**2, dmParams.validActuators.sum()))
+        
+        # Loop through each actuator coordinate
+        for i in range(dmParams.validActuators.sum()):
+            # Compute the influence function for the current actuator
+            IF = self.create_influence_grid((resolution, resolution), new_actuator_coords[i],w1, w2, sigma1, sigma2)
+            
+            # Flatten and assign to the corresponding column in the modes array
+            modes[:, i] = IF.flatten()
+            
+            if display:
+                plt.figure(1)
+                plt.clf()
+                plt.imshow(IF, interpolation='nearest')
+                plt.title(f'Influence Function for Actuator {i}')
+                plt.colorbar()
+                plt.axis('off')  # Remove the axis from the plot
+                plt.show()
+                plt.pause(0.01)
+        
+        # Store the modes in the class and in influence_functions
+        self.modes = modes
+        self.IF = modes  # Use the property setter
+        
+        logger.info("Influence function computed.")
+        print("Influence function computed.")
+        return modes
 
-    # "intHa{kGs} = [Ha{kGs,:}]*dmInfFuncMatrix;"
-    # In Python, we horizontally stack each layer's Ha and then multiply by dmInfFuncMatrix
-    Ha_concat = csr_matrix(np.hstack(Ha[kGs]))
-    intHa[kGs] = Ha_concat @ dmInfFuncMatrix
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
-    # "intHx{kGs} = [Hx{kGs,:}];"
-    # Similarly, for Hx we might want a single large matrix horizontally stacked:
-    Hx_concat = csr_matrix(np.hstack(Hx[kGs]))
-    intHx[kGs] = Hx_concat
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+import yaml
+sys.path.append('..')
+from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from dmParametersClass import dmParameters
+from fitting import fitting
 
-    # (Optional) If you want to accumulate LeftMean and RightMean:
-    # LeftMean += intHa[kGs].T @ intHa[kGs]
-    # RightMean += intHa[kGs].T @ intHx[kGs]
+# Main execution block
+if __name__ == "__main__":
+    
+    # Create the reconstructor
+    reconstructor = tomographicReconstructor("../examples/tomography_config_kapa.yaml")
+    reconstructor.build_reconstructor()
+    
+    with open("../examples/tomography_config_kapa.yaml", "r") as f:
+        config = yaml.safe_load(f)
+    
+    # ===== DM PARAMETERS =====
+    try:
+        dmParams = dmParameters(config)
+        print("Successfully initialized DM parameters.")
+        print(dmParams)
+    except (ValueError, TypeError) as e:
+        print(f"Configuration Error: {e}")
 
-# You could then do:
-# fittingMatrix = pinv(full(LeftMean),1)*RightMean;
-# or in Python:
-# fitMat = pinv(LeftMean.toarray()) @ RightMean.toarray()
+    print(f"DM has {dmParams.validActuators.sum()} active actuators")
+    
+    # Create a fitting instance
+    print("\nInitializing fitting object...")
+    fit = fitting(dmParams)
+    
+    # Generate influence functions
+    print("\nGenerating influence functions...")
+    modes = fit.set_influence_function(resolution=49, display=False, sigma1=0.5*2, sigma2=0.85*2)
+    print(f"Generated influence functions with shape: {modes.shape}")
+    
+    # Display one influence function
+    plt.figure()
+    plt.imshow(modes[:, 0].reshape(49, 49), cmap='viridis')
+    plt.plot(fit.actuator_coordinates[0][1], fit.actuator_coordinates[0][0], 'x', color='black')
+    plt.colorbar()
+    plt.title("Influence Function for First Actuator")
+    plt.show()
+    
+    # Generate a fitting matrix (pseudo-inverse of the influence functions)
+    print("\nCalculating fitting matrix...")
+    fit.F = np.linalg.pinv(modes)
+    print(f"Fitting matrix shape: {fit.F.shape}")
+    
+    # Test the aliases
+    assert np.array_equal(fit.F, fit.fitting_matrix), "F and fitting_matrix should be the same"
+    assert np.array_equal(fit.IF, fit.influence_functions), "IF and influence_functions should be the same"
+    
+    # Function to apply grid mask and handle NaNs
+    def apply_mask(wavefront, mask):
+        masked = wavefront * mask
+        masked_for_display = masked.copy()
+        masked_for_display[masked == 0] = np.nan
+        return masked, masked_for_display
+    
+    # Function to process and display a wavefront
+    def process_wavefront(wavefront_name, wavefront, fit, reconstructor):
+        print(f"\nProcessing {wavefront_name} wavefront...")
+        
+        # Apply mask
+        masked_wavefront, display_wavefront = apply_mask(wavefront, reconstructor.gridMask)
+        
+        # Plot the original wavefront
+        plt.figure()
+        plt.imshow(display_wavefront, cmap='RdBu')
+        for i in range(len(fit.actuator_coordinates)):
+            plt.plot(fit.actuator_coordinates[i][0], fit.actuator_coordinates[i][1], 'x', color='black')
+        plt.colorbar()
+        plt.title(f"Input Wavefront ({wavefront_name})")
+        plt.show()
+        
+        # Perform the fitting
+        print(f"Performing fitting of the {wavefront_name} wavefront...")
+        commands = fit.fit(masked_wavefront)
+        print(f"Generated command vector with {len(commands)} values")
+        
+        # Plot the commands
+        plt.figure()
+        plt.bar(range(len(commands)), commands)
+        plt.title(f"DM Actuator Commands for {wavefront_name}")
+        plt.xlabel("Actuator Index")
+        plt.ylabel("Command Value")
+        plt.show()
+        
+        # Reconstruct the wavefront from the commands
+        print(f"Reconstructing {wavefront_name} wavefront from commands...")
+        reconstructed = np.dot(modes, commands).reshape(49, 49)
+        masked_reconstructed, display_reconstructed = apply_mask(reconstructed, reconstructor.gridMask)
+        
+        # Calculate fitting error
+        residual = display_wavefront - display_reconstructed
+        rms_error = np.sqrt(np.nanmean(residual**2))
+        print(f"RMS fitting error for {wavefront_name}: {rms_error:.6f}")
+        
+        # Plot the results
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Original wavefront
+        im0 = axes[0].imshow(display_wavefront, cmap='RdBu')
+        axes[0].set_title(f"Original {wavefront_name} Wavefront")
+        plt.colorbar(im0, ax=axes[0])
+        
+        # Reconstructed wavefront
+        im1 = axes[1].imshow(display_reconstructed, cmap='RdBu')
+        axes[1].set_title(f"Reconstructed {wavefront_name} Wavefront")
+        plt.colorbar(im1, ax=axes[1])
+        
+        # Residual error
+        im2 = axes[2].imshow(residual, cmap='RdBu')
+        axes[2].set_title(f"Residual Error (RMS: {rms_error:.6f})")
+        plt.colorbar(im2, ax=axes[2])
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return rms_error
+    
+    # Create a simple wavefront (OPD) to fit
+    print("\nCreating sample wavefronts...")
+    x, y = np.meshgrid(np.linspace(-1, 1, 49), np.linspace(-1, 1, 49))
+    
+    # Defocus wavefront
+    radius_squared = x**2 + y**2
+    defocus = radius_squared * 200  # Simple defocus wavefront
+    
+    # Tilt wavefront (x-direction tilt)
+    tilt_x = x * 200  # Simple x-direction tilt
+    
+    # Process each wavefront
+    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, reconstructor)
+    defocus_error = process_wavefront("Defocus", defocus, fit, reconstructor)
 
-# Done!
-
-toc = time.time()
-print(f"Total run time = {toc - tic:.2f} seconds.")
-
-#%%
+    # Compare results
+    print("\nComparison of fitting errors:")
+    print(f"X-Tilt RMS error: {tilt_error:.6f}")
+    print(f"Defocus RMS error: {defocus_error:.6f}")
+    
+    print("\nExample completed successfully!")
