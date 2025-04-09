@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import tomoAO
 from tomoAO.Reconstruction.reconClassType import tomoReconstructor
 import sys
-sys.path.insert(0, "/home/aodev/uriel/pyTomoAO")
+sys.path.insert(0, "/Users/urielconod/pyTomoAO")
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 import time
 import numpy as np
@@ -35,8 +35,8 @@ def benchmark_reconstructor(library, num_iterations=5):
         reconstructor = tomographicReconstructor(config_path)
     elif library == "tomoAO":
         ao_mode = "MLAO"
-        config_dir = "/home/aodev/uriel/PyTomo/Demo/"
-        config_file = "config.ini"
+        config_dir = "/Users/urielconod/PyTomo/Demo/"
+        config_file = "config_kapa_single_channel.ini"
         
         # Read the ini file and replace occurrences of the specified path
         with open(config_dir+config_file, 'r') as file:
@@ -82,8 +82,8 @@ library1 = "pyTomoAO"
 mean_time1, statistics1 = benchmark_reconstructor(library1)
 
 #Example usage:
-# library2 = "tomoAO"
-# mean_time2, statistics2 = benchmark_reconstructor(library2)
+library2 = "tomoAO"
+mean_time2, statistics2 = benchmark_reconstructor(library2)
 
 print(f"Average build time for {library1}: {mean_time1:.3f} seconds")
 print(f"Statistics: {statistics1}")
