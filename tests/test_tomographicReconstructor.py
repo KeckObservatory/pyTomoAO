@@ -39,7 +39,8 @@ def mock_parameter_classes():
     with patch('pyTomoAO.tomographicReconstructor.atmosphereParameters') as mock_atm, \
         patch('pyTomoAO.tomographicReconstructor.lgsAsterismParameters') as mock_lgs_asterism, \
         patch('pyTomoAO.tomographicReconstructor.lgsWfsParameters') as mock_lgs_wfs, \
-        patch('pyTomoAO.tomographicReconstructor.tomographyParameters') as mock_tomo:
+        patch('pyTomoAO.tomographicReconstructor.tomographyParameters') as mock_tomo, \
+        patch('pyTomoAO.tomographicReconstructor.dmParameters') as mock_dm: 
         
         # Configure mock atmosphere parameters
         logger.debug("Configuring mock atmosphere parameters")
@@ -76,6 +77,11 @@ def mock_parameter_classes():
         mock_tomo_instance.__str__.return_value = "Mock Tomography Parameters"
         mock_tomo.return_value = mock_tomo_instance
         
+        # Configure mock dm parameters
+        mock_dm_instance = MagicMock()
+        mock_dm_instance.__str__.return_value = "Mock DM Parameters"
+        mock_dm.return_value = mock_dm_instance
+        
         logger.debug("Mock parameter classes setup complete")
         yield {
             "atm": mock_atm,
@@ -85,7 +91,8 @@ def mock_parameter_classes():
             "atm_instance": mock_atm_instance,
             "lgs_asterism_instance": mock_lgs_asterism_instance,
             "lgs_wfs_instance": mock_lgs_wfs_instance,
-            "tomo_instance": mock_tomo_instance
+            "tomo_instance": mock_tomo_instance,
+            "dm_instance": mock_dm_instance 
         }
 
 # Fixture for a simple config file
@@ -115,6 +122,13 @@ def simple_config():
             "fovOptimization": 0,
             "nFitSrc": 1,
             "fitSrcWeight": 1.0,
+        },
+        "dm_parameters": {  
+            "dmHeights": [0.0],
+            "dmPitch": 0.5,
+            "dmCrossCoupling": 0.2,
+            "nActuators": 20,
+            "validActuators": None  # Or provide a suitable array/mask
         }
     }
     # Create a temporary config file

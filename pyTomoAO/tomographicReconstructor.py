@@ -14,6 +14,7 @@ from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters 
 from pyTomoAO.tomographyParametersClass import tomographyParameters
+from pyTomoAO.dmParametersClass import dmParameters
 from scipy.io import loadmat
 try:  
     CUDA = True
@@ -46,6 +47,7 @@ class tomographicReconstructor:
         config_file : str
             Path to the YAML configuration file
         """
+        print("\n-->> Initializing reconstructor object <<--")
         # Load configuration
         with open(config_file, "r") as f:
             self.config = yaml.safe_load(f)
@@ -89,6 +91,14 @@ class tomographicReconstructor:
             print(self.tomoParams) 
         except (ValueError, TypeError) as e:
             print(f"\nConfiguration Error in Tomography parameters: {e}")
+            
+        try:
+            self.dmParams = dmParameters(self.config)
+            print("\nSuccessfully initialized DM parameters.")
+            print(self.dmParams)
+        except (ValueError, TypeError) as e:
+            print(f"\nConfiguration Error in DM parameters: {e}")
+        print("\nAll parameters initialized successfully.")
     # ======================================================================
     # Properties
     @property
@@ -244,6 +254,7 @@ class tomographicReconstructor:
         """
         Build the tomographic reconstructor from the self parameters.
         """
+        print("-->> Computing Reconstructor <<--\n")
         if CUDA:
             _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor(self.tomoParams, self.lgsWfsParams, self.atmParams, self.lgsAsterismParams, use_float32=True)
         else:
@@ -450,7 +461,7 @@ if __name__ == "__main__":
     # Use a path relative to the script's location
     import os
     script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory where the script is located
-    config_path = os.path.join(script_dir, "..", "examples", "benchmark", "tomography_config_kapa.yaml")
+    config_path = os.path.join(script_dir, "..", "examples", "benchmark", "tomography_config_kapa_single_channel.yaml")
     
     # Check if the file exists, otherwise prompt for a different path
     if not os.path.exists(config_path):

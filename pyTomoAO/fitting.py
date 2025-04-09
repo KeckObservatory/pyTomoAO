@@ -20,13 +20,14 @@ class fitting:
         dmParams : object
             An instance of a class containing DM geometry parameters
         """
+        print("\n -->> Initializing fitting object <<--")
         self.dmParams = dmParams
         # Initialize other class attributes as needed
         self.modes = None
         self.resolution = 49  # Default resolution
         self._fitting_matrix = np.array([])
         self._influence_functions = np.array([])
-    
+        print("All parameters initialized successfully.\n")
     def __getattr__(self, name):
         """
         Forwards attribute access to the dmParams class if it contains the requested attribute.
@@ -369,8 +370,8 @@ class fitting:
         self.modes = modes
         self.IF = modes  # Use the property setter
         
-        logger.info("Influence function computed.")
-        print("Influence function computed.")
+        logger.debug("Influence function computed.")
+        print("-->> Influence function computed <<--\n")
         return modes
 
 # Configure logging
@@ -386,32 +387,18 @@ import matplotlib.pyplot as plt
 import yaml
 sys.path.append('..')
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
-from dmParametersClass import dmParameters
-from fitting import fitting
+from pyTomoAO.fitting import fitting
 
 # Main execution block
 if __name__ == "__main__":
-    
-    # Create the reconstructor
-    reconstructor = tomographicReconstructor("../examples/tomography_config_kapa.yaml")
+    # Load the reconstructor
+    reconstructor = tomographicReconstructor("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
     reconstructor.build_reconstructor()
-    
-    with open("../examples/tomography_config_kapa.yaml", "r") as f:
-        config = yaml.safe_load(f)
-    
-    # ===== DM PARAMETERS =====
-    try:
-        dmParams = dmParameters(config)
-        print("Successfully initialized DM parameters.")
-        print(dmParams)
-    except (ValueError, TypeError) as e:
-        print(f"Configuration Error: {e}")
-
-    print(f"DM has {dmParams.validActuators.sum()} active actuators")
+    gridMask = reconstructor.gridMask
     
     # Create a fitting instance
     print("\nInitializing fitting object...")
-    fit = fitting(dmParams)
+    fit = fitting(reconstructor.dmParams)
     
     # Generate influence functions
     print("\nGenerating influence functions...")
@@ -425,6 +412,11 @@ if __name__ == "__main__":
     plt.colorbar()
     plt.title("Influence Function for First Actuator")
     plt.show()
+    
+    # Change the modes size with only valid elements of the gridMask 
+#    modes = modes[gridMask.flatten(), :]
+#    fit.modes = modes
+#    print(f"Modes shape after applying grid mask: {modes.shape}")
     
     # Generate a fitting matrix (pseudo-inverse of the influence functions)
     print("\nCalculating fitting matrix...")
@@ -443,12 +435,13 @@ if __name__ == "__main__":
         return masked, masked_for_display
     
     # Function to process and display a wavefront
-    def process_wavefront(wavefront_name, wavefront, fit, reconstructor):
+    def process_wavefront(wavefront_name, wavefront, fit, gridMask):
         print(f"\nProcessing {wavefront_name} wavefront...")
         
         # Apply mask
-        masked_wavefront, display_wavefront = apply_mask(wavefront, reconstructor.gridMask)
+        masked_wavefront, display_wavefront = apply_mask(wavefront, gridMask)
         
+        #masked_wavefront = masked_wavefront[reconstructor.gridMask]
         # Plot the original wavefront
         plt.figure()
         plt.imshow(display_wavefront, cmap='RdBu')
@@ -474,7 +467,7 @@ if __name__ == "__main__":
         # Reconstruct the wavefront from the commands
         print(f"Reconstructing {wavefront_name} wavefront from commands...")
         reconstructed = np.dot(modes, commands).reshape(49, 49)
-        masked_reconstructed, display_reconstructed = apply_mask(reconstructed, reconstructor.gridMask)
+        masked_reconstructed, display_reconstructed = apply_mask(reconstructed, gridMask)
         
         # Calculate fitting error
         residual = display_wavefront - display_reconstructed
@@ -516,8 +509,8 @@ if __name__ == "__main__":
     tilt_x = x * 200  # Simple x-direction tilt
     
     # Process each wavefront
-    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, reconstructor)
-    defocus_error = process_wavefront("Defocus", defocus, fit, reconstructor)
+    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, gridMask)
+    defocus_error = process_wavefront("Defocus", defocus, fit, gridMask)
 
     # Compare results
     print("\nComparison of fitting errors:")
@@ -525,3 +518,15 @@ if __name__ == "__main__":
     print(f"Defocus RMS error: {defocus_error:.6f}")
     
     print("\nExample completed successfully!")
+    
+    print(f"\nModes shape before applying grid mask: {modes.shape}")
+    # Change the modes size with only valid elements of the gridMask 
+    modes = modes[gridMask.flatten(), :]
+    fit.modes = modes
+    print(f"Modes shape after applying grid mask: {modes.shape}")
+    
+    # Generate a fitting matrix (pseudo-inverse of the influence functions)
+    print("\nRecalculating fitting matrix...")
+    fit.F = np.linalg.pinv(modes)
+    print(f"Fitting matrix shape: {fit.F.shape}")
+    
