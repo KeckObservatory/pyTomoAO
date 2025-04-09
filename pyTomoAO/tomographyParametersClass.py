@@ -125,12 +125,8 @@ if __name__ == "__main__":
     }
 
     try:
-        tomo = tomographyParameters(config)
-        zenith, azimuth = tomo.compute_optimization_geometry()
-        
-        print(f"Optimization points: {len(zenith)}")
-        print(f"Zenith angles (rad):\n{zenith}")
-        print(f"Azimuth angles (rad):\n{azimuth}")
-        
+        tomoParams = tomographyParameters(config)
+        print("Successfully initialized tomography parameters.")
+        print(tomoParams)
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")
