@@ -20,13 +20,14 @@ class fitting:
         dmParams : object
             An instance of a class containing DM geometry parameters
         """
+        print("\n -->> Initializing fitting object <<--")
         self.dmParams = dmParams
         # Initialize other class attributes as needed
         self.modes = None
         self.resolution = 49  # Default resolution
         self._fitting_matrix = np.array([])
         self._influence_functions = np.array([])
-    
+        print("All parameters initialized successfully.\n")
     def __getattr__(self, name):
         """
         Forwards attribute access to the dmParams class if it contains the requested attribute.
@@ -222,10 +223,10 @@ class fitting:
         # Return as list of coordinate tuples
         return list(zip(y_coords, x_coords))
     
-    def map_actuators_to_new_grid(self, actuator_coords, original_shape, new_shape):
+    def map_actuators_to_new_grid(self, actuator_coords, original_shape, new_shape, stretch_factor=1.03):
         """
-        Maps actuator coordinates from original grid to a new grid size, 
-        maintaining relative positions.
+        Maps actuator coordinates from original grid to a new grid size,
+        maintaining relative positions and stretching beyond [-1, 1] by the stretch factor.
         
         Parameters:
         ----------
@@ -235,24 +236,70 @@ class fitting:
             Shape of the original grid (height, width)
         new_shape : tuple
             Shape of the new grid (height, width)
-        
+        stretch_factor : float, optional
+            Factor to stretch the normalized coordinates (default: 1.03)
+            
         Returns:
         -------
         list
-            List of (y, x) coordinate tuples in the new grid
+            List of (y, x) coordinate tuples in the new grid, normalized and stretched
         """
         orig_height, orig_width = original_shape
         new_height, new_width = new_shape
         
+        # Create new coordinates list
+        new_coords = []
+        
+        for y, x in actuator_coords:
+            # First, convert to [0, 1] range by dividing by original dimensions
+            normalized_y = y / (orig_height - 1)  # -1 to account for 0-indexing
+            normalized_x = x / (orig_width - 1)
+            
+            # Then, convert from [0, 1] to [-1, 1] range
+            new_y = 2 * normalized_y - 1
+            new_x = 2 * normalized_x - 1
+            
+            # Apply the stretch factor to extend beyond [-1, 1]
+            new_y = new_y * stretch_factor
+            new_x = new_x * stretch_factor
+            
+            # Finally, scale to new dimensions if needed
+            if new_shape != (-1, -1):  # Assuming (-1, -1) means "keep normalized"
+                new_y = new_y * (new_height - 1) / 2 + (new_height - 1) / 2
+                new_x = new_x * (new_width - 1) / 2 + (new_width - 1) / 2
+            
+            new_coords.append((new_y, new_x))
+        
+        self.actuator_coordinates = new_coords
+        return new_coords
+    
+    def map_actuators_to_new_grid_old(self, actuator_coords, original_shape, new_shape):
+        """
+        Maps actuator coordinates from original grid to a new grid size,
+        maintaining relative positions.
+        Parameters:
+        ----------
+        actuator_coords : list
+        List of (y, x) coordinate tuples in the original grid
+        original_shape : tuple
+        Shape of the original grid (height, width)
+        new_shape : tuple
+        Shape of the new grid (height, width)
+        Returns:
+        -------
+        list
+        List of (y, x) coordinate tuples in the new grid
+        """
+        orig_height, orig_width = original_shape
+        new_height, new_width = new_shape
         # Calculate scaling factors
         y_scale = new_height / orig_height
         x_scale = new_width / orig_width
-        
         # Apply scaling to each coordinate
         new_coords = []
         for y, x in actuator_coords:
-            new_y = y * y_scale+0.5#int(y * y_scale)
-            new_x = x * x_scale+0.5#int(x * x_scale)
+            new_y = y * y_scale+0.5#int(y  y_scale)*
+            new_x = x * x_scale+0.5#int(x  x_scale)*
             new_coords.append((new_y, new_x))
         
         self.actuator_coordinates = new_coords
@@ -291,7 +338,6 @@ class fitting:
         
         # Get the original shape of the valid actuator map
         original_shape = dmParams.validActuatorsSupport.shape
-        
         # Map actuator coordinates to the new grid size
         new_actuator_coords = self.map_actuators_to_new_grid(
             actuator_coords, 
@@ -324,8 +370,8 @@ class fitting:
         self.modes = modes
         self.IF = modes  # Use the property setter
         
-        logger.info("Influence function computed.")
-        print("Influence function computed.")
+        logger.debug("Influence function computed.")
+        print("-->> Influence function computed <<--\n")
         return modes
 
 # Configure logging
@@ -341,32 +387,18 @@ import matplotlib.pyplot as plt
 import yaml
 sys.path.append('..')
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
-from dmParametersClass import dmParameters
-from fitting import fitting
+from pyTomoAO.fitting import fitting
 
 # Main execution block
 if __name__ == "__main__":
-    
-    # Create the reconstructor
-    reconstructor = tomographicReconstructor("../examples/tomography_config_kapa.yaml")
+    # Load the reconstructor
+    reconstructor = tomographicReconstructor("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
     reconstructor.build_reconstructor()
-    
-    with open("../examples/tomography_config_kapa.yaml", "r") as f:
-        config = yaml.safe_load(f)
-    
-    # ===== DM PARAMETERS =====
-    try:
-        dmParams = dmParameters(config)
-        print("Successfully initialized DM parameters.")
-        print(dmParams)
-    except (ValueError, TypeError) as e:
-        print(f"Configuration Error: {e}")
-
-    print(f"DM has {dmParams.validActuators.sum()} active actuators")
+    gridMask = reconstructor.gridMask
     
     # Create a fitting instance
     print("\nInitializing fitting object...")
-    fit = fitting(dmParams)
+    fit = fitting(reconstructor.dmParams)
     
     # Generate influence functions
     print("\nGenerating influence functions...")
@@ -380,6 +412,11 @@ if __name__ == "__main__":
     plt.colorbar()
     plt.title("Influence Function for First Actuator")
     plt.show()
+    
+    # Change the modes size with only valid elements of the gridMask 
+#    modes = modes[gridMask.flatten(), :]
+#    fit.modes = modes
+#    print(f"Modes shape after applying grid mask: {modes.shape}")
     
     # Generate a fitting matrix (pseudo-inverse of the influence functions)
     print("\nCalculating fitting matrix...")
@@ -398,12 +435,13 @@ if __name__ == "__main__":
         return masked, masked_for_display
     
     # Function to process and display a wavefront
-    def process_wavefront(wavefront_name, wavefront, fit, reconstructor):
+    def process_wavefront(wavefront_name, wavefront, fit, gridMask):
         print(f"\nProcessing {wavefront_name} wavefront...")
         
         # Apply mask
-        masked_wavefront, display_wavefront = apply_mask(wavefront, reconstructor.gridMask)
+        masked_wavefront, display_wavefront = apply_mask(wavefront, gridMask)
         
+        #masked_wavefront = masked_wavefront[reconstructor.gridMask]
         # Plot the original wavefront
         plt.figure()
         plt.imshow(display_wavefront, cmap='RdBu')
@@ -429,7 +467,7 @@ if __name__ == "__main__":
         # Reconstruct the wavefront from the commands
         print(f"Reconstructing {wavefront_name} wavefront from commands...")
         reconstructed = np.dot(modes, commands).reshape(49, 49)
-        masked_reconstructed, display_reconstructed = apply_mask(reconstructed, reconstructor.gridMask)
+        masked_reconstructed, display_reconstructed = apply_mask(reconstructed, gridMask)
         
         # Calculate fitting error
         residual = display_wavefront - display_reconstructed
@@ -471,12 +509,24 @@ if __name__ == "__main__":
     tilt_x = x * 200  # Simple x-direction tilt
     
     # Process each wavefront
-    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, reconstructor)
-    defocus_error = process_wavefront("Defocus", defocus, fit, reconstructor)
+    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, gridMask)
+    defocus_error = process_wavefront("Defocus", defocus, fit, gridMask)
 
     # Compare results
     print("\nComparison of fitting errors:")
-    print(f"Defocus RMS error: {defocus_error:.6f}")
     print(f"X-Tilt RMS error: {tilt_error:.6f}")
+    print(f"Defocus RMS error: {defocus_error:.6f}")
     
     print("\nExample completed successfully!")
+    
+    print(f"\nModes shape before applying grid mask: {modes.shape}")
+    # Change the modes size with only valid elements of the gridMask 
+    modes = modes[gridMask.flatten(), :]
+    fit.modes = modes
+    print(f"Modes shape after applying grid mask: {modes.shape}")
+    
+    # Generate a fitting matrix (pseudo-inverse of the influence functions)
+    print("\nRecalculating fitting matrix...")
+    fit.F = np.linalg.pinv(modes)
+    print(f"Fitting matrix shape: {fit.F.shape}")
+    
