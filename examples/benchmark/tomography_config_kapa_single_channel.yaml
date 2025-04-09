@@ -83,7 +83,7 @@ dm_parameters:
 
 atmosphere_parameters:
   nLayer: 7
-  zenithAngleInDeg: 30.0
+  zenithAngleInDeg: 0.0
   altitude: [0, 0.5, 1, 2, 4, 8, 16]
   L0: 30
   r0: 0.15
