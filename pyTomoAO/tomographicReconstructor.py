@@ -61,7 +61,6 @@ class tomographicReconstructor:
         self._wavefront2Meter = None
         self._gridMask = None
 
-
     def _initialize_parameters(self):
         """Initialize all parameter classes from the configuration."""
         try:
