@@ -386,11 +386,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yaml
 sys.path.append('..')
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
-from pyTomoAO.fitting import fitting
+
 
 # Main execution block
 if __name__ == "__main__":
+    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.fitting import fitting
     # Load the reconstructor
     reconstructor = tomographicReconstructor("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
     reconstructor.build_reconstructor()
