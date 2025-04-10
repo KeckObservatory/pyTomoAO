@@ -300,7 +300,7 @@ class reconstructorAnalyzer:
         #fig_slopes = self.plot_slopes(slopes_x, slopes_y, title)
         
         # Plot reconstructions
-        fig_recon = self.plot_reconstructions(wavefront,slopes, slopes_keck, slopes_flipped, title)
+        fig_recon = self.plot_reconstructions(wavefront, slopes, slopes_keck, slopes_flipped, title)
         
         return fig_recon #, fig_slopes
 
@@ -341,7 +341,7 @@ def main():
     
     plt.show()
     # Save the control matrix
-    analyzer.save_reconstructor("rec_tomo_single_channel.mr")
+    #analyzer.save_reconstructor("rec_tomo_single_channel.mr")
 
 if __name__ == "__main__":
     main()
