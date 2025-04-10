@@ -85,11 +85,13 @@ class reconstructorAnalyzer:
     def setup_reconstructors(self):
         """Load different reconstructors for comparison"""
         # Create base reconstructor
-        self.R = -self.fit.F @ self.reconstructor.reconstructor
-        self.R = self.R[:, :self.reconstructor.lgsWfsParams.nValidSubap*2]
+        #self.R = -self.fit.F @ self.reconstructor.reconstructor
+        #self.R = self.R[:, :self.reconstructor.lgsWfsParams.nValidSubap*2]
+        
+        self.R = self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=1.5e7)
         
         # Load alternative reconstructors
-        self.R_svd = np.load("../../Downloads/reconstructor_svd.npy")
+        self.R_svd = np.load("../../Downloads/reconstructor_svd_10.npy")
         self.R_keck = np.load("../../Downloads/reconstructor.npy")
         self.R_carlos = np.load("../../Downloads/reconstructor_carlos.npy")
         self.R_carlos = -self.R_carlos[:, :self.reconstructor.lgsWfsParams.nValidSubap*2]
@@ -150,7 +152,8 @@ class reconstructorAnalyzer:
         # X slopes
         ax1 = fig.add_subplot(gs[0, 0])
         temp_mask = np.copy(self.wfs_mask)
-        temp_mask[self.ones_indices_wfs] = slopes_x[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
+        temp_mask[self.ones_indices_wfs] = \
+        slopes_x[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
         im1 = ax1.imshow(temp_mask, cmap='gray')
         ax1.set_title(f'{title_prefix} X Slopes')
         ax1.set_xlabel('X (pixels)')
@@ -160,7 +163,8 @@ class reconstructorAnalyzer:
         # Y slopes
         ax2 = fig.add_subplot(gs[0, 1])
         temp_mask = np.copy(self.wfs_mask)
-        temp_mask[self.ones_indices_wfs] = slopes_y[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
+        temp_mask[self.ones_indices_wfs] = \
+        slopes_y[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
         im2 = ax2.imshow(temp_mask, cmap='gray')
         ax2.set_title(f'{title_prefix} Y Slopes')
         ax2.set_xlabel('X (pixels)')
@@ -170,7 +174,7 @@ class reconstructorAnalyzer:
         plt.tight_layout()
         return fig
     
-    def plot_reconstructions(self, wavefront, slopes_keck, slopes_flipped, title_prefix):
+    def plot_reconstructions(self, wavefront, slopes, slopes_keck, slopes_flipped, title_prefix):
         """Plot wavefront and reconstructed DM commands using different reconstructors"""
         fig = plt.figure(figsize=(25, 5))
         gs = GridSpec(1, 5, figure=fig, width_ratios=[1, 1, 1, 1, 1])
@@ -223,7 +227,7 @@ class reconstructorAnalyzer:
         # Tomo reconstruction
         ax4 = fig.add_subplot(gs[0, 3])
         temp_mask = np.copy(self.cmd_mask)
-        temp_mask[self.ones_indices] = self.R @ slopes_flipped
+        temp_mask[self.ones_indices] = self.R @ slopes_keck
         # Fix center value for better visualization
         dm_center_y, dm_center_x = temp_mask.shape[0] // 2, temp_mask.shape[1] // 2
         temp_mask[dm_center_y, dm_center_x] = 0
@@ -246,7 +250,18 @@ class reconstructorAnalyzer:
         plt.colorbar(im5, ax=ax5)
         
         plt.tight_layout()
-        return fig
+        
+        # display command vector in a separate figure
+        fig2 = plt.figure(figsize=(10, 5))
+        plt.plot(self.R @ slopes_keck, label='R_tomo')
+        plt.plot(self.R_keck[:349,:] @ slopes_keck, label='R_bayes')
+        plt.legend()
+        plt.title('DM commands')
+        plt.xlabel('DM actuator')
+        plt.ylabel('Command value')
+        plt.grid()
+        
+        return fig, fig2
     
     def analyze_tip_tilt(self):
         """Analyze tip-tilt wavefront"""
@@ -282,12 +297,35 @@ class reconstructorAnalyzer:
         wavefront, slopes_x, slopes_y, slopes, slopes_keck, slopes_flipped = self.generate_wavefront(zernike_func)
         
         # Plot slopes
-        fig_slopes = self.plot_slopes(slopes_x, slopes_y, title)
+        #fig_slopes = self.plot_slopes(slopes_x, slopes_y, title)
         
         # Plot reconstructions
-        fig_recon = self.plot_reconstructions(wavefront, slopes_keck, slopes_flipped, title)
+        fig_recon = self.plot_reconstructions(wavefront, slopes, slopes_keck, slopes_flipped, title)
         
-        return fig_slopes, fig_recon
+        return fig_recon #, fig_slopes
+
+    def save_reconstructor(self, filename):
+        """
+        Save the generated control matrix to a file.
+        
+        Parameters:
+        -----------
+        filename : str
+            Path to save the control matrix
+            
+        Returns:
+        --------
+        self
+            For method chaining
+        """
+        if self.R is None:
+            raise ValueError("Control matrix must be generated first")
+        
+        # Save in the same format as the input
+        self.R.astype('>f4').tofile(filename)
+        print(f"Control matrix saved to {filename}")
+        
+        return self
 
 def main():
     """Main function to run the analysis"""
@@ -302,6 +340,8 @@ def main():
     analyzer.analyze_wavefront(zernike_trefoil_0, "Trefoil 0°")
     
     plt.show()
+    # Save the control matrix
+    #analyzer.save_reconstructor("rec_tomo_single_channel.mr")
 
 if __name__ == "__main__":
     main()

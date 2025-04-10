@@ -15,6 +15,7 @@ from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters 
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 from pyTomoAO.dmParametersClass import dmParameters
+from pyTomoAO.fitting import fitting
 from scipy.io import loadmat
 try:  
     CUDA = True
@@ -60,6 +61,8 @@ class tomographicReconstructor:
         self._reconstructor = None
         self._wavefront2Meter = None
         self._gridMask = None
+        self.fit = None
+        self.modes = None
 
     def _initialize_parameters(self):
         """Initialize all parameter classes from the configuration."""
@@ -268,6 +271,75 @@ class tomographicReconstructor:
         print("-->> Reconstructor Computed <<--\n")
         return _reconstructor
     
+    # Assemble reconstructor and fitting
+    def assemble_reconstructor_and_fitting(self, nChannels=1, slopesOrder="simu", scalingFactor=1.65e7 ):
+        """
+        Assemble the reconstructor and fitting matrices together.
+
+        Parameters:
+        -----------
+        nChannels : int
+            Number of channels (default is 1)
+        slopesOrder : str
+            Order of slopes ("keck" or "simu") (default is "simu")
+            keck order is [slopeXY, ...,  slopeXY]
+            simu order is [slopeX, slopeY]
+        scalingFactor : float
+            Scaling factor for the reconstructor (default is 1.65e7)
+        
+        Returns:
+        --------
+        numpy.ndarray
+            The assembled reconstructor and fitting matrix
+        """
+        # test if reconstructor is already built
+        if self._reconstructor is None:
+            self.build_reconstructor()
+        # test if fitting is already built
+        if self.fit is None:
+            self.fit = fitting(self.dmParams)
+            print("-->> Assembling Reconstructor and Fitting <<--\n")
+        
+        # Setup the influence functions and mask them to the grid
+        print("\nCalculating influence functions")
+        self.modes = self.fit.set_influence_function(resolution=49, display=False, sigma1=0.5*2, sigma2=0.85*2)
+        self.modes = self.modes[self.gridMask.flatten(), :]
+        print(f"Modes shape after applying grid mask: {self.modes.shape}")
+        # Generate a fitting matrix (pseudo-inverse of the influence functions)
+        print("\nCalculating fitting matrix")
+        self.fit.F = np.linalg.pinv(self.modes)
+        print(f"Fitting matrix shape: {self.fit.F.shape}")
+        
+        # prepare the reconstructor for single channel
+        if nChannels == 1:
+            self.reconstructor = self._reconstructor[:, :self.lgsWfsParams.nValidSubap*2]
+            # Rearrange the reconstructor to accomodate slopes = [slopeX, slopesY]
+            if slopesOrder == "simu":
+                # Swap X and Y blocks
+                cols_to_move = np.arange(self.lgsWfsParams.nValidSubap, self.lgsWfsParams.nValidSubap*2)    # Last columns
+                remaining_cols = np.arange(0, self.lgsWfsParams.nValidSubap)    # First columns
+                self.reconstructor = self._reconstructor[:, np.concatenate((cols_to_move, remaining_cols))]
+                # Generate the reconstructor with fitting
+                self.FR = -self.fit.F @ self.reconstructor * scalingFactor
+            # Rearrange the reconstructor to accomodate slopes = [slopesXY,..,slopesXY]
+            elif slopesOrder == "keck":
+                # Swap X and Y blocks
+                cols_to_move = np.arange(self.lgsWfsParams.nValidSubap, self.lgsWfsParams.nValidSubap*2)    # Last columns
+                remaining_cols = np.arange(0, self.lgsWfsParams.nValidSubap)    # First columns
+                self._reconstructor = self._reconstructor[:, np.concatenate((cols_to_move, remaining_cols))]
+                # Rearrange the rows into [XY, ..., XY]
+                self.reconstructor = np.apply_along_axis(self.sort_row, 1, self._reconstructor)
+                # Generate the reconstructor with fitting
+                self.FR = -self.fit.F @ self.reconstructor * scalingFactor
+                                    
+        return self.FR
+    
+    def sort_row(self, row):
+        row2 = row.copy()
+        row2[::2] = row[:row.shape[0]//2]
+        row2[1::2] = row[row.shape[0]//2:]
+        return row2
+
     # Reconstruct Wavefront
     def reconstruct_wavefront(self, slopes):
         """
