@@ -1,3 +1,4 @@
+# reconstructorAnalyzer.py
 """
 Adaptive Optics Reconstructor Analysis Script
 """
@@ -322,7 +323,7 @@ class reconstructorAnalyzer:
             raise ValueError("Control matrix must be generated first")
         
         # Save in the same format as the input
-        self.R.astype('>f4').tofile(filename)
+        self.R.T.flatten().astype('>f4').tofile(filename)
         print(f"Control matrix saved to {filename}")
         
         return self
@@ -331,7 +332,8 @@ def main():
     """Main function to run the analysis"""
     # Initialize the analyzer
     analyzer = reconstructorAnalyzer("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
-    
+    # remove central actuator
+    analyzer.reconstructor.mask_DM_actuators(174)
     # Analyze different Zernike modes
     analyzer.analyze_wavefront(zernike_defocus, "Defocus")
     analyzer.analyze_wavefront(zernike_astigmatism_45, "Astigmatism 45°")
@@ -340,8 +342,13 @@ def main():
     analyzer.analyze_wavefront(zernike_trefoil_0, "Trefoil 0°")
     
     plt.show()
+    
+    # Add tip-tilt and focus to the control matrix
+    TipTiltFocus = analyzer.R_keck[-3:,:]
+    analyzer.R = np.vstack([analyzer.R, TipTiltFocus])
+
     # Save the control matrix
-    #analyzer.save_reconstructor("rec_tomo_single_channel.mr")
+    #analyzer.save_reconstructor("RtomoSingleNoTTF.mr")
 
 if __name__ == "__main__":
     main()

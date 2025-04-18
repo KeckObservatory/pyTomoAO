@@ -239,7 +239,7 @@ def _covariance_matrix(*args):
     return out * fractionalR0
 
 
-def _auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,gridMask):
+def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask):
     """
     Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
     
@@ -278,7 +278,7 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams,lgsAsterismParams,grid
     S : ndarray
         Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
     """
-    print("-->> Computing auto-correlation meta-matrix <<--\n")
+    #print("-->> Computing auto-correlation meta-matrix <<--\n")
     # ======================================================================
     # Parameter Extraction
     # ======================================================================
@@ -398,7 +398,7 @@ def _cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,grid
     S : ndarray
         Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
     """
-    print("-->> Computing cross-correlation meta-matrix <<--\n")
+    #print("-->> Computing cross-correlation meta-matrix <<--\n")
     # ======================================================================
     # Parameter Extraction
     # ======================================================================
@@ -474,7 +474,7 @@ def _cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,grid
     
     return C
 
-def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):
+def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2, stencilSize=3):
     """
     Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
     
@@ -494,7 +494,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     gridMask : 2D array
         Mask used for the reconstructed phase.
     """
-    print("-->> Computing sparse gradient matrix <<--\n")
+    #print("-->> Computing sparse gradient matrix <<--\n")
     
     import numpy as np
     # Get dimensions and counts
@@ -507,15 +507,15 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
         amplMask = np.ones((nMap, nMap))
 
     # Set up stencil parameters based on oversampling factor
-    if overSampling == 2:
+    if stencilSize == 3:
         # 3x3 stencil for 2x oversampling
-        stencil_size = 3
+        
         s0x = np.array([-1/4, -1/2, -1/4, 0, 0, 0, 1/4, 1/2, 1/4])  # x-gradient weights
         s0y = -np.array([1/4, 0, -1/4, 1/2, 0, -1/2, 1/4, 0, -1/4])  # y-gradient weights
         num_points = 9
-    elif overSampling == 4:
+    elif stencilSize == 5:
         # 5x5 stencil for 4x oversampling
-        stencil_size = 5
+        
         s0x = np.array([-1/16, -3/16, -1/2, -3/16, -1/16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
                         0, 0, 0, 0, 0, 1/16, 3/16, 1/2, 3/16, 1/16])  # x-gradient weights
         s0y = s0x.reshape(5,5).T.flatten()  # y-gradient weights (transpose of x)
@@ -524,8 +524,8 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
         raise ValueError("overSampling must be 2 or 4")
 
     # Initialize stencil position arrays
-    i0x = np.tile(np.arange(1, stencil_size+1), stencil_size)  # Row indices
-    j0x = np.repeat(np.arange(1, stencil_size+1), stencil_size)  # Column indices
+    i0x = np.tile(np.arange(1, stencilSize+1), stencilSize)  # Row indices
+    j0x = np.repeat(np.arange(1, stencilSize+1), stencilSize)  # Column indices
     i0y = i0x.copy()  # Same pattern for y-gradient
     j0y = j0x.copy()
     
@@ -538,7 +538,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     s_y = np.zeros(num_points * nValidLenslet_)  # Values for y-gradient
     
     # Create grid for mask
-    iMap0, jMap0 = np.meshgrid(np.arange(1, stencil_size+1), np.arange(1, stencil_size+1))
+    iMap0, jMap0 = np.meshgrid(np.arange(1, stencilSize+1), np.arange(1, stencilSize+1))
     gridMask = np.zeros((nMap, nMap), dtype=bool)
     u = np.arange(1, num_points+1)  # Counter for filling arrays
 
@@ -580,12 +580,74 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
     return Gamma, gridMask
 
-def _build_reconstructor(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
+def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
         
     Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
         lgsWfsParams.validLLMapSupport,
         amplMask=None, 
         overSampling=2
+    )
+    GammaBeta = Gamma/(2*math.pi)
+
+    Gamma_list = []
+    for kGs in range(lgsAsterismParams.nLGS):
+        Gamma_list.append(Gamma)
+
+    Gamma = block_diag(Gamma_list)
+
+    # Update sampling parameter for Super Resolution
+    tomoParams.sampling = gridMask.shape[0]
+
+    Cxx = _auto_correlation(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams,
+        gridMask
+    )
+
+    # Update the tomography parameters to include the fitting weight for each source
+    tomoParams.fitSrcWeight = np.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
+
+    Cox = _cross_correlation(
+        tomoParams,
+        lgsWfsParams, 
+        atmParams,
+        lgsAsterismParams
+    )
+
+    CoxOut = 0
+    for i in range(tomoParams.nFitSrc**2):
+        CoxOut = CoxOut + Cox[i,:,:]*tomoParams.fitSrcWeight[i]
+
+    row_mask = gridMask.ravel().astype(bool)
+    col_mask = np.tile(gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+
+    # Select submatrix using boolean masks with np.ix_ for correct indexing
+    Cox = CoxOut[np.ix_(row_mask, col_mask)]
+
+    CnZ = np.eye(Gamma.shape[0]) * 1/10 * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
+    invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
+
+    RecStatSA = Cox @ Gamma.T @ invCss
+
+    # LGS WFS subapertures diameter
+    d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
+
+    # Size of the pixel at Shannon sampling
+    _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+
+    # Compute final scaled reconstructor
+    _reconstructor = d * _wavefront2Meter * RecStatSA
+
+    return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
+
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
+        
+    Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
+        lgsWfsParams.validLLMapSupport,
+        amplMask=None, 
+        overSampling=1
     )
     GammaBeta = Gamma/(2*math.pi)
 

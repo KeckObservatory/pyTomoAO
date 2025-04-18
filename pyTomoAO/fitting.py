@@ -2,16 +2,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 import logging
 import yaml
+import sys
+sys.path.append('..')
 
-
+# Configure logging
+logging.basicConfig(level=logging.CRITICAL)
+logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 class fitting:
     """
     A class for handling deformable mirror fitting operations with influence function computation.
     Forwards attribute access to dmGeometry when appropriate.
     """
     
-    def __init__(self, dmParams):
+    def __init__(self, dmParams, logger=logger):
         """
         Initialize the fitting class.
         
@@ -20,14 +26,15 @@ class fitting:
         dmParams : object
             An instance of a class containing DM geometry parameters
         """
-        print("\n -->> Initializing fitting object <<--")
+        logger.info("\n -->> Initializing fitting object <<--")
         self.dmParams = dmParams
         # Initialize other class attributes as needed
         self.modes = None
         self.resolution = 49  # Default resolution
         self._fitting_matrix = np.array([])
         self._influence_functions = np.array([])
-        print("All parameters initialized successfully.\n")
+        logger.info("\nAll parameters initialized successfully.")
+    
     def __getattr__(self, name):
         """
         Forwards attribute access to the dmParams class if it contains the requested attribute.
@@ -134,7 +141,7 @@ class fitting:
         ValueError
             If the fitting matrix is not set.
         """
-        logger.info("Performing fitting of the OPD map.")
+        logger.info("\nPerforming fitting of the OPD map.")
         if self.F.size == 0:
             logger.error("Fitting matrix is not set.")
             raise ValueError("Fitting matrix is not set.")
@@ -331,7 +338,7 @@ class fitting:
         if resolution is None:
             resolution = self.resolution
         
-        print("-->> Computing influence function <<--\n")
+        logger.info("\n-->> Computing influence function <<--")
         
         # Extract actuator coordinates from the valid actuator map
         actuator_coords = self.extract_actuator_coordinates(dmParams.validActuatorsSupport)
@@ -371,22 +378,8 @@ class fitting:
         self.IF = modes  # Use the property setter
         
         logger.debug("Influence function computed.")
-        print("-->> Influence function computed <<--\n")
+        logger.info("\n-->> Influence function computed <<--")
         return modes
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
-
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
-import yaml
-sys.path.append('..')
-
 
 # Main execution block
 if __name__ == "__main__":
