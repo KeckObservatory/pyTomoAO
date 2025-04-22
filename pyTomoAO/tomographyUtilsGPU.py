@@ -351,7 +351,7 @@ def _calculate_scaled_shifted_coords(x_gpu, y_gpu, srcACdirectionVector_gpu, gs_
 
 def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask, use_float32=False):
     """GPU-optimized auto-correlation function"""
-    print("-->> Computing auto-correlation matrix <<--\n")
+    #print("-->> Computing auto-correlation matrix <<--\n")
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
     
@@ -478,7 +478,7 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
 
 def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None, use_float32=False):
     """GPU-optimized cross-correlation function"""
-    print("-->> Computing cross-correlation matrix <<--\n")
+    #print("-->> Computing cross-correlation matrix <<--\n")
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
     
@@ -607,7 +607,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     gridMask : 2D array
         Mask used for the reconstructed phase.
     """
-    print("-->> Computing sparse gradient matrix <<--\n")
+    #print("-->> Computing sparse gradient matrix <<--\n")
     
     import numpy as np
     # Get dimensions and counts
@@ -693,7 +693,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
     return Gamma, gridMask
 
-def _build_reconstructor(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
+def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
     """
     GPU-optimized atmospheric tomography reconstructor builder
     
@@ -793,3 +793,89 @@ def _build_reconstructor(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams,
         cp.get_default_memory_pool().free_all_blocks()
 
         return _reconstructor, Gamma, _gridMask, Cxx, Cox, CnZ, RecStatSA
+
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, use_float32=False):
+    """
+    GPU-optimized atmospheric tomography reconstructor builder
+    
+    Parameters:
+        tomoParams: Tomography parameters
+        lgsWfsParams: Laser guide star WFS parameters
+        atmParams: Atmospheric parameters
+        lgsAsterismParams: LGS asterism parameters
+        use_float32: If True, use float32 precision instead of float64 for faster computation
+    
+    Returns:
+        _reconstructor: Optimized tomographic reconstructor
+    """
+    cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
+    # Set computation dtype
+    dtype = cp.float32 if use_float32 else cp.float64
+    
+    # Create a CUDA stream for asynchronous operations
+    stream = cp.cuda.Stream()
+    with stream:
+        # Define the grid mask based on the DM parameters
+        gridMask = dmParams.validActuators
+        
+        # Update sampling parameter for Super Resolution
+        tomoParams.sampling = gridMask.shape[0]
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after _gridMask computation
+
+        Cxx = _auto_correlation(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams,
+            gridMask,
+            use_float32
+        ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
+
+        tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2)/tomoParams.nFitSrc**2
+        # Update the tomography parameters with proper conversion
+        if isinstance(tomoParams.fitSrcWeight, np.ndarray):
+            tomoParams.fitSrcWeight = cp.array(tomoParams.fitSrcWeight, dtype=dtype)
+        else:
+            tomoParams.fitSrcWeight = cp.ones(tomoParams.nFitSrc**2, dtype=dtype)/tomoParams.nFitSrc**2
+
+        Cox = _cross_correlation(
+            tomoParams,
+            lgsWfsParams, 
+            atmParams,
+            lgsAsterismParams,
+            gridMask,
+            use_float32=use_float32
+        ).astype(dtype)
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
+
+        Cox = cp.sqeeze(Cox)
+
+        # Noise covariance matrix
+        weight = cp.ones(IM.shape[0])
+        alpha = 10
+        CnZ = 1e-3 * alpha * cp.diag(1 / (weight.flatten(order='F')))
+        
+        # Noise covariance matrix
+        weight = cp.ones(IM.shape[0])
+        alpha = 10
+        CnZ = 1e-3 * alpha * cp.diag(1 / (weight.flatten(order='F')))
+
+        
+        # Keep calculations separate to match CPU version exactly
+        IMCxxIMT = IM @ Cxx @ IM.T
+        IMCxxIMT_reg = IMCxxIMT + CnZ
+
+        eye = cp.eye(IMCxxIMT_reg.shape[0], dtype=IMCxxIMT_reg.dtype)
+        invCss = cp.linalg.solve(IMCxxIMT_reg, eye)
+
+        # Final computation of reconstructor - match CPU exactly
+        RecStatSA = Cox @ IM.T @ invCss
+
+        # Compute final scaled reconstructor
+        _reconstructor = cp.asnumpy(RecStatSA)
+        
+        # Clean up GPU memory
+        cp.get_default_memory_pool().free_all_blocks()
+
+        return _reconstructor, gridMask, Cxx, Cox, CnZ, RecStatSA
