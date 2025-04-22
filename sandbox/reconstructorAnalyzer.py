@@ -1,3 +1,4 @@
+# reconstructorAnalyzer.py
 """
 Adaptive Optics Reconstructor Analysis Script
 """
@@ -6,6 +7,8 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from pyTomoAO.fitting import fitting
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from scipy.linalg import block_diag
+
 
 # --- Utility Functions ---
 def cart2pol(x, y):
@@ -84,17 +87,22 @@ class reconstructorAnalyzer:
     
     def setup_reconstructors(self):
         """Load different reconstructors for comparison"""
-        # Create base reconstructor
-        #self.R = -self.fit.F @ self.reconstructor.reconstructor
-        #self.R = self.R[:, :self.reconstructor.lgsWfsParams.nValidSubap*2]
+        # Create model base reconstructor
+        self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=1.5e7)
+        self.reconstructor.mask_DM_actuators(174)
+        self.R = self.reconstructor.FR
         
-        self.R = self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=1.5e7)
-        
+        # Create IM based reconstructor
+        IM = np.load('../sandbox/IM_keck.npy')
+        nLGS = self.reconstructor.nLGS
+        matrices = [IM] * nLGS
+        IM = block_diag(*matrices)
+        self.R_im = self.reconstructor.build_reconstructor(IM)
+        self.R_im = -self.R_im[:, :self.reconstructor.lgsWfsParams.nValidSubap*2] * 1/4*10
+
         # Load alternative reconstructors
-        self.R_svd = np.load("../../Downloads/reconstructor_svd_10.npy")
+        self.R_svd = -np.load("../../Downloads/reconstructor_svd_10.npy")
         self.R_keck = np.load("../../Downloads/reconstructor.npy")
-        self.R_carlos = np.load("../../Downloads/reconstructor_carlos.npy")
-        self.R_carlos = -self.R_carlos[:, :self.reconstructor.lgsWfsParams.nValidSubap*2]
     
     def setup_meshgrid(self):
         """Create meshgrid for wavefront generation"""
@@ -207,9 +215,9 @@ class reconstructorAnalyzer:
         # SVD reconstruction
         ax2 = fig.add_subplot(gs[0, 1])
         temp_mask = np.copy(self.cmd_mask)
-        temp_mask[self.ones_indices] = -self.R_svd @ slopes_keck
+        temp_mask[self.ones_indices] = self.R_svd @ slopes_keck
         im2 = ax2.imshow(temp_mask, cmap='gray')
-        ax2.set_title('DM commands (-R_svd)')
+        ax2.set_title('DM commands (R_Keck (SVD)')
         ax2.set_xlabel('X (pixels)')
         ax2.set_ylabel('Y (pixels)')
         plt.colorbar(im2, ax=ax2)
@@ -219,32 +227,28 @@ class reconstructorAnalyzer:
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_keck[:349,:] @ slopes_keck
         im3 = ax3.imshow(temp_mask, cmap='gray')
-        ax3.set_title('DM commands (R_bayes)')
+        ax3.set_title('DM commands (R_Keck (Bayes)')
         ax3.set_xlabel('X (pixels)')
         ax3.set_ylabel('Y (pixels)')
         plt.colorbar(im3, ax=ax3)
         
-        # Tomo reconstruction
+        # Tomo model based reconstruction
         ax4 = fig.add_subplot(gs[0, 3])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R @ slopes_keck
-        # Fix center value for better visualization
-        dm_center_y, dm_center_x = temp_mask.shape[0] // 2, temp_mask.shape[1] // 2
-        temp_mask[dm_center_y, dm_center_x] = 0
+
         im4 = ax4.imshow(temp_mask, cmap='gray')
-        ax4.set_title('DM commands (R_tomo)')
+        ax4.set_title('DM commands (R_Tomo (Model))')
         ax4.set_xlabel('X (pixels)')
         ax4.set_ylabel('Y (pixels)')
         plt.colorbar(im4, ax=ax4)
         
-        # Carlos reconstruction
+        # Tomo IM based reconstruction
         ax5 = fig.add_subplot(gs[0, 4])
         temp_mask = np.copy(self.cmd_mask)
-        temp_mask[self.ones_indices] = self.R_carlos @ slopes_flipped
-        # Fix center value for better visualization
-        temp_mask[dm_center_y, dm_center_x] = 0
+        temp_mask[self.ones_indices] = self.R_im @ slopes_keck
         im5 = ax5.imshow(temp_mask, cmap='gray')
-        ax5.set_title('DM commands (R_tomo (Carlos))')
+        ax5.set_title('DM commands (R_Tomo (IM))')
         ax5.set_xlabel('X (pixels)')
         ax5.set_ylabel('Y (pixels)')
         plt.colorbar(im5, ax=ax5)
@@ -253,8 +257,9 @@ class reconstructorAnalyzer:
         
         # display command vector in a separate figure
         fig2 = plt.figure(figsize=(10, 5))
-        plt.plot(self.R @ slopes_keck, label='R_tomo')
-        plt.plot(self.R_keck[:349,:] @ slopes_keck, label='R_bayes')
+        plt.plot(self.R @ slopes_keck, label='R_Tomo (Model)')
+        plt.plot(self.R_im @ slopes_keck, label='R_Tomo (IM)')
+        plt.plot(self.R_keck[:349,:] @ slopes_keck, label='R_Keck (Bayes)')
         plt.legend()
         plt.title('DM commands')
         plt.xlabel('DM actuator')
@@ -322,7 +327,7 @@ class reconstructorAnalyzer:
             raise ValueError("Control matrix must be generated first")
         
         # Save in the same format as the input
-        self.R.astype('>f4').tofile(filename)
+        self.R.T.flatten().astype('>f4').tofile(filename)
         print(f"Control matrix saved to {filename}")
         
         return self
@@ -331,7 +336,8 @@ def main():
     """Main function to run the analysis"""
     # Initialize the analyzer
     analyzer = reconstructorAnalyzer("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
-    
+    # remove central actuator
+    analyzer.reconstructor.mask_DM_actuators(174)
     # Analyze different Zernike modes
     analyzer.analyze_wavefront(zernike_defocus, "Defocus")
     analyzer.analyze_wavefront(zernike_astigmatism_45, "Astigmatism 45°")
@@ -340,8 +346,13 @@ def main():
     analyzer.analyze_wavefront(zernike_trefoil_0, "Trefoil 0°")
     
     plt.show()
+    
+    # Add tip-tilt and focus to the control matrix
+    TipTiltFocus = analyzer.R_keck[-3:,:]
+    analyzer.R = np.vstack([analyzer.R, TipTiltFocus])
+
     # Save the control matrix
-    #analyzer.save_reconstructor("rec_tomo_single_channel.mr")
+    #analyzer.save_reconstructor("RtomoSingleNoTTF.mr")
 
 if __name__ == "__main__":
     main()
