@@ -9,7 +9,7 @@
     also provides methods to compute the auto-correlation and cross-correlation matrices, 
     as well as the sparse gradient matrix. The class includes methods to visualize the 
     reconstructed phase in the case of the model based reconstructor. This class can also 
-    compute a non-tomographic reconstructor for a single channel case. The class supports 
+    computes a non-tomographic reconstructor for a single channel case. The class supports 
     GPU acceleration using CUDA if available.
 """
 
@@ -57,6 +57,8 @@ class tomographicReconstructor:
         -----------
         config_file : str
             Path to the YAML configuration file
+        logger : logging.Logger, optional
+            Logger object for logging messages (default is the root logger)
         """
         logger.info("\n-->> Initializing reconstructor object <<--")
         # Load configuration
@@ -332,16 +334,15 @@ class tomographicReconstructor:
             # load IM
             self.IM = IM
             if CUDA:
-                _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
+                _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, use_float32=True)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams, use_float32=True)
             else:
-                _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
+                _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams)
             self.method = "IM"
             self._reconstructor = _reconstructor
-            self.Gamma = Gamma
             self._gridMask = gridMask
             self.Cxx = Cxx
             self.Cox = Cox
@@ -715,6 +716,11 @@ if __name__ == "__main__":
     plt.ylabel('Actuators')
     plt.tight_layout()
     plt.show()
+    
+    # Build the IM based reconstructor
+    # IM = np.load('../sandbox/IM_sim.npy')
+    # R = reconstructor.build_reconstructor(IM, use_float32=True)
+    # print(f"Reconstructor matrix shape: {R.shape}")
     
     # Test against MATLAB results if needed
     # results = reconstructor._test_against_matlab('/Users/urielconod/tomographyDataTest')

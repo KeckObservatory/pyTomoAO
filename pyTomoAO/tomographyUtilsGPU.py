@@ -794,7 +794,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
 
         return _reconstructor, Gamma, _gridMask, Cxx, Cox, CnZ, RecStatSA
 
-def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, use_float32=False):
     """
     GPU-optimized atmospheric tomography reconstructor builder
     
@@ -815,28 +815,19 @@ def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterism
     # Create a CUDA stream for asynchronous operations
     stream = cp.cuda.Stream()
     with stream:
-        # Get sparse gradient matrix (CPU operation)
-        Gamma, _gridMask = _sparseGradientMatrixAmplitudeWeighted(
-            lgsWfsParams.validLLMapSupport,
-            amplMask=None, 
-            overSampling=1
-        )
-
-        # Use the exact same block diagonal approach as the CPU version
-        # This ensures identical matrix structure
-        Gamma_list = []
-        for kGs in range(lgsAsterismParams.nLGS):
-            Gamma_list.append(Gamma)
-
-        Gamma = cp.array(block_diag(Gamma_list).toarray(), dtype=dtype)
-        cp.get_default_memory_pool().free_all_blocks()  # Free memory after Gamma computation
+        # Define the grid mask based on the DM parameters
+        gridMask = dmParams.validActuators
+        
+        # Update sampling parameter for Super Resolution
+        tomoParams.sampling = gridMask.shape[0]
+        cp.get_default_memory_pool().free_all_blocks()  # Free memory after _gridMask computation
 
         Cxx = _auto_correlation(
             tomoParams,
             lgsWfsParams, 
             atmParams,
             lgsAsterismParams,
-            _gridMask,
+            gridMask,
             use_float32
         ).astype(dtype)
         cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
@@ -853,44 +844,38 @@ def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterism
             lgsWfsParams, 
             atmParams,
             lgsAsterismParams,
+            gridMask,
             use_float32=use_float32
         ).astype(dtype)
         cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
 
-        weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
-        CoxOut = cp.sum(weighted_cox, axis=0)
+        Cox = cp.sqeeze(Cox)
 
-        row_mask = _gridMask.ravel().astype(bool)
-        col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+        # Noise covariance matrix
+        weight = cp.ones(IM.shape[0])
+        alpha = 10
+        CnZ = 1e-3 * alpha * cp.diag(1 / (weight.flatten(order='F')))
+        
+        # Noise covariance matrix
+        weight = cp.ones(IM.shape[0])
+        alpha = 10
+        CnZ = 1e-3 * alpha * cp.diag(1 / (weight.flatten(order='F')))
 
-        # Select submatrix using boolean masks with np.ix_ for correct indexing
-        # DO NOT EDIT THIS WITH CUPY FUNCTIONS, IT WILL BREAK THE GPU VERSION
-        idxs = np.ix_(row_mask, col_mask)
-        Cox = CoxOut[idxs]
-
-        # Calculate noise covariance
-        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
         
         # Keep calculations separate to match CPU version exactly
-        GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
-        GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
+        IMCxxIMT = IM @ Cxx @ IM.T
+        IMCxxIMT_reg = IMCxxIMT + CnZ
 
-        eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
-        invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
+        eye = cp.eye(IMCxxIMT_reg.shape[0], dtype=IMCxxIMT_reg.dtype)
+        invCss = cp.linalg.solve(IMCxxIMT_reg, eye)
 
         # Final computation of reconstructor - match CPU exactly
-        RecStatSA = Cox @ Gamma.T @ invCss
-        
-        # LGS WFS subapertures diameter
-        d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
-
-        # Size of the pixel at Shannon sampling
-        _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+        RecStatSA = Cox @ IM.T @ invCss
 
         # Compute final scaled reconstructor
-        _reconstructor = cp.asnumpy(d * _wavefront2Meter * RecStatSA)
+        _reconstructor = cp.asnumpy(RecStatSA)
         
         # Clean up GPU memory
         cp.get_default_memory_pool().free_all_blocks()
 
-        return _reconstructor, Gamma, _gridMask, Cxx, Cox, CnZ, RecStatSA
+        return _reconstructor, gridMask, Cxx, Cox, CnZ, RecStatSA

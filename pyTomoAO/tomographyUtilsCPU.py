@@ -642,21 +642,12 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
 
     return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
 
-def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
-        
-    Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
-        lgsWfsParams.validLLMapSupport,
-        amplMask=None, 
-        overSampling=1
-    )
-    GammaBeta = Gamma/(2*math.pi)
-
-    Gamma_list = []
-    for kGs in range(lgsAsterismParams.nLGS):
-        Gamma_list.append(Gamma)
-
-    Gamma = block_diag(Gamma_list)
-
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams):
+    # IM has to be a block diagonal matrix containing the IM for each LGS
+    
+    # Define gridMask based on the DM parameters
+    gridMask = dmParams.validActuators
+    
     # Update sampling parameter for Super Resolution
     tomoParams.sampling = gridMask.shape[0]
 
@@ -675,31 +666,22 @@ def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterism
         tomoParams,
         lgsWfsParams, 
         atmParams,
-        lgsAsterismParams
+        lgsAsterismParams,
+        gridMask
     )
 
-    CoxOut = 0
-    for i in range(tomoParams.nFitSrc**2):
-        CoxOut = CoxOut + Cox[i,:,:]*tomoParams.fitSrcWeight[i]
+    Cox = np.squeeze(Cox)
 
-    row_mask = gridMask.ravel().astype(bool)
-    col_mask = np.tile(gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+    # Noise covariance matrix
+    weight = np.ones(IM.shape[0])
+    alpha = 10
+    CnZ = 1e-3 * alpha * np.diag(1 / (weight.flatten(order='F')))
+    
+    invCss = np.linalg.inv(IM @ Cxx @ IM.T + CnZ)
 
-    # Select submatrix using boolean masks with np.ix_ for correct indexing
-    Cox = CoxOut[np.ix_(row_mask, col_mask)]
-
-    CnZ = np.eye(Gamma.shape[0]) * 1/10 * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
-    invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
-
-    RecStatSA = Cox @ Gamma.T @ invCss
-
-    # LGS WFS subapertures diameter
-    d = lgsWfsParams.DSupport/lgsWfsParams.validLLMapSupport.shape[0]
-
-    # Size of the pixel at Shannon sampling
-    _wavefront2Meter = lgsAsterismParams.LGSwavelength/d/2
+    RecStatSA = Cox @ IM.T @ invCss
 
     # Compute final scaled reconstructor
-    _reconstructor = d * _wavefront2Meter * RecStatSA
+    _reconstructor = RecStatSA
 
-    return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
+    return _reconstructor, gridMask, Cxx, Cox, CnZ, RecStatSA

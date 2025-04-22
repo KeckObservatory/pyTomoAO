@@ -1,3 +1,10 @@
+# fitting.py
+
+"""
+This module contains the fitting class for handling deformable mirror fitting operations.
+It includes methods for computing influence functions, generating fitting matrices, and fitting OPD maps.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
