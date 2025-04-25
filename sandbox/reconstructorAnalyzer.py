@@ -91,9 +91,10 @@ class reconstructorAnalyzer:
         self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=1.5e7)
         self.reconstructor.mask_DM_actuators(174)
         self.R = self.reconstructor.FR
+        self.FR = self.R
         
         # Create IM based reconstructor
-        IM = np.load('../sandbox/IM_keck.npy')
+        IM = self.load_interaction_matrix('24.imx-LGS4')
         nLGS = self.reconstructor.nLGS
         matrices = [IM] * nLGS
         IM = block_diag(*matrices)
@@ -194,18 +195,18 @@ class reconstructorAnalyzer:
             # Case when wavefront is a numpy array (from Zernike functions)
             # Apply mask
             masked_wavefront = wavefront * self.wfs_mask
-            im1 = ax1.imshow(masked_wavefront, cmap='gray')
+            im1 = ax1.imshow(masked_wavefront, cmap='RdBu')
         else:
             # Case when wavefront is from reconstructor.reconstruct_wavefront
             # Need to reshape it properly
             try:
                 # Try to reshape to match the WFS size
                 reshaped_wavefront = np.reshape(wavefront, self.wfs_mask.shape)
-                im1 = ax1.imshow(reshaped_wavefront, cmap='gray')
+                im1 = ax1.imshow(reshaped_wavefront, cmap='RdBu')
             except ValueError:
                 # If reshape fails, just show the original wavefront
                 print(f"Warning: Could not reshape wavefront of shape {wavefront.shape} to {self.wfs_mask.shape}")
-                im1 = ax1.imshow(wavefront, cmap='gray')
+                im1 = ax1.imshow(wavefront, cmap='RdBu')
                 
         ax1.set_title(f'{title_prefix} Wavefront')
         ax1.set_xlabel('X (pixels)')
@@ -216,8 +217,8 @@ class reconstructorAnalyzer:
         ax2 = fig.add_subplot(gs[0, 1])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_svd @ slopes_keck
-        im2 = ax2.imshow(temp_mask, cmap='gray')
-        ax2.set_title('DM commands (R_Keck (SVD)')
+        im2 = ax2.imshow(temp_mask, cmap='RdBu')
+        ax2.set_title('DM commands (R_Keck (SVD))')
         ax2.set_xlabel('X (pixels)')
         ax2.set_ylabel('Y (pixels)')
         plt.colorbar(im2, ax=ax2)
@@ -226,8 +227,8 @@ class reconstructorAnalyzer:
         ax3 = fig.add_subplot(gs[0, 2])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_keck[:349,:] @ slopes_keck
-        im3 = ax3.imshow(temp_mask, cmap='gray')
-        ax3.set_title('DM commands (R_Keck (Bayes)')
+        im3 = ax3.imshow(temp_mask, cmap='RdBu')
+        ax3.set_title('DM commands (R_Keck (Bayes))')
         ax3.set_xlabel('X (pixels)')
         ax3.set_ylabel('Y (pixels)')
         plt.colorbar(im3, ax=ax3)
@@ -237,7 +238,7 @@ class reconstructorAnalyzer:
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R @ slopes_keck
 
-        im4 = ax4.imshow(temp_mask, cmap='gray')
+        im4 = ax4.imshow(temp_mask, cmap='RdBu')
         ax4.set_title('DM commands (R_Tomo (Model))')
         ax4.set_xlabel('X (pixels)')
         ax4.set_ylabel('Y (pixels)')
@@ -247,7 +248,7 @@ class reconstructorAnalyzer:
         ax5 = fig.add_subplot(gs[0, 4])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_im @ slopes_keck
-        im5 = ax5.imshow(temp_mask, cmap='gray')
+        im5 = ax5.imshow(temp_mask, cmap='RdBu')
         ax5.set_title('DM commands (R_Tomo (IM))')
         ax5.set_xlabel('X (pixels)')
         ax5.set_ylabel('Y (pixels)')
@@ -309,27 +310,65 @@ class reconstructorAnalyzer:
         
         return fig_recon #, fig_slopes
 
-    def save_reconstructor(self, filename):
+    def load_interaction_matrix(self, filename):
         """
-        Save the generated control matrix to a file.
+        Load an interaction matrix matrix from a file.
         
         Parameters:
         -----------
         filename : str
-            Path to save the control matrix
-            
+            Path to the file containing the interaction matrix matrix.
+        Raises:
+        -------
+        ValueError
+            If the file does not exist or is not in the correct format.
         Returns:
         --------
         self
             For method chaining
         """
-        if self.R is None:
-            raise ValueError("Control matrix must be generated first")
         
-        # Save in the same format as the input
-        self.R.T.flatten().astype('>f4').tofile(filename)
-        print(f"Control matrix saved to {filename}")
+        try:
+            with open(filename, 'rb') as f:
+                IM = np.fromfile(f, dtype='>f4').reshape((608, 349))
+            print(f"Interaction matrix loaded from {filename}")
+        except ValueError:
+            raise ValueError("Interaction matrix must be generated first")
         
+        return IM
+
+    def save_reconstructor(self, filename):
+        """
+        Save the generated reconstructor matrix to a file.
+        
+        Parameters:
+        -----------
+        filename : str
+            Path to save the Reconstructor matrix.
+        Raises:
+        -------
+        ValueError
+            If the reconstructor matrix is not generated yet.
+        Returns:
+        --------
+        self
+            For method chaining
+        """
+        
+        if self.reconstructor.method == "IM":
+            try:
+                # Save in the same format as the input
+                self.R.astype('>f4').tofile(filename)
+                print(f"Reconstructor IM based saved to {filename}")
+            except ValueError:
+                raise ValueError("Reconstructor IM based must be generated first")
+        elif self.reconstructor.method == "model":
+            try:
+                # Save in the same format as the input
+                self.FR.astype('>f4').tofile(filename)
+                print(f"Reconstructor Model based saved to {filename}")
+            except ValueError:
+                raise ValueError("Reconstructor Model based must be generated first")    
         return self
 
 def main():

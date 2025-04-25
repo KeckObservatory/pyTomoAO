@@ -9,8 +9,8 @@
     also provides methods to compute the auto-correlation and cross-correlation matrices, 
     as well as the sparse gradient matrix. The class includes methods to visualize the 
     reconstructed phase in the case of the model based reconstructor. This class can also 
-    computes a non-tomographic reconstructor for a single channel case. The class supports 
-    GPU acceleration using CUDA if available.
+    computes a non-tomographic reconstructor (bayesian) for a single channel case. The 
+    class supports GPU acceleration using CUDA if available.
 """
 
 import yaml
@@ -351,7 +351,7 @@ class tomographicReconstructor:
             logger.info("\n-->> IM based reconstructor computed <<--")
         return _reconstructor
 
-    # Assemble reconstructor and fitting
+    # Assemble reconstructor and fitting for the model based case
     def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7 ):
         """
         Assemble the reconstructor and fitting matrices together.
@@ -458,6 +458,22 @@ class tomographicReconstructor:
 
     # Mask DM actuators
     def mask_DM_actuators(self, actuIndex):
+        """
+        This function masks the DM actuators in the reconstructor.
+        Parameters
+        ----------
+        actuIndex : int
+            Index of the actuator to be masked
+        Returns
+        -------
+        numpy.ndarray
+            The reconstructor with masked actuators
+        Raises
+        ------
+        ValueError
+            If the method is not defined or the reconstructor is not built
+        """
+
         if self.method == "IM":
             if self._reconstructor is None:
                 logger.error("IM based reconstructor is not defined. Please build the reconstructor first.")
@@ -494,6 +510,11 @@ class tomographicReconstructor:
         --------
         numpy.ndarray
             Reconstructed wavefront (2D)
+        
+        Raises:
+        ------
+        ValueError
+            If the reconstructor is not built
         """
         # Ensure reconstructor is built
         if self._reconstructor is None:
@@ -731,3 +752,4 @@ if __name__ == "__main__":
     # wavefront = reconstructor.reconstruct_wavefront(slopes)
     # fig = reconstructor.visualize_reconstruction(slopes)
     # plt.show()
+    
