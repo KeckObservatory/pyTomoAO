@@ -1,8 +1,12 @@
+import os
 from setuptools import setup
+
+def get_version():
+    return os.getenv('GITHUB_REF', 'refs/tags/1.0.0').split('/')[-1]
 
 setup(
     name='pyTomoAO',
-    version='1.0.0',    
+    version=get_version(),    # Dynamically set version from GitHub tag
     description='An open-source tool for tomographic reconstuction for AO systems',
     url='https://github.com/jacotay7/pyTomoAO',
     author='Jacob Taylor',
