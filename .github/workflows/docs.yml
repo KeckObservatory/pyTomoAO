@@ -21,5 +21,4 @@ jobs:
 
       - name: Build Documentation
         run: |
-          cd docs
-          make html
+          sphinx-build -W -b html docs/source docs/build/html

@@ -27,7 +27,7 @@ class fitting:
         """
         Initialize the fitting class.
         
-        Parameters:
+        Parameters
         ----------
         dmParams : object
             An instance of a class containing DM geometry parameters
@@ -45,16 +45,16 @@ class fitting:
         """
         Forwards attribute access to the dmParams class if it contains the requested attribute.
         
-        Parameters:
+        Parameters
         ----------
         name : str
             Name of the attribute to access
             
-        Returns:
+        Returns
         -------
         The requested attribute from dmParams
             
-        Raises:
+        Raises
         ------
         AttributeError
             If the attribute doesn't exist in either class
@@ -67,7 +67,7 @@ class fitting:
         """
         Forwards attribute setting to the dmParams class if it contains the specified attribute.
         
-        Parameters:
+        Parameters
         ----------
         name : str
             Name of the attribute to set
@@ -132,17 +132,17 @@ class fitting:
         """
         Multiplies the OPD map by the fitting matrix to obtain the command vector.
         
-        Parameters:
+        Parameters
         ----------
         opd_map : np.ndarray
             The Optical Path Difference (OPD) map to be fitted.
             
-        Returns:
+        Returns
         -------
         np.ndarray
             The command vector to send to the DM.
             
-        Raises:
+        Raises
         ------
         ValueError
             If the fitting matrix is not set.
@@ -161,7 +161,7 @@ class fitting:
         Computes the double Gaussian influence function for a deformable mirror,
         allowing placement at any position on a grid of any dimensions.
         
-        Parameters:
+        Parameters
         ----------
         x, y : float or np.ndarray
             Coordinates at which to evaluate the influence function.
@@ -172,7 +172,7 @@ class fitting:
         sigma1, sigma2 : float
             Standard deviations of the two Gaussian components.
         
-        Returns:
+        Returns
         -------
         float or np.ndarray
             Influence function value at the given coordinates.
@@ -191,7 +191,7 @@ class fitting:
         """
         Creates a grid of the specified shape with a double Gaussian placed at the given position.
         
-        Parameters:
+        Parameters
         ----------
         grid_shape : tuple
             Shape of the grid (height, width).
@@ -200,7 +200,7 @@ class fitting:
         w1, w2, sigma1, sigma2 : float
             Parameters for the double Gaussian influence function.
         
-        Returns:
+        Returns
         -------
         np.ndarray
             2D grid with the double Gaussian influence function.
@@ -220,12 +220,12 @@ class fitting:
         """
         Extract the (y, x) coordinates of all actuators (positions with value 1) from the map.
         
-        Parameters:
+        Parameters
         ----------
         valid_actuator_map : np.ndarray
             Binary array where 1s indicate valid actuator positions
         
-        Returns:
+        Returns
         -------
         list
             List of (y, x) coordinate tuples for all actuators
@@ -241,7 +241,7 @@ class fitting:
         Maps actuator coordinates from original grid to a new grid size,
         maintaining relative positions and stretching beyond [-1, 1] by the stretch factor.
         
-        Parameters:
+        Parameters
         ----------
         actuator_coords : list
             List of (y, x) coordinate tuples in the original grid
@@ -252,7 +252,7 @@ class fitting:
         stretch_factor : float, optional
             Factor to stretch the normalized coordinates (default: 1.03)
             
-        Returns:
+        Returns
         -------
         list
             List of (y, x) coordinate tuples in the new grid, normalized and stretched
@@ -290,18 +290,20 @@ class fitting:
         """
         Maps actuator coordinates from original grid to a new grid size,
         maintaining relative positions.
-        Parameters:
+
+        Parameters
         ----------
         actuator_coords : list
-        List of (y, x) coordinate tuples in the original grid
+            List of (y, x) coordinate tuples in the original grid
         original_shape : tuple
-        Shape of the original grid (height, width)
+            Shape of the original grid (height, width)
         new_shape : tuple
-        Shape of the new grid (height, width)
-        Returns:
+            Shape of the new grid (height, width)
+
+        Returns
         -------
         list
-        List of (y, x) coordinate tuples in the new grid
+            List of (y, x) coordinate tuples in the new grid
         """
         orig_height, orig_width = original_shape
         new_height, new_width = new_shape
@@ -322,7 +324,7 @@ class fitting:
         """
         Generates a deformable mirror influence function based on the provided parameters.
         
-        Parameters:
+        Parameters
         ----------
         dmParams : object, optional
             Contains deformable mirror parameters.
@@ -333,7 +335,7 @@ class fitting:
         display : bool, optional
             Whether to display plots of the influence functions.
             
-        Returns:
+        Returns
         -------
         modes : np.ndarray
             2D array representing the influence function for each actuator.
@@ -529,4 +531,3 @@ if __name__ == "__main__":
     print("\nRecalculating fitting matrix...")
     fit.F = np.linalg.pinv(modes)
     print(f"Fitting matrix shape: {fit.F.shape}")
-    
