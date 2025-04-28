@@ -15,7 +15,8 @@ setup(
         'matplotlib',
         'numba',
         'scipy',
-        'pytest'
+        'pytest',
+        'PyYAML'
     ],
     extras_require={
         'docs': [
