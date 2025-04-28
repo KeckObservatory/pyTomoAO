@@ -15,3 +15,5 @@ __all__ = [
     'fitting',
     'tomographicReconstructor',
 ]
+
+__version__ = "1.0.0"

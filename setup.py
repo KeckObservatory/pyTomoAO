@@ -1,9 +1,13 @@
 import os
+import re
 from setuptools import setup
 
+def get_version():
+    with open(os.path.join("pyTomoAO", "__init__.py")) as f:
+        return re.search(r'__version__ = "(.*)"', f.read()).group(1)
 setup(
     name='pyTomoAO',
-    version='1.0.0',
+    version=get_version(),
     description='An open-source tool for tomographic reconstuction for AO systems',
     url='https://github.com/jacotay7/pyTomoAO',
     author='Jacob Taylor',
