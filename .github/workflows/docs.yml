@@ -19,7 +19,7 @@ jobs:
           # Install any additional Sphinx extensions or themes your docs require, for example:
           pip install sphinx_rtd_theme
           # Install the pyTomoAO package itself
-          pip install .
+          pip install -e pyTomoAO
 
       - name: Build Documentation
         run: |
