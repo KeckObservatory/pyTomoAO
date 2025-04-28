@@ -18,8 +18,9 @@ jobs:
           pip install sphinx sphinx-autodoc-typehints
           # Install any additional Sphinx extensions or themes your docs require, for example:
           pip install sphinx_rtd_theme
+          # Install the pyTomoAO package itself
+          pip install .
 
       - name: Build Documentation
         run: |
-          cd docs
-          make html
+          sphinx-build -W -b html docs/source docs/build/html
