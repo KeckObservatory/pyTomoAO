@@ -1,12 +1,13 @@
 import os
+import re
 from setuptools import setup
 
 def get_version():
-    return os.getenv('GITHUB_REF', 'refs/tags/1.0.0').split('/')[-1]
-
+    with open(os.path.join("pyTomoAO", "__init__.py")) as f:
+        return re.search(r'__version__ = "(.*)"', f.read()).group(1)
 setup(
     name='pyTomoAO',
-    version=get_version(),    # Dynamically set version from GitHub tag
+    version=get_version(),
     description='An open-source tool for tomographic reconstuction for AO systems',
     url='https://github.com/jacotay7/pyTomoAO',
     author='Jacob Taylor',
@@ -18,7 +19,8 @@ setup(
         'matplotlib',
         'numba',
         'scipy',
-        'pytest'
+        'pytest',
+        'PyYAML'
     ],
     extras_require={
         'docs': [

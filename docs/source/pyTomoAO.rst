@@ -4,18 +4,18 @@ pyTomoAO package
 Submodules
 ----------
 
-pyTomoAO.Fitting module
+pyTomoAO.fitting module
 -----------------------
 
-.. automodule:: pyTomoAO.Fitting
+.. automodule:: pyTomoAO.fitting
    :members:
    :show-inheritance:
    :undoc-members:
 
-pyTomoAO.TomographicReconstructor module
+pyTomoAO.tomographicReconstructor module
 ----------------------------------------
 
-.. automodule:: pyTomoAO.TomographicReconstructor
+.. automodule:: pyTomoAO.tomographicReconstructor
    :members:
    :show-inheritance:
    :undoc-members:
@@ -24,6 +24,5 @@ Module contents
 ---------------
 
 .. automodule:: pyTomoAO
-   :members:
    :show-inheritance:
    :undoc-members:
