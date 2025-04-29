@@ -1,17 +1,19 @@
-from .tomographicReconstructor import *
-from .lgsAsterismParametersClass import *
-from .lgsWfsParametersClass import *
-from .atmosphereParametersClass import *
-from .tomographyParametersClass import *
-from .fitting import *
-from .dmParametersClass import *
+from .atmosphereParametersClass import atmosphereParameters
+from .lgsAsterismParametersClass import lgsAsterismParameters
+from .lgsWfsParametersClass import lgsWfsParameters
+from .tomographyParametersClass import tomographyParameters
+from .dmParametersClass import dmParameters
+from .fitting import fitting
+from .tomographicReconstructor import tomographicReconstructor
 
 __all__ = [
-    'tomographicReconstructor',
-    'lgsAsterismParametersClass',
-    'lgsWfsParametersClass',
-    'atmosphereParametersClass',
-    'tomographyParametersClass',
+    'atmosphereParameters',
+    'lgsAsterismParameters',
+    'lgsWfsParameters',
+    'tomographyParameters',
+    'dmParameters',
     'fitting',
-    'dmParamaetersClass'
+    'tomographicReconstructor',
 ]
+
+__version__ = "1.0.0"

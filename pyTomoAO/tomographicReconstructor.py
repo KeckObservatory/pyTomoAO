@@ -356,8 +356,8 @@ class tomographicReconstructor:
         """
         Assemble the reconstructor and fitting matrices together.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         nChannels : int
             Number of channels (default is 4)
         slopesOrder : str
@@ -367,8 +367,8 @@ class tomographicReconstructor:
         scalingFactor : float
             Scaling factor for the reconstructor (default is 1.65e7)
         
-        Returns:
-        --------
+        Returns
+        -------
         numpy.ndarray
             The assembled reconstructor and fitting matrix
         """
@@ -431,8 +431,8 @@ class tomographicReconstructor:
         """
         Swap the X and Y column blocks in a matrix.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         matrix : numpy.ndarray
             The input matrix to swap columns
         n_valid_subap : int
@@ -440,8 +440,8 @@ class tomographicReconstructor:
         n_channels : int, optional
             Number of channels (default is 1)
             
-        Returns:
-        --------
+        Returns
+        -------
         numpy.ndarray
             Matrix with swapped X and Y column blocks
         """
@@ -501,13 +501,13 @@ class tomographicReconstructor:
         """
         Reconstruct the wavefront from slopes using the computed reconstructor.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         slopes : numpy.ndarray
             Slope measurements from wavefront sensors
             
-        Returns:
-        --------
+        Returns
+        -------
         numpy.ndarray
             Reconstructed wavefront (2D)
         
@@ -539,15 +539,15 @@ class tomographicReconstructor:
         """
         Visualize the reconstruction results and optionally compare with reference.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         slopes : numpy.ndarray
             Slope measurements from wavefront sensors
         reference_wavefront : numpy.ndarray, optional
             Reference wavefront for comparison
             
-        Returns:
-        --------
+        Returns
+        -------
         matplotlib.figure.Figure
             Figure object containing the visualization
         """
