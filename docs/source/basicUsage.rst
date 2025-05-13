@@ -4,17 +4,18 @@ Basic Usage
 This section describes how to use pyTomoAO for basic cases, including how to set up the configuration file. It also provides information on how to visualize the results and save them for later use.
 
 Configuration
--------------
+=============
 
 All the parameters are controlled from the configuration file. This file is a YAML file that contains all the parameters needed to build the reconstructor object. The configuration file is divided into several sections, each containing different parameters. The main sections are:
-- ``lgs_wfs_Parameters``: This section contains parameters related to the LGS WFS, such as the number of WFS, the number of subapertures, a mask of valid subapertures.
-- ``lgs_asterism``: This section contains parameters related to the LGS aterism, such as the number of LGS and their position in the sky.
-- ``atmosphere_parameters``: This section contains parameters related to the atmosphere, such as the outer scale, the inner scale, the turbulence profile, and the wind speed.
-- ``dm_parameters``: This section contains parameters related to the DM, such as the number of actuators, the influence functions, and the DM geometry. 
-- ``tomography_parameters``: This section contains parameters related to the tomography optimization region (sampling and area). 
+
+ - ``lgs_wfs_Parameters``: This section contains parameters related to the LGS WFS, such as the number of WFS, the number of subapertures, a mask of valid subapertures.
+ - ``lgs_asterism``: This section contains parameters related to the LGS aterism, such as the number of LGS and their position in the sky.
+ - ``atmosphere_parameters``: This section contains parameters related to the atmosphere, such as the outer scale, the inner scale, the turbulence profile, and the wind speed.
+ - ``dm_parameters``: This section contains parameters related to the DM, such as the number of actuators, the influence functions, and the DM geometry. 
+ - ``tomography_parameters``: This section contains parameters related to the tomography optimization region (sampling and area). 
 
 Create a configuration file
-------------------------------------------------
+=============================
 To create a configuration file, you can use the provided example files in the ``examples/benchmark`` directory. These files contain all the parameters needed to build the reconstructor object. You can modify these files to suit your needs. The following is an example of a configuration file::
 
     lgs_wfs_parameters:
@@ -44,28 +45,6 @@ To create a configuration file, you can use the provided example files in the ``
             - [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
             - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
             - [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0]
-        validActuatorMap:
-            - [0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
-            - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
-            - [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
-            - [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
-            - [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
-            - [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
-            - [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
-            - [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-            - [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-            - [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
-            - [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
-            - [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
-            - [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
-            - [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0]
-            - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]
-            - [0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0]
         wfsLensletsRotation: [0,0,0,0]
         wfsLensletsOffset:
             - [0,-0,-0,0]
@@ -128,10 +107,10 @@ To create a configuration file, you can use the provided example files in the ``
     # Any additional parameters
 
 
-Save this file with a .yaml extension, for example, ``config.yaml``.
+Save this file with a .yaml extension, for example, ``configFilename.yaml``.
 
 Create a tomographic reconstructor object
-------------------------------------------------
+==========================================
 To create a tomographic reconstructor object, you need to load the configuration file and create the object. The following code shows how to do this::
 
     from pyTomoAO.tomographicReconstructor import tomographicReconstructor
@@ -140,7 +119,7 @@ To create a tomographic reconstructor object, you need to load the configuration
     rec = tomographicReconstructor("configFilename.yaml")
 
 Access the reconstructor parameters classes
-------------------------------------------------
+==========================================
 You can print the parameters of the configuration file using the following code::
 
     # print the atmosphere parameters 
