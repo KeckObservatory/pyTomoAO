@@ -591,6 +591,8 @@ class tomographicReconstructor:
         cmd_mask = np.array(self.dmParams.validActuatorsSupport*1, dtype=np.float64)
         ones_indices = np.where(cmd_mask == 1)       
         cmd_mask[ones_indices] = dm_commands
+        # Set masked values to NaN for visualization
+        cmd_mask[cmd_mask==0] = np.nan
         # display the DM commands   
         fig, (ax1, ax2) = plt.subplots(1, 2) 
         # display the DM commands
