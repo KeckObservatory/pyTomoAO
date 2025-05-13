@@ -32,11 +32,6 @@ def default_config():
                 [0, 1, 0],
                 [1, 0, 1]
             ],
-            "validActuatorMap": [
-                [1, 1, 0],
-                [0, 1, 1],
-                [1, 0, 1]
-            ],
             "wfsLensletsRotation": [0, 1, 0, 0],
             "wfsLensletsOffset": [[0.1, -0.1, -0.1, 0.1], [0.1, 0.1, -0.1, -0.1]]
         }
@@ -63,7 +58,6 @@ class TestLgsWfsParametersClass:
         
         # Check array properties
         assert len(params.validLLMap_list) == 3
-        assert len(params.validActuatorMap_list) == 3
         np.testing.assert_array_equal(params.wfsLensletsRotation, np.array([0, 1, 0, 0]))
         np.testing.assert_array_equal(params.wfsLensletsOffset, 
                                         np.array([[0.1, -0.1, -0.1, 0.1], [0.1, 0.1, -0.1, -0.1]]))
@@ -178,16 +172,7 @@ class TestLgsWfsParametersClass:
         with pytest.raises(ValueError) as excinfo:
             lgsWfsParameters(config, lgs_asterism_params)
         assert "Invalid lenslet map: Lenslet map must be 2D" in str(excinfo.value)
-        
-        # Test invalid actuator map (not 2D) - need to test separately with valid lenslet map
-        config = default_config.copy()
-        config["lgs_wfs_parameters"] = default_config["lgs_wfs_parameters"].copy()
-        # Keep a valid lenslet map and only make the actuator map invalid
-        config["lgs_wfs_parameters"]["validActuatorMap"] = [1, 0, 1]
-        with pytest.raises(ValueError) as excinfo:
-            lgsWfsParameters(config, lgs_asterism_params)
-        assert "Invalid actuator map" in str(excinfo.value)
-        logger.info("✅ Valid lenslet and actuator maps validation test passed")
+        logger.info("✅ Valid lenslet map validation test passed")
     
     def test_wfs_lenslets_rotation_validation(self, default_config, lgs_asterism_params):
         """Test validation of WFS lenslets rotation"""
