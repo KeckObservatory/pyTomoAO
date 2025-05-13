@@ -74,9 +74,15 @@ You should see a figure which looks like this:
 
 IM based reconstructor
 -----------------------------
-Here is an example of how to build the IM based KAPA reconstructor. This assume that you have one IM per WFS and the matrices are arranged in block diagonal::
+Here is an example of how to build the IM based KAPA reconstructor. This assume that the IM is a block diagonal matrix with the IM for each WFS.::
 
 
     # build the reconstructor using the IM
     R = reconstructor.build_reconstructor(IM)
     print(f"Reconstructor matrix shape: {R.shape}")
+
+For the IM based reconstructor, there is no need to assemble the reconstructor, the reconstructor will already process the slopes to get DM commands.
+You can visualize the DM commands using the ``visualize_commands()`` method::
+    
+    # visualize the DM commands
+    fig = reconstructor.visualize_commands(slopes)   
