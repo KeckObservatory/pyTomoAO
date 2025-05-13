@@ -19,14 +19,14 @@ Build the reconstructor
 
 The KAPA reconstructor is built using the ``build_reconstructor()`` method. 
 Two options are available to build the reconstructor:
-    - ``build_reconstructor()``: This method builds the model based reconstructor using the parameters in the configuration file. For this case, the reconstructor will reconstruct the phase for a given set of input slopes from the 4 laser guide star (LGS) wavefront sensors. 
-    - ``build_reconstructor(IM)``: This method builds the Interaction Matrix (IM) based reconstructor using the parameters in the configuration file and the given IM. For this case, the reconstructor will reconstruct the deformable mirror (DM) commands for a given set of input slopes from the 4 laser guide star (LGS) wavefront sensors.
+- ``build_reconstructor()``: This method builds the model based reconstructor using the parameters in the configuration file. For this case, the reconstructor will reconstruct the phase for a given set of input slopes from the 4 laser guide star (LGS) wavefront sensors. 
+- ``build_reconstructor(IM)``: This method builds the Interaction Matrix (IM) based reconstructor using the parameters in the configuration file and the given IM. For this case, the reconstructor will reconstruct the deformable mirror (DM) commands for a given set of input slopes from the 4 laser guide star (LGS) wavefront sensors.
 
 If you have a CUDA compatible GPU and the cupy library installed with CUDA support, you can choose to build the reconstructor using different float precision.
 This will essentially affect the computation time depending on your GPU capabilities.
 The reconstructor can be built using the following options:
-    - ``use_float32``: If True, the reconstructor will be built using float32. Default is True.
-    - ``use_float64``: If True, the reconstructor will be built using float64. Default is False.
+- ``use_float32``: If True, the reconstructor will be built using float32. Default is True.
+- ``use_float64``: If True, the reconstructor will be built using float64. Default is False.
 
 Model based reconstructor
 -----------------------------
