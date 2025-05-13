@@ -119,7 +119,7 @@ To create a tomographic reconstructor object, you need to load the configuration
     rec = tomographicReconstructor("configFilename.yaml")
 
 Access the reconstructor parameters classes
-==========================================
+============================================
 You can print the parameters of the configuration file using the following code::
 
     # print the atmosphere parameters 
