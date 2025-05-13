@@ -361,9 +361,10 @@ class tomographicReconstructor:
         nChannels : int
             Number of channels (default is 4)
         slopesOrder : str
-            Order of slopes ("keck" or "simu") (default is "simu")
+            Order of slopes ("keck", "simu" or "inverted") (default is "simu")
             keck order is [slopeXY, ...,  slopeXY]
             simu order is [slopeX, slopeY]
+            inverted order is [slopeY, slopeX]
         scalingFactor : float
             Scaling factor for the reconstructor (default is 1.65e7)
         
@@ -413,8 +414,13 @@ class tomographicReconstructor:
             self.reconstructor = np.apply_along_axis(self.sort_row, 1, self._reconstructor)
             # Generate the reconstructor with fitting
             self.FR = -self.fit.F @ self.reconstructor * scalingFactor
+        # Rearrange the reconstructor to accomodate slopes = [slopeY, slopesX]    
+        elif slopesOrder == "inverted":
+            self.reconstructor = self._reconstructor
+            # Generate the reconstructor with fitting
+            self.FR = -self.fit.F @ self.reconstructor * scalingFactor
         else:
-            raise ValueError("Invalid slopes order. Use 'simu' or 'keck'.")
+            raise ValueError("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
         logger.info("\n-->> Reconstructor and Fitting assembled <<--")
         
         return self._FR
@@ -435,10 +441,13 @@ class tomographicReconstructor:
         row2[1::2] = row[row.shape[0]//2:]
         return row2
 
-    # Swap X and Y blocks
-    def swap_xy_blocks(self, matrix, n_valid_subap, n_channels=1):
+    def swap_xy_blocks(self, matrix, n_valid_subap, nChannels=1):
         """
-        Swap the X and Y column blocks in a matrix.
+        Swap the X and Y column blocks in a matrix, preserving channel organization.
+        
+        For multiple channels, the function:
+        1. Treats the matrix as divided into n_channels blocks
+        2. Within each channel block, swaps the X and Y columns
         
         Parameters
         ----------
@@ -452,17 +461,30 @@ class tomographicReconstructor:
         Returns
         -------
         numpy.ndarray
-            Matrix with swapped X and Y column blocks
+            Matrix with swapped X and Y column blocks for each channel
         """
-        # Calculate column indices for X and Y blocks
-        cols_X = np.arange(n_valid_subap * n_channels, 
-                          n_valid_subap * 2 * n_channels)    # X columns
-        cols_Y = np.arange(0, n_valid_subap * n_channels)    # Y columns
+        new_col_order = []
         
-        # Create new column order by concatenating X and Y blocks
-        new_col_order = np.concatenate((cols_X, cols_Y))
+        # Total columns per channel
+        cols_per_channel = n_valid_subap * 2
         
-        # Return matrix with swapped columns
+        # Process each channel separately
+        for ch in range(nChannels):
+            # Calculate start index for this channel
+            ch_start = ch * cols_per_channel
+            
+            # X columns are in the second half of each channel block
+            cols_X = np.arange(ch_start + n_valid_subap, ch_start + 2 * n_valid_subap)
+            
+            # Y columns are in the first half of each channel block
+            cols_Y = np.arange(ch_start, ch_start + n_valid_subap)
+            
+            # Swap X and Y for this channel
+            new_col_order.extend(cols_X)
+            new_col_order.extend(cols_Y)
+        
+        # Convert to numpy array and return reordered matrix
+        new_col_order = np.array(new_col_order)
         return matrix[:, new_col_order]
 
     # Mask DM actuators
@@ -577,7 +599,7 @@ class tomographicReconstructor:
         ax1.set_ylabel('Command Value')
         ax1.set_title('DM Commands')
         # display the DM surface
-        im2 = ax2.imshow(cmd_mask, cmap='RdBu')
+        im2 = ax2.imshow(cmd_mask, cmap='RdBu', origin='lower')
         ax2.set_title('DM Surface')
         ax2.set_xticks([])
         ax2.set_yticks([])
