@@ -361,9 +361,10 @@ class tomographicReconstructor:
         nChannels : int
             Number of channels (default is 4)
         slopesOrder : str
-            Order of slopes ("keck" or "simu") (default is "simu")
+            Order of slopes ("keck", "simu" or "inverted") (default is "simu")
             keck order is [slopeXY, ...,  slopeXY]
             simu order is [slopeX, slopeY]
+            inverted order is [slopeY, slopeX]
         scalingFactor : float
             Scaling factor for the reconstructor (default is 1.65e7)
         
@@ -413,8 +414,13 @@ class tomographicReconstructor:
             self.reconstructor = np.apply_along_axis(self.sort_row, 1, self._reconstructor)
             # Generate the reconstructor with fitting
             self.FR = -self.fit.F @ self.reconstructor * scalingFactor
+        # Rearrange the reconstructor to accomodate slopes = [slopeY, slopesX]    
+        elif slopesOrder == "inverted":
+            self.reconstructor = self._reconstructor
+            # Generate the reconstructor with fitting
+            self.FR = -self.fit.F @ self.reconstructor * scalingFactor
         else:
-            raise ValueError("Invalid slopes order. Use 'simu' or 'keck'.")
+            raise ValueError("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
         logger.info("\n-->> Reconstructor and Fitting assembled <<--")
         
         return self._FR
@@ -435,10 +441,13 @@ class tomographicReconstructor:
         row2[1::2] = row[row.shape[0]//2:]
         return row2
 
-    # Swap X and Y blocks
-    def swap_xy_blocks(self, matrix, n_valid_subap, n_channels=1):
+    def swap_xy_blocks(self, matrix, n_valid_subap, nChannels=1):
         """
-        Swap the X and Y column blocks in a matrix.
+        Swap the X and Y column blocks in a matrix, preserving channel organization.
+        
+        For multiple channels, the function:
+        1. Treats the matrix as divided into n_channels blocks
+        2. Within each channel block, swaps the X and Y columns
         
         Parameters
         ----------
@@ -452,17 +461,30 @@ class tomographicReconstructor:
         Returns
         -------
         numpy.ndarray
-            Matrix with swapped X and Y column blocks
+            Matrix with swapped X and Y column blocks for each channel
         """
-        # Calculate column indices for X and Y blocks
-        cols_X = np.arange(n_valid_subap * n_channels, 
-                          n_valid_subap * 2 * n_channels)    # X columns
-        cols_Y = np.arange(0, n_valid_subap * n_channels)    # Y columns
+        new_col_order = []
         
-        # Create new column order by concatenating X and Y blocks
-        new_col_order = np.concatenate((cols_X, cols_Y))
+        # Total columns per channel
+        cols_per_channel = n_valid_subap * 2
         
-        # Return matrix with swapped columns
+        # Process each channel separately
+        for ch in range(nChannels):
+            # Calculate start index for this channel
+            ch_start = ch * cols_per_channel
+            
+            # X columns are in the second half of each channel block
+            cols_X = np.arange(ch_start + n_valid_subap, ch_start + 2 * n_valid_subap)
+            
+            # Y columns are in the first half of each channel block
+            cols_Y = np.arange(ch_start, ch_start + n_valid_subap)
+            
+            # Swap X and Y for this channel
+            new_col_order.extend(cols_X)
+            new_col_order.extend(cols_Y)
+        
+        # Convert to numpy array and return reordered matrix
+        new_col_order = np.array(new_col_order)
         return matrix[:, new_col_order]
 
     # Mask DM actuators
@@ -541,6 +563,52 @@ class tomographicReconstructor:
         mask[mask==0] = np.nan
 
         return mask
+
+    # Visualize Commands
+    def visualize_commands(self, slopes):
+        """
+        Visualize the dm commands results.
+        
+        Parameters
+        ----------
+        slopes : numpy.ndarray
+            Slope measurements from wavefront sensors
+            
+        Returns
+        -------
+        matplotlib.figure.Figure
+            Figure object containing the visualization
+        """
+        # get the DM command
+        if self.method == "Model":
+            dm_commands = self.FR @ slopes
+        elif self.method == "IM":
+            dm_commands = self._reconstructor @ slopes
+        else:
+            raise ValueError("Invalid method. Please build the reconstructor first.")
+        
+        # project the commands on the DM surface
+        cmd_mask = np.array(self.dmParams.validActuatorsSupport*1, dtype=np.float64)
+        ones_indices = np.where(cmd_mask == 1)       
+        cmd_mask[ones_indices] = dm_commands
+        # Set masked values to NaN for visualization
+        cmd_mask[cmd_mask==0] = np.nan
+        # display the DM commands   
+        fig, (ax1, ax2) = plt.subplots(1, 2) 
+        # display the DM commands
+        ax1.bar(np.arange(349),dm_commands)
+        ax1.set_xlabel('DM actuator')
+        ax1.set_ylabel('Command Value')
+        ax1.set_title('DM Commands')
+        # display the DM surface
+        im2 = ax2.imshow(cmd_mask, cmap='RdBu', origin='lower')
+        ax2.set_title('DM Surface')
+        ax2.set_xticks([])
+        ax2.set_yticks([])
+        plt.colorbar(im2, ax=ax2, shrink=0.5)
+        plt.tight_layout()
+        ax1.set_aspect(0.375)
+        return fig
 
     # Visualize Reconstruction
     def visualize_reconstruction(self, slopes, reference_wavefront=None):
