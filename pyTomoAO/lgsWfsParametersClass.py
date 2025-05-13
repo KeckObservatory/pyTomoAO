@@ -20,7 +20,7 @@ class lgsWfsParameters:
         
         Args:
             config: Dictionary containing "lgs_wfs_parameters" key with subkeys:
-                    D, nLenslet, nPx, fieldStopSize, nLGS, validLLMap, validActuatorMap
+                    D, nLenslet, nPx, fieldStopSize, nLGS, validLLMap
         """
         self._config = config["lgs_wfs_parameters"]
         self._lgsAsterism_params = lgsAsterism_params
@@ -42,7 +42,7 @@ class lgsWfsParameters:
         self.nPx = params["nPx"]
         self.fieldStopSize = params["fieldStopSize"]
         self.validLLMap_list = params["validLLMap"]
-        self.validActuatorMap_list = params["validActuatorMap"]
+        #self.validActuatorMap_list = params["validActuatorMap"]
         self.wfsLensletsRotation = params.get("wfsLensletsRotation", [0]*self._nLGS)
         self.wfsLensletsOffset = params.get("wfsLensletsOffset", np.zeros((2, self._nLGS), dtype=float))
     
@@ -185,21 +185,21 @@ class lgsWfsParameters:
         """2D list representation of valid actuators"""
         return self._validActuatorMap_list
 
-    @validActuatorMap_list.setter
-    def validActuatorMap_list(self, value):
-        """Validate and store actuator map"""
-        try:
-            arr = np.array(value, dtype=bool)
-            if arr.ndim != 2:
-                raise ValueError("Actuator map must be 2D")
-        except Exception as e:
-            raise ValueError(f"Invalid actuator map: {e}") from None
-        self._validActuatorMap_list = value
+    # @validActuatorMap_list.setter
+    # def validActuatorMap_list(self, value):
+    #     """Validate and store actuator map"""
+    #     try:
+    #         arr = np.array(value, dtype=bool)
+    #         if arr.ndim != 2:
+    #             raise ValueError("Actuator map must be 2D")
+    #     except Exception as e:
+    #         raise ValueError(f"Invalid actuator map: {e}") from None
+    #     self._validActuatorMap_list = value
 
-    @property
-    def validActuatorMap(self) -> np.ndarray:
-        """2D boolean array of valid actuators"""
-        return np.array(self.validActuatorMap_list, dtype=bool)
+    # @property
+    # def validActuatorMap(self) -> np.ndarray:
+    #     """2D boolean array of valid actuators"""
+    #     return np.array(self.validActuatorMap_list, dtype=bool)
     
     @property
     def validLLMapSupport(self) -> np.ndarray:
@@ -247,8 +247,8 @@ class lgsWfsParameters:
         """Human-readable string representation with new properties"""
         # Existing calculations
         ll_total = np.prod(self.validLLMap.shape)
-        act_valid = np.sum(self.validActuatorMap)
-        act_total = np.prod(self.validActuatorMap.shape)
+        #act_valid = np.sum(self.validActuatorMap)
+        #act_total = np.prod(self.validActuatorMap.shape)
 
         # New properties
         support_shape = self.validLLMapSupport.shape
@@ -272,7 +272,7 @@ class lgsWfsParameters:
             f"\n    Scaling Factor: {support_ratio:.2f}x"
 #            f"\n    Preview:\n{self._format_map_preview(self.validLLMapSupport)}"
             "\n\n  - Valid Actuator Map:"
-            f"\n    Valid Elements: {act_valid}/{act_total} ({act_valid/act_total:.1%})"
+#            f"\n    Valid Elements: {act_valid}/{act_total} ({act_valid/act_total:.1%})"
 #            f"\n    Preview:\n{self._format_map_preview(self.validActuatorMap)}"
         )
 
@@ -315,11 +315,6 @@ if __name__ == "__main__":
             "validLLMap": [
                 [1, 0, 1],
                 [0, 1, 0],
-                [1, 0, 1]
-            ],
-            "validActuatorMap": [
-                [1, 1, 0],
-                [0, 1, 1],
                 [1, 0, 1]
             ],
             "wfsLensletsRotation": [0,1,0,0],
