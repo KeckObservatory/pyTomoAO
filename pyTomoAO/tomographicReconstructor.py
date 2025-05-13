@@ -542,6 +542,50 @@ class tomographicReconstructor:
 
         return mask
 
+    # Visualize Commands
+    def visualize_commands(self, slopes):
+        """
+        Visualize the dm commands results.
+        
+        Parameters
+        ----------
+        slopes : numpy.ndarray
+            Slope measurements from wavefront sensors
+            
+        Returns
+        -------
+        matplotlib.figure.Figure
+            Figure object containing the visualization
+        """
+        # get the DM command
+        if self.method == "Model":
+            dm_commands = self.FR @ slopes
+        elif self.method == "IM":
+            dm_commands = self._reconstructor @ slopes
+        else:
+            raise ValueError("Invalid method. Please build the reconstructor first.")
+        
+        # project the commands on the DM surface
+        cmd_mask = np.array(self.dmParams.validActuatorsSupport*1, dtype=np.float64)
+        ones_indices = np.where(cmd_mask == 1)       
+        cmd_mask[ones_indices] = dm_commands
+        # display the DM commands   
+        fig, (ax1, ax2) = plt.subplots(1, 2) 
+        # display the DM commands
+        ax1.bar(np.arange(349),dm_commands)
+        ax1.set_xlabel('DM actuator')
+        ax1.set_ylabel('Command Value')
+        ax1.set_title('DM Commands')
+        # display the DM surface
+        im2 = ax2.imshow(cmd_mask, cmap='RdBu')
+        ax2.set_title('DM Surface')
+        ax2.set_xticks([])
+        ax2.set_yticks([])
+        plt.colorbar(im2, ax=ax2, shrink=0.5)
+        plt.tight_layout()
+        ax1.set_aspect(0.375)
+        return fig
+
     # Visualize Reconstruction
     def visualize_reconstruction(self, slopes, reference_wavefront=None):
         """
