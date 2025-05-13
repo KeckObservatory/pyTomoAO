@@ -421,6 +421,15 @@ class tomographicReconstructor:
     
     # Sort row into [XY, ..., XY]
     def sort_row(self, row):
+        '''
+        This function sorts the row into [XY, ..., XY] format.
+        It takes a row of the reconstructor and rearranges it into the desired format.
+        The input row is expected to be a 1D numpy array.
+        The output row2 is a 1D numpy array with the same shape as the input row.
+        The function works by taking the first half of the row and placing it in the even indices
+        and the second half of the row and placing it in the odd indices.
+        For example, if the input row is [1, 2, 3, 4, 5, 6], the output row2 will be [1, 4, 2, 5, 3, 6].
+        '''
         row2 = row.copy()
         row2[::2] = row[:row.shape[0]//2]
         row2[1::2] = row[row.shape[0]//2:]
@@ -458,6 +467,13 @@ class tomographicReconstructor:
 
     # Mask DM actuators
     def mask_DM_actuators(self, actuIndex):
+        '''
+        Mask the DM actuators in the reconstructor.
+        Parameters
+        ----------
+        actuIndex : int
+            Index of the actuator to be masked.
+        '''
         if self.method == "IM":
             if self._reconstructor is None:
                 logger.error("IM based reconstructor is not defined. Please build the reconstructor first.")
