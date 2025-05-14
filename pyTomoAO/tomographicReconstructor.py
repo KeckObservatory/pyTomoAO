@@ -53,6 +53,8 @@ class tomographicReconstructor:
         the tomographic reconstruction.
     logger : logging.Logger, optional
         Logger object for logging messages (default is the module-level logger)
+    force_cpu : bool, optional
+        Force CPU usage even when CUDA is available (default is False)
 
     Returns
     -------
@@ -94,7 +96,6 @@ class tomographicReconstructor:
         """
         # If force_cpu is True, override CUDA availability
         global CUDA
-        #force_cpu = True
         if force_cpu:
             CUDA = False
             logger.info("\nForcing CPU usage for computations.")
@@ -583,6 +584,10 @@ class tomographicReconstructor:
         # test if reconstructor is already built
         if self._reconstructor is None:
             self.build_reconstructor()
+        # test if reconstruction method is "Model"
+        if self.method != "Model":
+            logger.error("Reconstructor is not built using the model method. Please build it first.")
+            raise ValueError("Reconstructor is not built using the model method. Please build it first.")
         # test if fitting is already built
         if self.fit is None:
             self.fit = fitting(self.dmParams,logger=logger)
@@ -627,6 +632,7 @@ class tomographicReconstructor:
             # Generate the reconstructor with fitting
             self.FR = -self.fit.F @ self.reconstructor * scalingFactor
         else:
+            logger.error("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
             raise ValueError("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
         logger.info("\n-->> Reconstructor and Fitting assembled <<--")
         
@@ -759,7 +765,10 @@ class tomographicReconstructor:
         # Ensure reconstructor is built
         if self._reconstructor is None:
             self.build_reconstructor()
-
+        # test if reconstruction method is "Model"
+        if self.method != "Model":
+            logger.error("Reconstructor is not built using the model method. Please build it first.")
+            raise ValueError("Reconstructor is not built using the model method. Please build it first.")
         # Reconstruct the wavefront
         wavefront = self._reconstructor @ slopes
         wavefront = wavefront.flatten()
@@ -801,6 +810,7 @@ class tomographicReconstructor:
         elif self.method == "IM":
             dm_commands = self._reconstructor @ slopes
         else:
+            logger.error("Invalid method. Please build the reconstructor first.")
             raise ValueError("Invalid method. Please build the reconstructor first.")
         
         # project the commands on the DM surface
