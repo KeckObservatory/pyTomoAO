@@ -1,16 +1,9 @@
-# tomographicReconstructor.py
+#tomographicReconstructor.py
+
 """
-    This class computes a tomographic reconstructor from multiple Shack-Hartmann 
-    wavefront sensors based on the turbulence model given by atmospheric parameters. 
-    This tomographic reconstructor is compatible with super resolution and works for 
-    LTAO and MOAO. The reconstruction can be done using either a model based approach
-    or an interaction matrix (IM) based approach. For the model based approache, a 
-    fitting step based on DM influence functions is implementd and required. The class 
-    also provides methods to compute the auto-correlation and cross-correlation matrices, 
-    as well as the sparse gradient matrix. The class includes methods to visualize the 
-    reconstructed phase in the case of the model based reconstructor. This class can also 
-    computes a non-tomographic reconstructor (bayesian) for a single channel case. The 
-    class supports GPU acceleration using CUDA if available.
+This module contains the tomographicReconstructor class for computing tomographic reconstructors
+for adaptive optics systems. It supports both LTAO and MOAO configurations, with options for
+model-based and interaction matrix-based reconstruction approaches.
 """
 
 import yaml
@@ -46,19 +39,56 @@ except:
 
 class tomographicReconstructor:
     """
-    A class to compute a tomographic reconstructor for adaptive optics systems (LTAO or MOAO).
+    A class for computing tomographic reconstructors for adaptive optics systems.
+    
+    This class computes a tomographic reconstructor from multiple Shack-Hartmann 
+    wavefront sensors based on the turbulence model given by atmospheric parameters.
+    The reconstruction can be done using either a model-based approach or an 
+    interaction matrix (IM) based approach. The class supports both LTAO and MOAO
+    configurations, with GPU acceleration using CUDA if available.
+    
+    Parameters
+    ----------
+    config_file : str
+        Path to the YAML configuration file containing all necessary parameters for
+        the tomographic reconstruction.
+    logger : logging.Logger, optional
+        Logger object for logging messages (default is the module-level logger)
+
+    Returns
+    -------
+    None
+        Initializes the tomographicReconstructor object with the specified configuration.
+
+    Notes
+    -----
+    The class maintains several internal attributes:
+    - _reconstructor : numpy.ndarray
+        The tomographic reconstructor matrix
+    - _gridMask : numpy.ndarray
+        Grid mask used for reconstruction
+    - _wavefront2Meter : float
+        Conversion factor from wavefront to meters
+    - fit : fitting
+        Fitting object for DM influence functions
+    - modes : numpy.ndarray
+        Influence function modes
+    - method : str
+        Reconstruction method ("Model" or "IM")
+    - _FR : numpy.ndarray
+        Combined fitting and reconstructor matrix
     """
     # Constructor
     def __init__(self, config_file, logger=logger):
         """
         Initialize the tomographicReconstructor with a configuration file.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         config_file : str
             Path to the YAML configuration file
         logger : logging.Logger, optional
-            Logger object for logging messages (default is the root logger)
+            Logger object for logging messages (default is the module-level logger)
         """
         logger.info("\n-->> Initializing reconstructor object <<--")
         # Load configuration
@@ -80,7 +110,19 @@ class tomographicReconstructor:
         self._FR = None # Fitting * Reconstructor
 
     def _initialize_parameters(self):
-        """Initialize all parameter classes from the configuration."""
+        """
+        Initialize all parameter classes from the configuration file.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+            Initializes all parameter classes (atmParams, lgsAsterismParams, lgsWfsParams,
+            tomoParams, dmParams) with values from the configuration file.
+        """
         try:
             self.atmParams = atmosphereParameters(self.config)
             logger.info("\nSuccessfully initialized Atmosphere parameters.")
@@ -123,9 +165,13 @@ class tomographicReconstructor:
         """
         Get the tomographic reconstructor matrix.
         If not already computed, this will build the reconstructor.
-        
-        Returns:
-        --------
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
         numpy.ndarray
             The tomographic reconstructor matrix
         """
@@ -136,6 +182,23 @@ class tomographicReconstructor:
 
     @reconstructor.setter
     def reconstructor(self, value):
+        """
+        Set the tomographic reconstructor matrix.
+
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The reconstructor matrix to set. Must be a 2D numpy array of float type.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If the provided value is not a 2D numpy array of valid float type.
+        """
         logger.debug("Setting the reconstructor property.")
         if isinstance(value, np.ndarray) and value.ndim == 2 and value.dtype in self.valid_constructor_type:
             self._reconstructor = value
@@ -145,21 +208,74 @@ class tomographicReconstructor:
 
     @property
     def R(self):
+        """
+        Alias for the reconstructor property.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        numpy.ndarray
+            The tomographic reconstructor matrix
+        """
         logger.debug("Accessing the R property.")
         return self.reconstructor
 
     @R.setter
     def R(self, value):
+        """
+        Alias setter for the reconstructor property.
+
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The reconstructor matrix to set. Must be a 2D numpy array of float type.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If the provided value is not a 2D numpy array of valid float type.
+        """
         logger.debug("Setting the R property.")
         self.reconstructor = value
         
     @property
     def FR(self):
+        """
+        Get the fitting-reconstructor matrix.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        numpy.ndarray
+            The fitting-reconstructor matrix
+        """
         logger.debug("Accessing the FR property.")
         return self._FR
     
     @FR.setter
     def FR(self, value):
+        """
+        Set the fitting-reconstructor matrix.
+
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The fitting-reconstructor matrix to set
+
+        Returns
+        -------
+        None
+        """
         logger.debug("Setting the FR property.")
         self._FR = value
 
@@ -167,11 +283,15 @@ class tomographicReconstructor:
     def gridMask(self):
         """
         Get the grid mask used for reconstruction.
-        
-        Returns:
-        --------
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
         numpy.ndarray
-            The grid mask
+            The grid mask for reconstruction
         """
         if self._gridMask is None and self._reconstructor is not None:
             return self._gridMask
@@ -185,6 +305,21 @@ class tomographicReconstructor:
     def __getattr__(self, name):
         """
         Forwards attribute access to parameter classes if they contain the requested attribute.
+        
+        Parameters
+        ----------
+        name : str
+            Name of the attribute to get
+            
+        Returns
+        -------
+        Any
+            Value of the requested attribute from the appropriate parameter class
+            
+        Raises
+        ------
+        AttributeError
+            If the attribute is not found in any parameter class
         """
         logger.debug("Getting attribute '%s' from parameter classes.", name)
 
@@ -206,6 +341,22 @@ class tomographicReconstructor:
         """
         Forwards attribute setting to parameter classes if they contain the specified attribute.
         When setting nLGS, ensures all parameter classes that have this attribute are updated.
+        
+        Parameters
+        ----------
+        name : str
+            Name of the attribute to set
+        value : Any
+            Value to set for the attribute
+            
+        Returns
+        -------
+        None
+            
+        Raises
+        ------
+        ValueError
+            If setting nLGS to a negative value
         """
         logger.debug("Setting attribute '%s'.", name)
 
@@ -254,15 +405,24 @@ class tomographicReconstructor:
     def sparseGradientMatrixAmplitudeWeighted(self, amplMask=None, overSampling=2, validLenslet=None):
         """
         Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
-        
+
         Parameters
         ----------
-        amplMask : array_like, optional
-            Amplitude mask to be applied
+        amplMask : numpy.ndarray, optional
+            Amplitude mask to be applied to the gradient matrix
         overSampling : int, optional
-            Oversampling factor, default is 2
-        validLenslet : array_like, optional
+            Oversampling factor (default is 2)
+        validLenslet : numpy.ndarray, optional
             Valid lenslet map. If None, uses self.lgsWfsParams.validLLMapSupport
+
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - Gamma : scipy.sparse.csr_matrix
+                The sparse gradient matrix
+            - gridMask : numpy.ndarray
+                The grid mask used for the computation
         """
         logger.info("\n-->> Computing sparse gradient matrix <<--")
         # Use the provided validLenslet if specified, otherwise use the class attribute
@@ -278,7 +438,16 @@ class tomographicReconstructor:
     def auto_correlation(self):
         """
         Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
-        """  
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        numpy.ndarray
+            The auto-correlation matrix (Cxx)
+        """
         logger.info("\n-->> Computing auto-correlation meta-matrix <<--")
         Cxx = _auto_correlation(self.tomoParams, self.lgsWfsParams, self.atmParams, 
                                 self.lgsAsterismParams, self.gridMask)     
@@ -288,6 +457,16 @@ class tomographicReconstructor:
     def cross_correlation(self, gridMask=None):
         """
         Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
+
+        Parameters
+        ----------
+        gridMask : numpy.ndarray, optional
+            Grid mask to be used in the computation. If None, uses self.gridMask
+
+        Returns
+        -------
+        numpy.ndarray
+            The cross-correlation matrix (Cox)
         """
         logger.info("\n-->> Computing cross-correlation meta-matrix <<--")
         Cox = _cross_correlation(self.tomoParams, self.lgsWfsParams, self.atmParams,
@@ -298,15 +477,28 @@ class tomographicReconstructor:
     # Build Reconstructor
     def build_reconstructor(self, IM=None, use_float32=False):
         """
-        Build the tomographic reconstructor from the self parameters.
-        
-        Parameters:
-        -----------
+        Build the tomographic reconstructor based on parameters.
+
+        Parameters
+        ----------
         IM : numpy.ndarray, optional
-            Interaction matrix (default is None)
-        use_float32 : bool
-            Whether to use float32 for computations (default is False)
-        
+            Interaction matrix for interaction matrix-based reconstructor.
+            If None, a model-based reconstructor is built (default is None)
+        use_float32 : bool, optional
+            Whether to use float32 precision for computations to reduce memory usage
+            (default is False, which uses float64)
+
+        Returns
+        -------
+        numpy.ndarray
+            The computed tomographic reconstructor matrix
+
+        Notes
+        -----
+        This method computes different internal matrices depending on whether
+        the model-based or IM-based approach is used:
+        - Model-based: Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA
+        - IM-based: gridMask, Cxx, Cox, Cnz, RecStatSA
         """
         if IM is None:
             # Model based reconstructor
@@ -351,27 +543,33 @@ class tomographicReconstructor:
             logger.info("\n-->> IM based reconstructor computed <<--")
         return _reconstructor
 
-    # Assemble reconstructor and fitting for the model based case
-    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7 ):
+    # Assemble Reconstructor and Fitting
+    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7):
         """
         Assemble the reconstructor and fitting matrices together.
 
         Parameters
         ----------
-        nChannels : int
-            Number of channels (default is 4)
-        slopesOrder : str
-            Order of slopes ("keck", "simu" or "inverted") (default is "simu")
-            keck order is [slopeXY, ...,  slopeXY]
-            simu order is [slopeX, slopeY]
-            inverted order is [slopeY, slopeX]
-        scalingFactor : float
-            Scaling factor for the reconstructor (default is 1.65e7)
-        
+        nChannels : int, optional
+            Number of wavefront sensor channels (default is 4)
+        slopesOrder : str, optional
+            Order of slopes in the input data. Options are:
+            - "keck": [slopeXY, ..., slopeXY] interleaved X,Y slopes
+            - "simu": [slopeX, slopeY] all X slopes followed by all Y slopes
+            - "inverted": [slopeY, slopeX] all Y slopes followed by all X slopes
+            (default is "simu")
+        scalingFactor : float, optional
+            Scaling factor applied to the reconstructor (default is 1.65e7)
+
         Returns
         -------
         numpy.ndarray
-            The assembled reconstructor and fitting matrix
+            The assembled reconstructor and fitting matrix (FR)
+            
+        Raises
+        ------
+        ValueError
+            If an invalid slopes order is provided
         """
         # test if reconstructor is already built
         if self._reconstructor is None:
@@ -427,15 +625,19 @@ class tomographicReconstructor:
     
     # Sort row into [XY, ..., XY]
     def sort_row(self, row):
-        '''
-        This function sorts the row into [XY, ..., XY] format.
-        It takes a row of the reconstructor and rearranges it into the desired format.
-        The input row is expected to be a 1D numpy array.
-        The output row2 is a 1D numpy array with the same shape as the input row.
-        The function works by taking the first half of the row and placing it in the even indices
-        and the second half of the row and placing it in the odd indices.
-        For example, if the input row is [1, 2, 3, 4, 5, 6], the output row2 will be [1, 4, 2, 5, 3, 6].
-        '''
+        """
+        Sorts a row into [XY, ..., XY] format (interleaved X and Y measurements).
+
+        Parameters
+        ----------
+        row : numpy.ndarray
+            Input row with X and Y measurements in separate blocks
+
+        Returns
+        -------
+        numpy.ndarray
+            Row rearranged into interleaved [XY, ..., XY] format
+        """
         row2 = row.copy()
         row2[::2] = row[:row.shape[0]//2]
         row2[1::2] = row[row.shape[0]//2:]
@@ -444,20 +646,16 @@ class tomographicReconstructor:
     def swap_xy_blocks(self, matrix, n_valid_subap, nChannels=1):
         """
         Swap the X and Y column blocks in a matrix, preserving channel organization.
-        
-        For multiple channels, the function:
-        1. Treats the matrix as divided into n_channels blocks
-        2. Within each channel block, swaps the X and Y columns
-        
+
         Parameters
         ----------
         matrix : numpy.ndarray
             The input matrix to swap columns
         n_valid_subap : int
             Number of valid subapertures
-        n_channels : int, optional
-            Number of channels (default is 1)
-            
+        nChannels : int, optional
+            Number of wavefront sensor channels (default is 1)
+
         Returns
         -------
         numpy.ndarray
@@ -490,19 +688,22 @@ class tomographicReconstructor:
     # Mask DM actuators
     def mask_DM_actuators(self, actuIndex):
         """
-        This function masks the DM actuators in the reconstructor.
+        Masks specific DM actuators in the reconstructor.
+
         Parameters
         ----------
-        actuIndex : int
-            Index of the actuator to be masked
+        actuIndex : int or list of int
+            Index or indices of the actuator(s) to be masked (set to zero)
+
         Returns
         -------
         numpy.ndarray
             The reconstructor with masked actuators
+
         Raises
         ------
         ValueError
-            If the method is not defined or the reconstructor is not built
+            If the reconstruction method is not defined or the reconstructor is not built
         """
         if self.method == "IM":
             if self._reconstructor is None:
@@ -529,19 +730,19 @@ class tomographicReconstructor:
     # Reconstruct Wavefront
     def reconstruct_wavefront(self, slopes):
         """
-        Reconstruct the wavefront from slopes using the computed reconstructor.
-        
+        Reconstruct the wavefront from slope measurements using the computed reconstructor.
+
         Parameters
         ----------
         slopes : numpy.ndarray
             Slope measurements from wavefront sensors
-            
+
         Returns
         -------
         numpy.ndarray
-            Reconstructed wavefront (2D)
-        
-        Raises:
+            Reconstructed wavefront as a 2D array with NaN values where the grid mask is zero
+
+        Raises
         ------
         ValueError
             If the reconstructor is not built
@@ -567,17 +768,23 @@ class tomographicReconstructor:
     # Visualize Commands
     def visualize_commands(self, slopes):
         """
-        Visualize the dm commands results.
-        
+        Visualize the DM commands derived from slope measurements.
+
         Parameters
         ----------
         slopes : numpy.ndarray
             Slope measurements from wavefront sensors
-            
+
         Returns
         -------
         matplotlib.figure.Figure
-            Figure object containing the visualization
+            Figure object containing the visualization of DM commands as a bar plot
+            and the DM surface as a 2D image
+
+        Raises
+        ------
+        ValueError
+            If the reconstruction method is not defined or the reconstructor is not built
         """
         # get the DM command
         if self.method == "Model":
@@ -614,18 +821,18 @@ class tomographicReconstructor:
     def visualize_reconstruction(self, slopes, reference_wavefront=None):
         """
         Visualize the reconstruction results and optionally compare with reference.
-        
+
         Parameters
         ----------
         slopes : numpy.ndarray
             Slope measurements from wavefront sensors
         reference_wavefront : numpy.ndarray, optional
             Reference wavefront for comparison
-            
+
         Returns
         -------
         matplotlib.figure.Figure
-            Figure object containing the visualization
+            Figure object containing the visualization of reconstructed wavefront
         """
         # Reconstruct wavefront
         reconstructed_wavefront = self.reconstruct_wavefront(slopes)
@@ -664,16 +871,16 @@ class tomographicReconstructor:
     def _test_against_matlab(self, matlab_data_dir):
         """
         Test the reconstructor against MATLAB results.
-        
-        Parameters:
-        -----------
+
+        Parameters
+        ----------
         matlab_data_dir : str
             Directory containing MATLAB test data files
-            
-        Returns:
-        --------
+
+        Returns
+        -------
         dict
-            Dictionary containing test results
+            Dictionary containing test results for various matrices and components
         """
         logger.info("\nTesting reconstructor against MATLAB results...")
         results = {}

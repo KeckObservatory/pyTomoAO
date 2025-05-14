@@ -20,7 +20,38 @@ logger.setLevel(logging.INFO)
 class fitting:
     """
     A class for handling deformable mirror fitting operations with influence function computation.
-    Forwards attribute access to dmGeometry when appropriate.
+    
+    This class provides methods for computing influence functions, generating fitting matrices,
+    and fitting optical path difference (OPD) maps for deformable mirror control. The class
+    supports both single and double Gaussian influence functions, and can handle different
+    grid resolutions and actuator geometries. The class forwards attribute access to dmParams
+    when appropriate.
+
+    Parameters
+    ----------
+    dmParams : object
+        An instance of a class containing DM geometry parameters
+    logger : logging.Logger, optional
+        Logger object for logging messages (default is the module-level logger)
+
+    Returns
+    -------
+    None
+        Initializes the fitting object with the specified parameters.
+
+    Notes
+    -----
+    The class maintains several internal attributes:
+    - modes : numpy.ndarray
+        Array containing influence function modes
+    - resolution : int
+        Resolution of the grid for influence function computation
+    - _fitting_matrix : numpy.ndarray
+        Matrix used for fitting OPD maps to actuator commands
+    - _influence_functions : numpy.ndarray
+        Matrix of influence functions for each actuator
+    - actuator_coordinates : list
+        List of (y, x) coordinate tuples for all actuators
     """
     
     def __init__(self, dmParams, logger=logger):
@@ -31,6 +62,8 @@ class fitting:
         ----------
         dmParams : object
             An instance of a class containing DM geometry parameters
+        logger : logging.Logger, optional
+            Logger instance for tracking operations
         """
         logger.info("\n -->> Initializing fitting object <<--")
         self.dmParams = dmParams
@@ -43,7 +76,7 @@ class fitting:
     
     def __getattr__(self, name):
         """
-        Forwards attribute access to the dmParams class if it contains the requested attribute.
+        Forward attribute access to the dmParams class if it contains the requested attribute.
         
         Parameters
         ----------
@@ -52,7 +85,8 @@ class fitting:
             
         Returns
         -------
-        The requested attribute from dmParams
+        object
+            The requested attribute from dmParams
             
         Raises
         ------
@@ -65,13 +99,13 @@ class fitting:
     
     def __setattr__(self, name, value):
         """
-        Forwards attribute setting to the dmParams class if it contains the specified attribute.
+        Forward attribute setting to the dmParams class if it contains the specified attribute.
         
         Parameters
         ----------
         name : str
             Name of the attribute to set
-        value : any
+        value : object
             Value to assign to the attribute
         """
         # Special case for initialization and our own attributes
@@ -84,11 +118,32 @@ class fitting:
     
     @property
     def F(self):
+        """
+        Get the fitting matrix.
+        
+        Returns
+        -------
+        numpy.ndarray
+            The fitting matrix for OPD map to actuator command conversion
+        """
         logger.debug("Accessing the fitting matrix property.")
         return self._fitting_matrix
         
     @F.setter
     def F(self, value):
+        """
+        Set the fitting matrix.
+        
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The fitting matrix to set
+            
+        Raises
+        ------
+        ValueError
+            If the value is not a 2D numpy array
+        """
         logger.debug("Setting the fitting matrix property.")
         if isinstance(value, np.ndarray) and value.ndim == 2:
             self._fitting_matrix = value
@@ -98,20 +153,57 @@ class fitting:
     
     @property
     def fitting_matrix(self):
+        """
+        Get the fitting matrix (alias for F property).
+        
+        Returns
+        -------
+        numpy.ndarray
+            The fitting matrix for OPD map to actuator command conversion
+        """
         logger.debug("Accessing the full name fitting_matrix property.")
         return self._fitting_matrix
         
     @fitting_matrix.setter
     def fitting_matrix(self, value):
+        """
+        Set the fitting matrix (alias for F property).
+        
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The fitting matrix to set
+        """
         self.F = value
     
     @property
     def IF(self):
+        """
+        Get the influence functions matrix.
+        
+        Returns
+        -------
+        numpy.ndarray
+            The influence functions matrix
+        """
         logger.debug("Accessing the influence functions property.")
         return self._influence_functions
         
     @IF.setter
     def IF(self, value):
+        """
+        Set the influence functions matrix.
+        
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The influence functions matrix to set
+            
+        Raises
+        ------
+        ValueError
+            If the value is not a 2D numpy array
+        """
         logger.debug("Setting the influence functions property.")
         if isinstance(value, np.ndarray) and value.ndim == 2:
             self._influence_functions = value
@@ -121,31 +213,47 @@ class fitting:
     
     @property
     def influence_functions(self):
+        """
+        Get the influence functions matrix (alias for IF property).
+        
+        Returns
+        -------
+        numpy.ndarray
+            The influence functions matrix
+        """
         logger.debug("Accessing the full name influence_functions property.")
         return self._influence_functions
         
     @influence_functions.setter
     def influence_functions(self, value):
+        """
+        Set the influence functions matrix (alias for IF property).
+        
+        Parameters
+        ----------
+        value : numpy.ndarray
+            The influence functions matrix to set
+        """
         self.IF = value
     
     def fit(self, opd_map):
         """
-        Multiplies the OPD map by the fitting matrix to obtain the command vector.
+        Multiply the OPD map by the fitting matrix to obtain the command vector.
         
         Parameters
         ----------
-        opd_map : np.ndarray
-            The Optical Path Difference (OPD) map to be fitted.
+        opd_map : numpy.ndarray
+            The Optical Path Difference (OPD) map to be fitted
             
         Returns
         -------
-        np.ndarray
-            The command vector to send to the DM.
+        numpy.ndarray
+            The command vector to send to the DM
             
         Raises
         ------
         ValueError
-            If the fitting matrix is not set.
+            If the fitting matrix is not set
         """
         logger.info("\nPerforming fitting of the OPD map.")
         if self.F.size == 0:
@@ -158,24 +266,26 @@ class fitting:
     
     def double_gaussian_influence(self, x, y, center_x=0, center_y=0, w1=2, w2=-1, sigma1=0.54, sigma2=0.85):
         """
-        Computes the double Gaussian influence function for a deformable mirror,
-        allowing placement at any position on a grid of any dimensions.
+        Compute the double Gaussian influence function for a deformable mirror.
+        
+        This function allows placement of a double Gaussian influence function at
+        any position on a grid of any dimensions.
         
         Parameters
         ----------
-        x, y : float or np.ndarray
-            Coordinates at which to evaluate the influence function.
+        x, y : float or numpy.ndarray
+            Coordinates at which to evaluate the influence function
         center_x, center_y : float
-            Center coordinates of the double Gaussian function.
+            Center coordinates of the double Gaussian function
         w1, w2 : float
-            Weights of the two Gaussian components.
+            Weights of the two Gaussian components
         sigma1, sigma2 : float
-            Standard deviations of the two Gaussian components.
+            Standard deviations of the two Gaussian components
         
         Returns
         -------
-        float or np.ndarray
-            Influence function value at the given coordinates.
+        float or numpy.ndarray
+            Influence function value at the given coordinates
         """
         # Calculate distances from the center position
         dx = x - center_x
@@ -189,21 +299,23 @@ class fitting:
     
     def create_influence_grid(self, grid_shape, actuator_pos, w1=2, w2=-1, sigma1=0.5, sigma2=0.85):
         """
-        Creates a grid of the specified shape with a double Gaussian placed at the given position.
+        Create a grid of the specified shape with a double Gaussian placed at the given position.
         
         Parameters
         ----------
         grid_shape : tuple
-            Shape of the grid (height, width).
+            Shape of the grid (height, width)
         actuator_pos : tuple
-            Position (y, x) where the center of the double Gaussian should be placed.
-        w1, w2, sigma1, sigma2 : float
-            Parameters for the double Gaussian influence function.
+            Position (y, x) where the center of the double Gaussian should be placed
+        w1, w2 : float
+            Weights of the two Gaussian components
+        sigma1, sigma2 : float
+            Standard deviations of the two Gaussian components
         
         Returns
         -------
-        np.ndarray
-            2D grid with the double Gaussian influence function.
+        numpy.ndarray
+            2D grid with the double Gaussian influence function
         """
         height, width = grid_shape
         y, x = np.ogrid[:height, :width]
@@ -218,11 +330,11 @@ class fitting:
     
     def extract_actuator_coordinates(self, valid_actuator_map):
         """
-        Extract the (y, x) coordinates of all actuators (positions with value 1) from the map.
+        Extract the (y, x) coordinates of all actuators from the map.
         
         Parameters
         ----------
-        valid_actuator_map : np.ndarray
+        valid_actuator_map : numpy.ndarray
             Binary array where 1s indicate valid actuator positions
         
         Returns
@@ -238,8 +350,9 @@ class fitting:
     
     def map_actuators_to_new_grid(self, actuator_coords, original_shape, new_shape, stretch_factor=1.03):
         """
-        Maps actuator coordinates from original grid to a new grid size,
-        maintaining relative positions and stretching beyond [-1, 1] by the stretch factor.
+        Map actuator coordinates from original grid to a new grid size.
+        
+        Maintains relative positions and stretches beyond [-1, 1] by the stretch factor.
         
         Parameters
         ----------
@@ -288,9 +401,10 @@ class fitting:
     
     def map_actuators_to_new_grid_old(self, actuator_coords, original_shape, new_shape):
         """
-        Maps actuator coordinates from original grid to a new grid size,
-        maintaining relative positions.
-
+        Map actuator coordinates from original grid to a new grid size (legacy method).
+        
+        Maintains relative positions using direct scaling.
+        
         Parameters
         ----------
         actuator_coords : list
@@ -322,22 +436,29 @@ class fitting:
     
     def set_influence_function(self, dmParams=None, resolution=None, display=False, w1=2, w2=-1, sigma1=0.5*2, sigma2=0.85*2):
         """
-        Generates a deformable mirror influence function based on the provided parameters.
+        Generate a deformable mirror influence function based on the provided parameters.
+        
+        This method computes the influence functions for each actuator in the DM
+        and stores them in the class.
         
         Parameters
         ----------
         dmParams : object, optional
             Contains deformable mirror parameters.
-            If None, uses the associated dmGeometry.
+            If None, uses the associated dmParams.
         resolution : int, optional
             Resolution of the output influence function grid.
             If None, uses the class default resolution.
         display : bool, optional
             Whether to display plots of the influence functions.
+        w1, w2 : float, optional
+            Weights for the double Gaussian function.
+        sigma1, sigma2 : float, optional
+            Standard deviations for the double Gaussian function.
             
         Returns
         -------
-        modes : np.ndarray
+        numpy.ndarray
             2D array representing the influence function for each actuator.
         """
         if dmParams is None:
