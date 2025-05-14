@@ -38,8 +38,7 @@ except:
     logger.info("\nCUDA is not available. Using CPU for computations.")
 
 class tomographicReconstructor:
-    """
-    A class for computing tomographic reconstructors for adaptive optics systems.
+    """A class for computing tomographic reconstructors for adaptive optics systems.
     
     This class computes a tomographic reconstructor from multiple Shack-Hartmann 
     wavefront sensors based on the turbulence model given by atmospheric parameters.
@@ -403,8 +402,7 @@ class tomographicReconstructor:
     # ======================================================================
     # Class Methods
     def sparseGradientMatrixAmplitudeWeighted(self, amplMask=None, overSampling=2, validLenslet=None):
-        """
-        Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
+        """Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
 
         Parameters
         ----------
