@@ -592,7 +592,7 @@ class tomographicReconstructor:
         if nChannels == 1:
             self.reconstructor = self._reconstructor[:, :self.lgsWfsParams.nValidSubap*2]
         
-        # Rearrange the reconstructor to accomodate slopes = [slopeX, slopesY]
+        # Rearrange the reconstructor to accomodate slopes = [slopeX, slopeY]
         if slopesOrder == "simu":
             # Swap X and Y blocks 
             self.reconstructor = self.swap_xy_blocks(self._reconstructor, 

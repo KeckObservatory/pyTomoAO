@@ -19,7 +19,7 @@ logger.setLevel(logging.INFO)
 
 class fitting:
     """A class for handling deformable mirror fitting operations with influence function computation.
-    
+
     This class provides methods for computing influence functions, generating fitting matrices,
     and fitting optical path difference (OPD) maps for deformable mirror control. The class
     supports both single and double Gaussian influence functions, and can handle different
