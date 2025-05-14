@@ -44,8 +44,7 @@ class tomographicReconstructor:
     This class computes a tomographic reconstructor from multiple Shack-Hartmann 
     wavefront sensors based on the turbulence model given by atmospheric parameters.
     The reconstruction can be done using either a model-based approach or an 
-    interaction matrix (IM) based approach. The class supports both LTAO and MOAO
-    configurations, with GPU acceleration using CUDA if available.
+    interaction matrix (IM) based approach.
 
     Parameters
     ----------
@@ -63,6 +62,7 @@ class tomographicReconstructor:
     Notes
     -----
     The class maintains several internal attributes:
+
     - _reconstructor : numpy.ndarray
         The tomographic reconstructor matrix
     - _gridMask : numpy.ndarray
@@ -418,6 +418,7 @@ class tomographicReconstructor:
         -------
         tuple
             A tuple containing:
+            
             - Gamma : scipy.sparse.csr_matrix
                 The sparse gradient matrix
             - gridMask : numpy.ndarray
