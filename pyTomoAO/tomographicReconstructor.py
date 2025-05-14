@@ -79,7 +79,7 @@ class tomographicReconstructor:
         Combined fitting and reconstructor matrix
     """
     # Constructor
-    def __init__(self, config_file, logger=logger):
+    def __init__(self, config_file, logger=logger, force_cpu=False):
         """
         Initialize the tomographicReconstructor with a configuration file.
         
@@ -89,7 +89,16 @@ class tomographicReconstructor:
             Path to the YAML configuration file
         logger : logging.Logger, optional
             Logger object for logging messages (default is the module-level logger)
+        force_cpu : bool, optional
+            Force CPU usage even when CUDA is available (default is False)
         """
+        # If force_cpu is True, override CUDA availability
+        global CUDA
+        #force_cpu = True
+        if force_cpu:
+            CUDA = False
+            logger.info("\nForcing CPU usage for computations.")
+        
         logger.info("\n-->> Initializing reconstructor object <<--")
         # Load configuration
         with open(config_file, "r") as f:
