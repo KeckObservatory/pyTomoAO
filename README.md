@@ -3,12 +3,11 @@
 **pyTomoAO** is an open-source Python library for tomographic reconstruction in tomography-based Adaptive Optics (AO) systems. It provides tools to reconstruct atmospheric turbulence phase maps and project them onto deformable mirrors for different AO architectures, including:
 
 - **LTAO (Laser Tomography Adaptive Optics)**
-- **MCAO (Multi-Conjugate Adaptive Optics)**
 - **MOAO (Multi-Object Adaptive Optics)**
 
 ## Features
 
-- Support for **LTAO, MCAO, and MOAO** tomographic reconstructions.
+- Support for **LTAO, and MOAO** tomographic reconstructions.
 - Efficient numerical solvers for tomographic phase reconstruction.
 - Tools for **fitting reconstructed phase maps** onto deformable mirrors.
 - Extensible and modular design to allow easy adaptation to different AO systems.
@@ -31,7 +30,7 @@ pip install -e .
 ## Usage
 
 ```python
-import pytomoao
+import pyTomoAO
 
 # Example usage coming soon
 ```
@@ -42,6 +41,7 @@ import pytomoao
 - [ ] Add GPU acceleration for real-time processing.
 - [ ] Improve deformable mirror fitting routines.
 - [ ] Develop detailed documentation and examples.
+- [ ] Implement MCAO reconstructor
 
 ### Development Setup
 
