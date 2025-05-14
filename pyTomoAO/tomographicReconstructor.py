@@ -40,13 +40,13 @@ except:
 class tomographicReconstructor:
     """
     A class for computing tomographic reconstructors for adaptive optics systems.
-    
+
     This class computes a tomographic reconstructor from multiple Shack-Hartmann 
     wavefront sensors based on the turbulence model given by atmospheric parameters.
     The reconstruction can be done using either a model-based approach or an 
     interaction matrix (IM) based approach. The class supports both LTAO and MOAO
     configurations, with GPU acceleration using CUDA if available.
-    
+
     Parameters
     ----------
     config_file : str

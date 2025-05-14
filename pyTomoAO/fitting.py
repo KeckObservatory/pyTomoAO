@@ -42,6 +42,7 @@ class fitting:
     Notes
     -----
     The class maintains several internal attributes:
+
     - modes : numpy.ndarray
         Array containing influence function modes
     - resolution : int
