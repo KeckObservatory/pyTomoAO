@@ -7,4 +7,5 @@ pyTomoAO
    intro
    install
    basicUsage
+   tutorial
    pyTomoAO
