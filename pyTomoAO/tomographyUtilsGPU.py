@@ -693,7 +693,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
     return Gamma, gridMask
 
-def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False):
+def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False, alpha=10):
     """
     GPU-optimized atmospheric tomography reconstructor builder
     
@@ -768,7 +768,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
         Cox = CoxOut[idxs]
 
         # Calculate noise covariance
-        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/10 * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/alpha * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
         
         # Keep calculations separate to match CPU version exactly
         GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
@@ -794,7 +794,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
 
         return _reconstructor, Gamma, _gridMask, Cxx, Cox, CnZ, RecStatSA
 
-def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, use_float32=False):
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, use_float32=False, alpha=10):
     """
     GPU-optimized atmospheric tomography reconstructor builder
     
@@ -853,7 +853,6 @@ def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterism
 
         # Noise covariance matrix
         weight = cp.ones(IM.shape[0])
-        alpha = 10
         CnZ = 1e-3 * alpha * cp.diag(1 / (weight.flatten(order='F')))
         
         # Noise covariance matrix

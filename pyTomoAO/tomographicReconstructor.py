@@ -485,7 +485,7 @@ class tomographicReconstructor:
         return Cox
 
     # Build Reconstructor
-    def build_reconstructor(self, IM=None, use_float32=False):
+    def build_reconstructor(self, IM=None, use_float32=False, alpha=10):
         """
         Build the tomographic reconstructor based on parameters.
 
@@ -497,6 +497,8 @@ class tomographicReconstructor:
         use_float32 : bool, optional
             Whether to use float32 precision for computations to reduce memory usage
             (default is False, which uses float64)
+        alpha : float, optional
+            Regularization parameter for the reconstructor (default is 10)
 
         Returns
         -------
@@ -516,11 +518,11 @@ class tomographicReconstructor:
             if CUDA:
                 _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_model(self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, use_float32=True)
+                                    self.atmParams, self.lgsAsterismParams, use_float32=True, alpha=alpha)
             else:
                 _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_model(self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams)
+                                    self.atmParams, self.lgsAsterismParams, alpha=alpha)
             self.method = "Model"
             self._reconstructor = _reconstructor
             self.Gamma = Gamma
@@ -538,11 +540,11 @@ class tomographicReconstructor:
             if CUDA:
                 _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, self.dmParams, use_float32=True)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams, use_float32=True, alpha=alpha)
             else:
                 _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, self.dmParams)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams, alpha=alpha)
             self.method = "IM"
             self._reconstructor = _reconstructor
             self._gridMask = gridMask
@@ -554,7 +556,7 @@ class tomographicReconstructor:
         return _reconstructor
 
     # Assemble Reconstructor and Fitting
-    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7):
+    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7, stretch_factor=1.03):
         """
         Assemble the reconstructor and fitting matrices together.
 
@@ -596,7 +598,8 @@ class tomographicReconstructor:
         # Setup the influence functions and mask them to the grid
         logger.info("\nCalculating influence functions")
         self.modes = self.fit.set_influence_function(resolution=self.gridMask.shape[0],
-                                                    display=False, sigma1=0.5*2, sigma2=0.85*2)
+                                                    display=False, sigma1=0.5*2, sigma2=0.85*2,
+                                                    stretch_factor = stretch_factor)
         self.modes = self.modes[self.gridMask.flatten(), :]
         logger.info(f"\nModes shape after applying grid mask: {self.modes.shape}")
         # Generate a fitting matrix (pseudo-inverse of the influence functions)

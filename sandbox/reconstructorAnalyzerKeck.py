@@ -1,4 +1,4 @@
-# reconstructorAnalyzer.py
+# reconstructorAnalyzerKeck.py
 """
 Adaptive Optics Reconstructor Analysis Script
 """

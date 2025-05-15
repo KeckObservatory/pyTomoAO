@@ -435,7 +435,7 @@ class fitting:
         self.actuator_coordinates = new_coords
         return new_coords
     
-    def set_influence_function(self, dmParams=None, resolution=None, display=False, w1=2, w2=-1, sigma1=0.5*2, sigma2=0.85*2):
+    def set_influence_function(self, dmParams=None, resolution=None, display=False, w1=2, w2=-1, sigma1=0.5*2, sigma2=0.85*2, stretch_factor=1.03):
         """
         Generate a deformable mirror influence function based on the provided parameters.
         
@@ -456,6 +456,8 @@ class fitting:
             Weights for the double Gaussian function.
         sigma1, sigma2 : float, optional
             Standard deviations for the double Gaussian function.
+        stretch_factor : float, optional
+            Factor to stretch the normalized coordinates (default: 1.03)
             
         Returns
         -------
@@ -479,7 +481,8 @@ class fitting:
         new_actuator_coords = self.map_actuators_to_new_grid(
             actuator_coords, 
             original_shape, 
-            new_shape=(resolution, resolution)
+            new_shape=(resolution, resolution),
+            stretch_factor = stretch_factor
         )
         
         # Create modes array to store influence functions
@@ -516,7 +519,7 @@ if __name__ == "__main__":
     from pyTomoAO.tomographicReconstructor import tomographicReconstructor
     from pyTomoAO.fitting import fitting
     # Load the reconstructor
-    reconstructor = tomographicReconstructor("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
+    reconstructor = tomographicReconstructor("../examples/benchmark/reconstructor_config_revolt.yaml")
     reconstructor.build_reconstructor()
     gridMask = reconstructor.gridMask
     
@@ -526,12 +529,12 @@ if __name__ == "__main__":
     
     # Generate influence functions
     print("\nGenerating influence functions...")
-    modes = fit.set_influence_function(resolution=49, display=False, sigma1=0.5*2, sigma2=0.85*2)
+    modes = fit.set_influence_function(resolution=41, display=False, sigma1=0.5*2, sigma2=0.85*2, stretch_factor=1.13)
     print(f"Generated influence functions with shape: {modes.shape}")
     
     # Display one influence function
     plt.figure()
-    plt.imshow(modes[:, 0].reshape(49, 49), cmap='viridis')
+    plt.imshow(modes[:, 0].reshape(41, 41), cmap='viridis')
     plt.plot(fit.actuator_coordinates[0][1], fit.actuator_coordinates[0][0], 'x', color='black')
     plt.colorbar()
     plt.title("Influence Function for First Actuator")
@@ -590,7 +593,7 @@ if __name__ == "__main__":
         
         # Reconstruct the wavefront from the commands
         print(f"Reconstructing {wavefront_name} wavefront from commands...")
-        reconstructed = np.dot(modes, commands).reshape(49, 49)
+        reconstructed = np.dot(modes, commands).reshape(41, 41)
         masked_reconstructed, display_reconstructed = apply_mask(reconstructed, gridMask)
         
         # Calculate fitting error
@@ -623,7 +626,7 @@ if __name__ == "__main__":
     
     # Create a simple wavefront (OPD) to fit
     print("\nCreating sample wavefronts...")
-    x, y = np.meshgrid(np.linspace(-1, 1, 49), np.linspace(-1, 1, 49))
+    x, y = np.meshgrid(np.linspace(-1, 1, 41), np.linspace(-1, 1, 41))
     
     # Defocus wavefront
     radius_squared = x**2 + y**2

@@ -580,7 +580,7 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
     return Gamma, gridMask
 
-def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams):
+def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, alpha=10):
         
     Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
         lgsWfsParams.validLLMapSupport,
@@ -626,7 +626,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
     # Select submatrix using boolean masks with np.ix_ for correct indexing
     Cox = CoxOut[np.ix_(row_mask, col_mask)]
 
-    CnZ = np.eye(Gamma.shape[0]) * 1/10 * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
+    CnZ = np.eye(Gamma.shape[0]) * 1/alpha * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
     invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
 
     RecStatSA = Cox @ Gamma.T @ invCss
@@ -642,7 +642,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
 
     return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
 
-def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams):
+def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, alpha=10):
     # IM has to be a block diagonal matrix containing the IM for each LGS
     
     # Define gridMask based on the DM parameters
@@ -674,7 +674,6 @@ def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterism
 
     # Noise covariance matrix
     weight = np.ones(IM.shape[0])
-    alpha = 10
     CnZ = 1e-3 * alpha * np.diag(1 / (weight.flatten(order='F')))
     
     invCss = np.linalg.inv(IM @ Cxx @ IM.T + CnZ)
