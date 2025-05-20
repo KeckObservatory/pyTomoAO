@@ -752,6 +752,7 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
             lgsWfsParams, 
             atmParams,
             lgsAsterismParams,
+            _gridMask,
             use_float32=use_float32
         ).astype(dtype)
         cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
@@ -759,13 +760,14 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
         weighted_cox = Cox * tomoParams.fitSrcWeight[:, None, None]
         CoxOut = cp.sum(weighted_cox, axis=0)
 
-        row_mask = _gridMask.ravel().astype(bool)
-        col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+#        row_mask = _gridMask.ravel().astype(bool)
+#        col_mask = np.tile(_gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
 
         # Select submatrix using boolean masks with np.ix_ for correct indexing
         # DO NOT EDIT THIS WITH CUPY FUNCTIONS, IT WILL BREAK THE GPU VERSION
-        idxs = np.ix_(row_mask, col_mask)
-        Cox = CoxOut[idxs]
+#        idxs = np.ix_(row_mask, col_mask)
+#        Cox = CoxOut[idxs]
+        Cox = CoxOut
 
         # Calculate noise covariance
         CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * 1/alpha * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))

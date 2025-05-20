@@ -613,18 +613,22 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
         tomoParams,
         lgsWfsParams, 
         atmParams,
-        lgsAsterismParams
+        lgsAsterismParams,
+        gridMask
     )
+
+    # print(Cox.shape)
 
     CoxOut = 0
     for i in range(tomoParams.nFitSrc**2):
         CoxOut = CoxOut + Cox[i,:,:]*tomoParams.fitSrcWeight[i]
 
-    row_mask = gridMask.ravel().astype(bool)
-    col_mask = np.tile(gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
+    # row_mask = gridMask.ravel().astype(bool)
+    # col_mask = np.tile(gridMask.ravel().astype(bool), lgsAsterismParams.nLGS)
 
-    # Select submatrix using boolean masks with np.ix_ for correct indexing
-    Cox = CoxOut[np.ix_(row_mask, col_mask)]
+    # # Select submatrix using boolean masks with np.ix_ for correct indexing
+    # Cox = CoxOut[np.ix_(row_mask, col_mask)]
+    Cox = CoxOut
 
     CnZ = np.eye(Gamma.shape[0]) * 1/alpha * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
     invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
