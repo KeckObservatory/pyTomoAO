@@ -593,7 +593,7 @@ class tomographicReconstructor:
         return _reconstructor
 
     # Assemble Reconstructor and Fitting
-    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7, stretch_factor=1.03, rotation=None):
+    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7, stretch_factor=1.03, rotation=None, flip=None):
         """
         Assemble the reconstructor and fitting matrices together.
 
@@ -648,7 +648,10 @@ class tomographicReconstructor:
             reshaped_array = self.modes.T.reshape(self.fit.modes.shape[1], self.gridMask.shape[0], self.gridMask.shape[0])
             rotated_array = np.zeros_like(reshaped_array)
             for i in range(self.modes.shape[1]):
-                rotated_array[i] = np.flipud(np.rot90(reshaped_array[i], rotation))
+                rotated_array[i] = np.rot90(reshaped_array[i], rotation)
+                # flip the rotated array
+                if flip is not None:
+                    rotated_array[i] = np.flipud(rotated_array[i])
             self.modes = rotated_array.reshape(self.modes.shape[1], -1).T
         
         self.modes = self.modes[self.gridMask.flatten(), :]

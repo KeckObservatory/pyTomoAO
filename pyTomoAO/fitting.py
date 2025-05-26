@@ -529,13 +529,13 @@ if __name__ == "__main__":
     
     # Generate influence functions
     print("\nGenerating influence functions...")
-    modes = fit.set_influence_function(resolution=41, display=False, sigma1=0.5*2, sigma2=0.85*2, stretch_factor=1.13)
+    modes = fit.set_influence_function(resolution=41, display=False, sigma1=0.5*2, sigma2=0.85*2, stretch_factor=1.08)
     print(f"Generated influence functions with shape: {modes.shape}")
     
     # Display one influence function
     plt.figure()
     plt.imshow(modes[:, 0].reshape(41, 41), cmap='viridis')
-    plt.plot(fit.actuator_coordinates[0][1], fit.actuator_coordinates[0][0], 'x', color='black')
+    plt.plot(fit.actuator_coordinates[0][1]-0.25, fit.actuator_coordinates[0][0]-0.5, 'x', color='black')
     plt.colorbar()
     plt.title("Influence Function for First Actuator")
     plt.show()

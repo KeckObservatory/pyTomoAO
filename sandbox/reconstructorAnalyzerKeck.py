@@ -88,6 +88,7 @@ class reconstructorAnalyzer:
     def setup_reconstructors(self):
         """Load different reconstructors for comparison"""
         # Create model base reconstructor
+        self.reconstructor.build_reconstructor(alpha=0.1)
         self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=1.5e7)
         self.reconstructor.mask_DM_actuators(174)
         self.R = self.reconstructor.FR

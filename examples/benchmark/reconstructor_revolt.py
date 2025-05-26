@@ -9,9 +9,6 @@ from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 # Create the reconstructor
 reconstructor = tomographicReconstructor("reconstructor_config_revolt.yaml")
 
-# force the nLGS to be 1
-#reconstructor.nLGS = 1
-
 # Build the model based reconstructor. To build the IM based reconstructor,
 # pass the IM matrix as an argument.
 # R = reconstructor.build_reconstructor(IM, use_float32=True) 

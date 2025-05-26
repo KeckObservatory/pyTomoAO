@@ -1,4 +1,4 @@
-# reconstructorAnalyzerKeck.py
+# reconstructorAnalyzerRevolt.py
 """
 Adaptive Optics Reconstructor Analysis Script
 """
@@ -60,18 +60,8 @@ class reconstructorAnalyzer:
     def __init__(self, config_path):
         self.reconstructor = tomographicReconstructor(config_path)
         
-        # Create a fitting instance
+        # # Create a fitting instance
         self.fit = fitting(self.reconstructor.dmParams)
-        
-        # Setup the influence functions
-        self.modes = self.fit.set_influence_function(resolution=41, display=False, sigma1=0.5*2, sigma2=0.85*2, stretch_factor=1.13)
-        self.modes = self.modes[self.reconstructor.gridMask.flatten(), :]
-        print(f"Modes shape after applying grid mask: {self.modes.shape}")
-        
-        # Generate a fitting matrix (pseudo-inverse of the influence functions)
-        print("\nCalculating fitting matrix")
-        self.fit.F = np.linalg.pinv(self.modes)
-        print(f"Fitting matrix shape: {self.fit.F.shape}")
         
         # Load reconstructors
         self.setup_reconstructors()
@@ -87,23 +77,38 @@ class reconstructorAnalyzer:
     
     def setup_reconstructors(self):
         """Load different reconstructors for comparison"""
-        # Create model base reconstructor
-        self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", scalingFactor=0, stretch_factor=1.13)
-        #self.reconstructor.mask_DM_actuators(174)
-        self.R = self.reconstructor.FR
-        self.FR = self.R
+        # Create the model based reconstructor
+        #self.reconstructor.nLGS = 1
+        self.alpha_model = 0.1
+        self.reconstructor.build_reconstructor(alpha=self.alpha_model)
         
+        # strectch factor
+        self.stretch_factor = 1.1
+        # Create model base reconstructor
+        self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", 
+                                                            scalingFactor=1.0e4, stretch_factor=self.stretch_factor, 
+                                                            rotation=1, flip=1)
+        #self.reconstructor.mask_DM_actuators(174)
+        # mask outer ring of actuators
+        self.masked_actuators = np.load("Masked_actuators_revolt.npy")
+        #self.reconstructor.mask_DM_actuators(self.masked_actuators)
+        
+        self.corner_actuators = np.array([0, 6, 72, 90, 186,204,270,276])
+        self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        #self.R = np.flipud(self.reconstructor.FR)
+        self.R = self.reconstructor.FR 
+        self.FR = self.R
         # Create IM based reconstructor
         IM = np.load('../examples/benchmark/IM_revolt.npy')
         nLGS = self.reconstructor.nLGS
         matrices = [IM] * nLGS
         IM = block_diag(*matrices)
-        self.R_im = self.reconstructor.build_reconstructor(IM, alpha=100000)
-        self.R_im = self.R_im[:, :self.reconstructor.lgsWfsParams.nValidSubap*2] * 1/4*10
-
+        self.alpha_im = 1000
+        self.R_im = self.reconstructor.build_reconstructor(IM, alpha=self.alpha_im)
+        self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        self.R_im = self.R_im[:, :self.reconstructor.lgsWfsParams.nValidSubap*2] 
         # Load alternative reconstructors
         self.R_svd = np.load("reconstructor_revolt_svd.npy")
-#        self.R_keck = np.load("reconstructor_revolt_svd.npy")
     
     def setup_meshgrid(self):
         """Create meshgrid for wavefront generation"""
@@ -195,14 +200,18 @@ class reconstructorAnalyzer:
             # Case when wavefront is a numpy array (from Zernike functions)
             # Apply mask
             masked_wavefront = wavefront * self.wfs_mask
+            masked_wavefront[masked_wavefront == 0] = np.nan  # Mask 0 values to nan for display
             im1 = ax1.imshow(masked_wavefront, cmap='RdBu')
+            
         else:
             # Case when wavefront is from reconstructor.reconstruct_wavefront
             # Need to reshape it properly
             try:
                 # Try to reshape to match the WFS size
                 reshaped_wavefront = np.reshape(wavefront, self.wfs_mask.shape)
+                reshaped_wavefront[reshaped_wavefront == 0] = np.nan  # Mask 0 values to nan for display
                 im1 = ax1.imshow(reshaped_wavefront, cmap='RdBu')
+                
             except ValueError:
                 # If reshape fails, just show the original wavefront
                 print(f"Warning: Could not reshape wavefront of shape {wavefront.shape} to {self.wfs_mask.shape}")
@@ -211,46 +220,53 @@ class reconstructorAnalyzer:
         ax1.set_title(f'{title_prefix} Wavefront')
         ax1.set_xlabel('X (pixels)')
         ax1.set_ylabel('Y (pixels)')
-        ax1.set_aspect('auto')
+        #ax1.set_box_aspect(0.5) 
+        #ax1.set_position([0.1, 0.1, 0.4, 0.8])  # [left, bottom, width, height]
+        ax1.set_aspect('auto')        
         
         # SVD reconstruction
         ax2 = fig.add_subplot(gs[0, 1])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_svd @ slopes_keck
+        # mask 0 values to nan for display
+        temp_mask[temp_mask == 0] = np.nan
         im2 = ax2.imshow(temp_mask.T, cmap='RdBu')
         ax2.set_title('DM commands (R_REVOLT (SVD))')
         ax2.set_xlabel('X (pixels)')
         ax2.set_ylabel('Y (pixels)')
-        plt.colorbar(im2, ax=ax2)
+        plt.colorbar(im2, ax=ax2, shrink=0.8)
         
         # Tomo model based reconstruction
         ax4 = fig.add_subplot(gs[0, 2])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R @ slopes_keck
-
-        im4 = ax4.imshow(temp_mask, cmap='RdBu')
+        # mask 0 values to nan for display
+        temp_mask[temp_mask == 0] = np.nan
+        im4 = ax4.imshow(temp_mask.T, cmap='RdBu')
         ax4.set_title('DM commands (R_Tomo (Model))')
         ax4.set_xlabel('X (pixels)')
         ax4.set_ylabel('Y (pixels)')
-        plt.colorbar(im4, ax=ax4)
+        plt.colorbar(im4, ax=ax4, shrink=0.8)
         
         # Tomo IM based reconstruction
         ax5 = fig.add_subplot(gs[0, 3])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_im @ slopes_keck
+        # mask 0 values to nan for display
+        temp_mask[temp_mask == 0] = np.nan
         im5 = ax5.imshow(temp_mask.T, cmap='RdBu')
         ax5.set_title('DM commands (R_Tomo (IM))')
         ax5.set_xlabel('X (pixels)')
         ax5.set_ylabel('Y (pixels)')
-        plt.colorbar(im5, ax=ax5)
+        plt.colorbar(im5, ax=ax5, shrink=0.8)
         
         plt.tight_layout()
         
         # display command vector in a separate figure
         fig2 = plt.figure(figsize=(10, 5))
+        plt.plot(self.R_svd @ slopes_keck, label='R_REVOLT (SVD)')
         plt.plot(self.R @ slopes_keck, label='R_Tomo (Model)')
         plt.plot(self.R_im @ slopes_keck, label='R_Tomo (IM)')
-        plt.plot(self.R_svd @ slopes_keck, label='R_REVOLT (SVD)')
         plt.legend()
         plt.title('DM commands')
         plt.xlabel('DM actuator')
@@ -352,7 +368,7 @@ class reconstructorAnalyzer:
                 print(f"Reconstructor IM based saved to {filename}")
             except ValueError:
                 raise ValueError("Reconstructor IM based must be generated first")
-        elif self.reconstructor.method == "model":
+        elif self.reconstructor.method == "Model":
             try:
                 # Save in the same format as the input
                 self.FR.astype('>f4').tofile(filename)
@@ -375,8 +391,63 @@ def main():
     analyzer.analyze_wavefront(zernike_trefoil_0, "Trefoil 0°")
     
     plt.show()
-    # Save the control matrix
-    #analyzer.save_reconstructor("RtomoSingleNoTTF.mr")
-
+    
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+    
+    im1 = ax1.imshow(analyzer.R)
+    plt.colorbar(im1, ax=ax1, shrink=0.5)
+    ax1.set_title(f"Model based reconstructor\n(Sum: {np.sum(analyzer.R):.2f})")
+    print(f"Sum of Model based reconstructor: {np.sum(analyzer.R)}")
+    
+    im2 = ax2.imshow(analyzer.R_im)
+    plt.colorbar(im2, ax=ax2, shrink=0.5)
+    ax2.set_title(f"IM based reconstructor\n(Sum: {np.sum(analyzer.R_im):.2f})")
+    print(f"Sum of IM based reconstructor: {np.sum(analyzer.R_im)}")
+    
+    im3 = ax3.imshow(analyzer.R_svd)
+    plt.colorbar(im3, ax=ax3, shrink=0.5)
+    ax3.set_title(f"SVD based reconstructor\n(Sum: {np.sum(analyzer.R_svd):.2f})")
+    print(f"Sum of SVD based reconstructor: {np.sum(analyzer.R_svd)}")
+    
+    plt.tight_layout()
+    
+    def save_reconstructor_fits(reconstructor, method, alpha, stretch_factor=None, base_name='CM_pyTomoAO'):
+        """
+        Save reconstructor matrix to FITS file with timestamp and alpha value in filename
+        
+        Parameters:
+        -----------
+        reconstructor : numpy.ndarray
+            The reconstructor matrix to save
+        method : str
+            Method used to generate reconstructor ('Model' or 'IM')
+        alpha : float
+            Alpha value used in reconstructor computation
+        base_name : str
+            Base name for the output file
+        """
+        from astropy.io import fits
+        from datetime import datetime
+        
+        # Generate timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if method is "Model":
+            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_stretch_{stretch_factor:.2f}_{timestamp}.fits'
+        else:# Create filename with timestamp and alpha
+            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_{timestamp}.fits'
+        
+        # Create and save FITS file
+        hdu = fits.PrimaryHDU(reconstructor)
+        hdul = fits.HDUList([hdu])
+        hdul.writeto(filename, overwrite=True)
+        hdul.close()
+        
+        print(f"Saved {method} reconstructor to {filename}")
+    
+    # Save both reconstructors
+    save_reconstructor_fits(analyzer.R, 'Model', analyzer.alpha_model, analyzer.stretch_factor)
+    save_reconstructor_fits(analyzer.R_im, 'IM', analyzer.alpha_im)
+    
 if __name__ == "__main__":
     main()
