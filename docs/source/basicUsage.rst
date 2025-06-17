@@ -118,6 +118,16 @@ To create a tomographic reconstructor object, you need to load the configuration
     # the config file is a yaml file that contains all the parameters
     rec = tomographicReconstructor("configFilename.yaml")
 
+This will create a tomographic reconstructor object with all the parameters defined in the configuration file. You can then use this object to perform tomography.
+The object contains 5 parameters classes:
+ - ``atmParams``: This class contains the atmosphere parameters.
+ - ``dmParams``: This class contains the DM parameters.
+ - ``lgsWfsParams``: This class contains the LGS WFS parameters.
+ - ``lgsAsterismParams``: This class contains the LGS asterism parameters.
+ - ``tomoParams``: This class contains the tomography parameters.
+
+Once the reconstructor object is created, you can modify the parameters as needed, without having to rebuild the reconstructor object. For example, you can change the number of LGS or the altitude of the layers in the atmosphere. You can also add additional parameters to the configuration file and access them from the reconstructor object.
+
 Access the reconstructor parameters classes
 ============================================
 You can print the parameters of the configuration file using the following code::

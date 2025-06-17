@@ -3,7 +3,6 @@ lgs_wfs_parameters:
   nLenslet: 20
   nPx: 8
   fieldStopSize: 4
-  nLGS: 4
   validLLMap: 
     - [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0]
     - [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0]

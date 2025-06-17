@@ -1,5 +1,3 @@
-#tomographicReconstructor.py
-
 """
 This module contains the tomographicReconstructor class for computing tomographic reconstructors
 for adaptive optics systems. It supports both LTAO and MOAO configurations, with options for
@@ -53,6 +51,8 @@ class tomographicReconstructor:
         the tomographic reconstruction.
     logger : logging.Logger, optional
         Logger object for logging messages (default is the module-level logger)
+    force_cpu : bool, optional
+        Force CPU usage even when CUDA is available (default is False)
 
     Returns
     -------
@@ -79,7 +79,7 @@ class tomographicReconstructor:
         Combined fitting and reconstructor matrix
     """
     # Constructor
-    def __init__(self, config_file, logger=logger):
+    def __init__(self, config_file, logger=logger, force_cpu=False):
         """
         Initialize the tomographicReconstructor with a configuration file.
         
@@ -89,25 +89,38 @@ class tomographicReconstructor:
             Path to the YAML configuration file
         logger : logging.Logger, optional
             Logger object for logging messages (default is the module-level logger)
+        force_cpu : bool, optional
+            Force CPU usage even when CUDA is available (default is False)
         """
+        # First, initialize the object's dictionary directly to avoid attribute access issues
+        object.__setattr__(self, '_reconstructor', None)
+        object.__setattr__(self, '_gridMask', None)
+        object.__setattr__(self, '_wavefront2Meter', None)
+        object.__setattr__(self, 'fit', None)
+        object.__setattr__(self, 'modes', None)
+        object.__setattr__(self, 'method', None)
+        object.__setattr__(self, '_FR', None)
+        object.__setattr__(self, 'valid_constructor_type', [np.float32, np.float64])
+        object.__setattr__(self, 'atmParams', None)
+        object.__setattr__(self, 'lgsAsterismParams', None)
+        object.__setattr__(self, 'lgsWfsParams', None)
+        object.__setattr__(self, 'tomoParams', None)
+        object.__setattr__(self, 'dmParams', None)
+        
+        # If force_cpu is True, override CUDA availability
+        global CUDA
+        if force_cpu:
+            CUDA = False
+            logger.info("\nForcing CPU usage for computations.")
+        
         logger.info("\n-->> Initializing reconstructor object <<--")
         # Load configuration
         with open(config_file, "r") as f:
-            self.config = yaml.safe_load(f)
+            config_data = yaml.safe_load(f)
+            object.__setattr__(self, 'config', config_data)
 
         # Initialize parameters
         self._initialize_parameters()
-
-        # Initialize properties
-        self.valid_constructor_type = [np.float32, np.float64]
-        self._reconstructor = None
-        self._wavefront2Meter = None
-        self._gridMask = None
-        self.fit = None
-        self.modes = None
-        self.method = None
-        #self.R = None # Reconstructor
-        self._FR = None # Fitting * Reconstructor
 
     def _initialize_parameters(self):
         """
@@ -124,39 +137,50 @@ class tomographicReconstructor:
             tomoParams, dmParams) with values from the configuration file.
         """
         try:
-            self.atmParams = atmosphereParameters(self.config)
+            atm_params = atmosphereParameters(self.config)
+            object.__setattr__(self, 'atmParams', atm_params)
             logger.info("\nSuccessfully initialized Atmosphere parameters.")
-            logger.info(self.atmParams)
+            logger.info(atm_params)
         except (ValueError, TypeError) as e:
             logger.error(f"Configuration Error in Atmosphere parameters: {e}")
+            raise  # Re-raise to prevent continuing with invalid parameters
 
         try:
-            self.lgsAsterismParams = lgsAsterismParameters(self.config, self.atmParams)
+            lgs_asterism_params = lgsAsterismParameters(self.config, self.atmParams)
+            object.__setattr__(self, 'lgsAsterismParams', lgs_asterism_params)
             logger.info("\nSuccessfully initialized LGS asterism parameters.")
-            logger.info(self.lgsAsterismParams) 
+            logger.info(lgs_asterism_params) 
         except (ValueError, TypeError) as e:
             logger.error(f"\nConfiguration Error in LGS asterism parameters: {e}")
+            raise  # Re-raise to prevent continuing with invalid parameters
 
         try:
-            self.lgsWfsParams = lgsWfsParameters(self.config, self.lgsAsterismParams)
+            lgs_wfs_params = lgsWfsParameters(self.config, self.lgsAsterismParams)
+            object.__setattr__(self, 'lgsWfsParams', lgs_wfs_params)
             logger.info("\nSuccessfully initialized LGS WFS parameters.")
-            logger.info(self.lgsWfsParams)
+            logger.info(lgs_wfs_params)
         except (ValueError, TypeError) as e:
             logger.error(f"\nConfiguration Error in LGS WFS parameters: {e}")
+            raise  # Re-raise to prevent continuing with invalid parameters
 
         try:
-            self.tomoParams = tomographyParameters(self.config)
+            tomo_params = tomographyParameters(self.config)
+            object.__setattr__(self, 'tomoParams', tomo_params)
             logger.info("\nSuccessfully initialized Tomography parameters.")
-            logger.info(self.tomoParams) 
+            logger.info(tomo_params) 
         except (ValueError, TypeError) as e:
             logger.error(f"\nConfiguration Error in Tomography parameters: {e}")
+            raise  # Re-raise to prevent continuing with invalid parameters
             
         try:
-            self.dmParams = dmParameters(self.config)
+            dm_params = dmParameters(self.config)
+            object.__setattr__(self, 'dmParams', dm_params)
             logger.info("\nSuccessfully initialized DM parameters.")
-            logger.info(self.dmParams)
+            logger.info(dm_params)
         except (ValueError, TypeError) as e:
             logger.error(f"\nConfiguration Error in DM parameters: {e}")
+            raise  # Re-raise to prevent continuing with invalid parameters
+            
         logger.info("\nAll parameters initialized successfully.")
     # ======================================================================
     # Properties
@@ -201,7 +225,7 @@ class tomographicReconstructor:
         """
         logger.debug("Setting the reconstructor property.")
         if isinstance(value, np.ndarray) and value.ndim == 2 and value.dtype in self.valid_constructor_type:
-            self._reconstructor = value
+            super().__setattr__('_reconstructor', value)
         else:
             logger.error("Invalid reconstructor value. Must be a 2D numpy array of floats.")
             raise ValueError("Reconstructor must be a 2D numpy array of floats.")
@@ -277,7 +301,7 @@ class tomographicReconstructor:
         None
         """
         logger.debug("Setting the FR property.")
-        self._FR = value
+        super().__setattr__('_FR', value)
 
     @property
     def gridMask(self):
@@ -321,22 +345,29 @@ class tomographicReconstructor:
         AttributeError
             If the attribute is not found in any parameter class
         """
-        logger.debug("Getting attribute '%s' from parameter classes.", name)
+        # First log the request
+        logger.debug(f"Getting attribute '{name}' from parameter classes.")
 
-        # List parameter classes that are already initialized
-        param_classes = []
-        for param_name in ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams']:
-            if hasattr(self, param_name) and getattr(self, param_name) is not None:
-                param_classes.append(getattr(self, param_name))
-
+        # List of parameter class attributes
+        param_attrs = ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams', 'dmParams']
+        
         # Check each parameter class for the attribute
-        for param in param_classes:
-            if hasattr(param, name):
-                return getattr(param, name)
+        for param_name in param_attrs:
+            try:
+                # First check if the parameter object exists
+                param = object.__getattribute__(self, param_name)
+                if param is not None:
+                    # Then check if the parameter object has the requested attribute
+                    if hasattr(param, name):
+                        return getattr(param, name)
+            except (AttributeError, TypeError):
+                # Skip if the parameter object doesn't exist or isn't properly initialized
+                continue
 
-        logger.error("Attribute '%s' not found in parameter classes.", name)
+        # If we get here, the attribute wasn't found
+        logger.error(f"Attribute '{name}' not found in parameter classes.")
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-
+    
     def __setattr__(self, name, value):
         """
         Forwards attribute setting to parameter classes if they contain the specified attribute.
@@ -358,12 +389,15 @@ class tomographicReconstructor:
         ValueError
             If setting nLGS to a negative value
         """
-        logger.debug("Setting attribute '%s'.", name)
+        logger.debug(f"Setting attribute '{name}'.")
 
         # These attributes are always set directly on the class
-        special_attrs = ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams', '_reconstructor', '_gridMask', '_wavefront2Meter', 'config']
+        special_attrs = ['_reconstructor', '_gridMask', '_wavefront2Meter', 'config', 
+                         'valid_constructor_type', 'fit', 'modes', 'method', '_FR',
+                         'dmParams', 'tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams']
+        
         if name in special_attrs:
-            super().__setattr__(name, value)
+            object.__setattr__(self, name, value)
             return
 
         # Special handling for nLGS to ensure all relevant parameter classes are updated
@@ -376,30 +410,43 @@ class tomographicReconstructor:
 
             # Update nLGS in all parameter classes that have this attribute
             attr_set = False
-            for param_name in ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams']:
-                if hasattr(self, param_name) and getattr(self, param_name) is not None:
-                    param = getattr(self, param_name)
-                    if hasattr(param, name):
+            param_attrs = ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams', 'dmParams']
+            
+            for param_name in param_attrs:
+                try:
+                    # Get the parameter object directly
+                    param = object.__getattribute__(self, param_name)
+                    if param is not None and hasattr(param, name):
                         setattr(param, name, value)
                         attr_set = True
+                except (AttributeError, TypeError):
+                    # Skip if parameter doesn't exist
+                    continue
 
             # If attribute wasn't set in any parameter class, set it on the main class
             if not attr_set:
-                super().__setattr__(name, value)
+                object.__setattr__(self, name, value)
         else:
             # Check if attribute exists in any parameter class
             attr_set = False
-            for param_name in ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams']:
-                if hasattr(self, param_name) and getattr(self, param_name) is not None:
-                    param = getattr(self, param_name)
-                    if hasattr(param, name):
+            param_attrs = ['tomoParams', 'lgsWfsParams', 'atmParams', 'lgsAsterismParams', 'dmParams']
+            
+            for param_name in param_attrs:
+                try:
+                    # Get the parameter object directly
+                    param = object.__getattribute__(self, param_name)
+                    if param is not None and hasattr(param, name):
                         setattr(param, name, value)
                         attr_set = True
                         break
+                except (AttributeError, TypeError):
+                    # Skip if parameter doesn't exist
+                    continue
 
             # If attribute wasn't set in any parameter class, set it on the main class
             if not attr_set:
-                super().__setattr__(name, value)
+                object.__setattr__(self, name, value)
+
     # ======================================================================
     # Class Methods
     def sparseGradientMatrixAmplitudeWeighted(self, amplMask=None, overSampling=2, validLenslet=None):
@@ -475,7 +522,7 @@ class tomographicReconstructor:
         return Cox
 
     # Build Reconstructor
-    def build_reconstructor(self, IM=None, use_float32=False):
+    def build_reconstructor(self, IM=None, use_float32=False, alpha=10):
         """
         Build the tomographic reconstructor based on parameters.
 
@@ -487,6 +534,8 @@ class tomographicReconstructor:
         use_float32 : bool, optional
             Whether to use float32 precision for computations to reduce memory usage
             (default is False, which uses float64)
+        alpha : float, optional
+            Regularization parameter for the reconstructor (default is 10)
 
         Returns
         -------
@@ -506,11 +555,11 @@ class tomographicReconstructor:
             if CUDA:
                 _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_model(self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, use_float32=True)
+                                    self.atmParams, self.lgsAsterismParams, use_float32=True, alpha=alpha)
             else:
                 _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_model(self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams)
+                                    self.atmParams, self.lgsAsterismParams, alpha=alpha)
             self.method = "Model"
             self._reconstructor = _reconstructor
             self.Gamma = Gamma
@@ -528,11 +577,11 @@ class tomographicReconstructor:
             if CUDA:
                 _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, self.dmParams, use_float32=True)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams, use_float32=True, alpha=alpha)
             else:
                 _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = \
                 _build_reconstructor_im(self.IM, self.tomoParams, self.lgsWfsParams, 
-                                    self.atmParams, self.lgsAsterismParams, self.dmParams)
+                                    self.atmParams, self.lgsAsterismParams, self.dmParams, alpha=alpha)
             self.method = "IM"
             self._reconstructor = _reconstructor
             self._gridMask = gridMask
@@ -544,7 +593,7 @@ class tomographicReconstructor:
         return _reconstructor
 
     # Assemble Reconstructor and Fitting
-    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7):
+    def assemble_reconstructor_and_fitting(self, nChannels=4, slopesOrder="simu", scalingFactor=1.65e7, stretch_factor=1.03, rotation=None, flip=None):
         """
         Assemble the reconstructor and fitting matrices together.
 
@@ -560,6 +609,11 @@ class tomographicReconstructor:
             (default is "simu")
         scalingFactor : float, optional
             Scaling factor applied to the reconstructor (default is 1.65e7)
+        stretch_factor : float, optional
+            Stretch factor for the influence functions (default is 1.03)
+        rotation : int, optional
+            Rotation of the modes (0, 1, 2, or 3) to apply to the reconstructor
+            (default is None, no rotation)
 
         Returns
         -------
@@ -574,6 +628,10 @@ class tomographicReconstructor:
         # test if reconstructor is already built
         if self._reconstructor is None:
             self.build_reconstructor()
+        # test if reconstruction method is "Model"
+        if self.method != "Model":
+            logger.error("Reconstructor is not built using the model method. Please build it first.")
+            raise ValueError("Reconstructor is not built using the model method. Please build it first.")
         # test if fitting is already built
         if self.fit is None:
             self.fit = fitting(self.dmParams,logger=logger)
@@ -582,9 +640,23 @@ class tomographicReconstructor:
         # Setup the influence functions and mask them to the grid
         logger.info("\nCalculating influence functions")
         self.modes = self.fit.set_influence_function(resolution=self.gridMask.shape[0],
-                                                    display=False, sigma1=0.5*2, sigma2=0.85*2)
+                                                    display=False, sigma1=0.5*2, sigma2=0.85*2,
+                                                    stretch_factor = stretch_factor)
+        
+        if rotation is not None:    
+            # apply rotation of the modes (coresponding to a rotation of the DM with respect to the WFS)
+            reshaped_array = self.modes.T.reshape(self.fit.modes.shape[1], self.gridMask.shape[0], self.gridMask.shape[0])
+            rotated_array = np.zeros_like(reshaped_array)
+            for i in range(self.modes.shape[1]):
+                rotated_array[i] = np.rot90(reshaped_array[i], rotation)
+                # flip the rotated array
+                if flip is not None:
+                    rotated_array[i] = np.flipud(rotated_array[i])
+            self.modes = rotated_array.reshape(self.modes.shape[1], -1).T
+        
         self.modes = self.modes[self.gridMask.flatten(), :]
         logger.info(f"\nModes shape after applying grid mask: {self.modes.shape}")
+        
         # Generate a fitting matrix (pseudo-inverse of the influence functions)
         logger.info("\nCalculating fitting matrix")
         self.fit.F = np.linalg.pinv(self.modes)
@@ -618,6 +690,7 @@ class tomographicReconstructor:
             # Generate the reconstructor with fitting
             self.FR = -self.fit.F @ self.reconstructor * scalingFactor
         else:
+            logger.error("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
             raise ValueError("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
         logger.info("\n-->> Reconstructor and Fitting assembled <<--")
         
@@ -750,7 +823,10 @@ class tomographicReconstructor:
         # Ensure reconstructor is built
         if self._reconstructor is None:
             self.build_reconstructor()
-
+        # test if reconstruction method is "Model"
+        if self.method != "Model":
+            logger.error("Reconstructor is not built using the model method. Please build it first.")
+            raise ValueError("Reconstructor is not built using the model method. Please build it first.")
         # Reconstruct the wavefront
         wavefront = self._reconstructor @ slopes
         wavefront = wavefront.flatten()
@@ -792,6 +868,7 @@ class tomographicReconstructor:
         elif self.method == "IM":
             dm_commands = self._reconstructor @ slopes
         else:
+            logger.error("Invalid method. Please build the reconstructor first.")
             raise ValueError("Invalid method. Please build the reconstructor first.")
         
         # project the commands on the DM surface
@@ -803,7 +880,7 @@ class tomographicReconstructor:
         # display the DM commands   
         fig, (ax1, ax2) = plt.subplots(1, 2) 
         # display the DM commands
-        ax1.bar(np.arange(349),dm_commands)
+        ax1.bar(np.arange(dm_commands.shape[0]),dm_commands)
         ax1.set_xlabel('DM actuator')
         ax1.set_ylabel('Command Value')
         ax1.set_title('DM Commands')
