@@ -9,6 +9,8 @@ from pyTomoAO.fitting import fitting
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 from scipy.linalg import block_diag
 
+# Set dark mode style
+plt.style.use('dark_background')
 
 # --- Utility Functions ---
 def cart2pol(x, y):
@@ -79,11 +81,13 @@ class reconstructorAnalyzer:
         """Load different reconstructors for comparison"""
         # Create the model based reconstructor
         #self.reconstructor.nLGS = 1
-        self.alpha_model = 0.1
+        self.alpha_model = 0.001
+        self.stretch_factor = 1.1
+        self.alpha_im = 10000
+        
         self.reconstructor.build_reconstructor(alpha=self.alpha_model)
         
-        # strectch factor
-        self.stretch_factor = 1.1
+
         # Create model base reconstructor
         self.reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="keck", 
                                                             scalingFactor=1.0e4, stretch_factor=self.stretch_factor, 
@@ -94,7 +98,12 @@ class reconstructorAnalyzer:
         #self.reconstructor.mask_DM_actuators(self.masked_actuators)
         
         self.corner_actuators = np.array([0, 6, 72, 90, 186,204,270,276])
-        self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        self.centreExtrapIndex = [118,119,137,138,139,156,157];
+
+        #self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        self.reconstructor.mask_DM_actuators(self.centreExtrapIndex)
+        self.reconstructor.mask_DM_actuators(self.masked_actuators)
+
         #self.R = np.flipud(self.reconstructor.FR)
         self.R = self.reconstructor.FR 
         self.FR = self.R
@@ -103,9 +112,11 @@ class reconstructorAnalyzer:
         nLGS = self.reconstructor.nLGS
         matrices = [IM] * nLGS
         IM = block_diag(*matrices)
-        self.alpha_im = 1000
+
         self.R_im = self.reconstructor.build_reconstructor(IM, alpha=self.alpha_im)
-        self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        #self.reconstructor.mask_DM_actuators(self.corner_actuators)
+        #self.reconstructor.mask_DM_actuators(self.centreExtrapIndex)
+        self.reconstructor.mask_DM_actuators(self.masked_actuators)
         self.R_im = self.R_im[:, :self.reconstructor.lgsWfsParams.nValidSubap*2] 
         # Load alternative reconstructors
         self.R_svd = np.load("reconstructor_revolt_svd.npy")
@@ -160,7 +171,7 @@ class reconstructorAnalyzer:
     
     def plot_slopes(self, slopes_x, slopes_y, title_prefix):
         """Plot X and Y slopes of a wavefront"""
-        fig = plt.figure(figsize=(10, 5))
+        fig = plt.figure(figsize=(10, 5), facecolor='black')
         gs = GridSpec(1, 2, figure=fig, width_ratios=[1, 1])
         
         # X slopes
@@ -168,10 +179,10 @@ class reconstructorAnalyzer:
         temp_mask = np.copy(self.wfs_mask)
         temp_mask[self.ones_indices_wfs] = \
         slopes_x[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
-        im1 = ax1.imshow(temp_mask, cmap='gray')
-        ax1.set_title(f'{title_prefix} X Slopes')
-        ax1.set_xlabel('X (pixels)')
-        ax1.set_ylabel('Y (pixels)')
+        im1 = ax1.imshow(temp_mask, cmap='viridis')
+        ax1.set_title(f'{title_prefix} X Slopes', color='white')
+        ax1.set_xlabel('X (pixels)', color='white')
+        ax1.set_ylabel('Y (pixels)', color='white')
         ax1.set_aspect('auto')
         
         # Y slopes
@@ -179,10 +190,10 @@ class reconstructorAnalyzer:
         temp_mask = np.copy(self.wfs_mask)
         temp_mask[self.ones_indices_wfs] = \
         slopes_y[self.reconstructor.lgsWfsParams.validLLMapSupport.flatten()]
-        im2 = ax2.imshow(temp_mask, cmap='gray')
-        ax2.set_title(f'{title_prefix} Y Slopes')
-        ax2.set_xlabel('X (pixels)')
-        ax2.set_ylabel('Y (pixels)')
+        im2 = ax2.imshow(temp_mask, cmap='viridis')
+        ax2.set_title(f'{title_prefix} Y Slopes', color='white')
+        ax2.set_xlabel('X (pixels)', color='white')
+        ax2.set_ylabel('Y (pixels)', color='white')
         ax2.set_aspect('auto')
         
         plt.tight_layout()
@@ -190,7 +201,7 @@ class reconstructorAnalyzer:
     
     def plot_reconstructions(self, wavefront, slopes, slopes_keck, slopes_flipped, title_prefix):
         """Plot wavefront and reconstructed DM commands using different reconstructors"""
-        fig = plt.figure(figsize=(20, 5))
+        fig = plt.figure(figsize=(20, 5), facecolor='black')
         gs = GridSpec(1, 4, figure=fig, width_ratios=[1, 1, 1, 1])
         
         # Original wavefront - handle potential dimension mismatch
@@ -201,77 +212,69 @@ class reconstructorAnalyzer:
             # Apply mask
             masked_wavefront = wavefront * self.wfs_mask
             masked_wavefront[masked_wavefront == 0] = np.nan  # Mask 0 values to nan for display
-            im1 = ax1.imshow(masked_wavefront, cmap='RdBu')
+            im1 = ax1.imshow(masked_wavefront, cmap='viridis')
             
         else:
             # Case when wavefront is from reconstructor.reconstruct_wavefront
-            # Need to reshape it properly
             try:
-                # Try to reshape to match the WFS size
                 reshaped_wavefront = np.reshape(wavefront, self.wfs_mask.shape)
-                reshaped_wavefront[reshaped_wavefront == 0] = np.nan  # Mask 0 values to nan for display
-                im1 = ax1.imshow(reshaped_wavefront, cmap='RdBu')
+                reshaped_wavefront[reshaped_wavefront == 0] = np.nan
+                im1 = ax1.imshow(reshaped_wavefront, cmap='viridis')
                 
             except ValueError:
-                # If reshape fails, just show the original wavefront
                 print(f"Warning: Could not reshape wavefront of shape {wavefront.shape} to {self.wfs_mask.shape}")
-                im1 = ax1.imshow(wavefront, cmap='RdBu')
+                im1 = ax1.imshow(wavefront, cmap='viridis')
                 
-        ax1.set_title(f'{title_prefix} Wavefront')
-        ax1.set_xlabel('X (pixels)')
-        ax1.set_ylabel('Y (pixels)')
-        #ax1.set_box_aspect(0.5) 
-        #ax1.set_position([0.1, 0.1, 0.4, 0.8])  # [left, bottom, width, height]
-        ax1.set_aspect('auto')        
+        ax1.set_title(f'{title_prefix} Wavefront', color='white')
+        ax1.set_xlabel('X (pixels)', color='white')
+        ax1.set_ylabel('Y (pixels)', color='white')
+        ax1.set_aspect('auto')
         
         # SVD reconstruction
         ax2 = fig.add_subplot(gs[0, 1])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_svd @ slopes_keck
-        # mask 0 values to nan for display
         temp_mask[temp_mask == 0] = np.nan
-        im2 = ax2.imshow(temp_mask.T, cmap='RdBu')
-        ax2.set_title('DM commands (R_REVOLT (SVD))')
-        ax2.set_xlabel('X (pixels)')
-        ax2.set_ylabel('Y (pixels)')
+        im2 = ax2.imshow(temp_mask.T, cmap='viridis')
+        ax2.set_title('DM commands (R_REVOLT (SVD))', color='white')
+        ax2.set_xlabel('X (pixels)', color='white')
+        ax2.set_ylabel('Y (pixels)', color='white')
         plt.colorbar(im2, ax=ax2, shrink=0.8)
         
         # Tomo model based reconstruction
         ax4 = fig.add_subplot(gs[0, 2])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R @ slopes_keck
-        # mask 0 values to nan for display
         temp_mask[temp_mask == 0] = np.nan
-        im4 = ax4.imshow(temp_mask.T, cmap='RdBu')
-        ax4.set_title('DM commands (R_Tomo (Model))')
-        ax4.set_xlabel('X (pixels)')
-        ax4.set_ylabel('Y (pixels)')
+        im4 = ax4.imshow(temp_mask.T, cmap='viridis')
+        ax4.set_title('DM commands (R_Tomo (Model))', color='white')
+        ax4.set_xlabel('X (pixels)', color='white')
+        ax4.set_ylabel('Y (pixels)', color='white')
         plt.colorbar(im4, ax=ax4, shrink=0.8)
         
         # Tomo IM based reconstruction
         ax5 = fig.add_subplot(gs[0, 3])
         temp_mask = np.copy(self.cmd_mask)
         temp_mask[self.ones_indices] = self.R_im @ slopes_keck
-        # mask 0 values to nan for display
         temp_mask[temp_mask == 0] = np.nan
-        im5 = ax5.imshow(temp_mask.T, cmap='RdBu')
-        ax5.set_title('DM commands (R_Tomo (IM))')
-        ax5.set_xlabel('X (pixels)')
-        ax5.set_ylabel('Y (pixels)')
+        im5 = ax5.imshow(temp_mask.T, cmap='viridis')
+        ax5.set_title('DM commands (R_Tomo (IM))', color='white')
+        ax5.set_xlabel('X (pixels)', color='white')
+        ax5.set_ylabel('Y (pixels)', color='white')
         plt.colorbar(im5, ax=ax5, shrink=0.8)
         
         plt.tight_layout()
         
         # display command vector in a separate figure
-        fig2 = plt.figure(figsize=(10, 5))
-        plt.plot(self.R_svd @ slopes_keck, label='R_REVOLT (SVD)')
-        plt.plot(self.R @ slopes_keck, label='R_Tomo (Model)')
-        plt.plot(self.R_im @ slopes_keck, label='R_Tomo (IM)')
+        fig2 = plt.figure(figsize=(10, 5), facecolor='black')
+        plt.plot(self.R_svd @ slopes_keck, label='R_REVOLT (SVD)', color='cyan')
+        plt.plot(self.R @ slopes_keck, label='R_Tomo (Model)', color='yellow')
+        plt.plot(self.R_im @ slopes_keck, label='R_Tomo (IM)', color='magenta')
         plt.legend()
-        plt.title('DM commands')
-        plt.xlabel('DM actuator')
-        plt.ylabel('Command value')
-        plt.grid()
+        plt.title('DM commands', color='white')
+        plt.xlabel('DM actuator', color='white')
+        plt.ylabel('Command value', color='white')
+        plt.grid(True, color='gray', alpha=0.3)
         
         return fig, fig2
     
@@ -392,21 +395,21 @@ def main():
     
     plt.show()
     
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5), facecolor='black')
     
-    im1 = ax1.imshow(analyzer.R)
+    im1 = ax1.imshow(analyzer.R, cmap='viridis')
     plt.colorbar(im1, ax=ax1, shrink=0.5)
-    ax1.set_title(f"Model based reconstructor\n(Sum: {np.sum(analyzer.R):.2f})")
+    ax1.set_title(f"Model based reconstructor\n(Sum: {np.sum(analyzer.R):.2f})", color='white')
     print(f"Sum of Model based reconstructor: {np.sum(analyzer.R)}")
     
-    im2 = ax2.imshow(analyzer.R_im)
+    im2 = ax2.imshow(analyzer.R_im, cmap='viridis')
     plt.colorbar(im2, ax=ax2, shrink=0.5)
-    ax2.set_title(f"IM based reconstructor\n(Sum: {np.sum(analyzer.R_im):.2f})")
+    ax2.set_title(f"IM based reconstructor\n(Sum: {np.sum(analyzer.R_im):.2f})", color='white')
     print(f"Sum of IM based reconstructor: {np.sum(analyzer.R_im)}")
     
-    im3 = ax3.imshow(analyzer.R_svd)
+    im3 = ax3.imshow(analyzer.R_svd, cmap='viridis')
     plt.colorbar(im3, ax=ax3, shrink=0.5)
-    ax3.set_title(f"SVD based reconstructor\n(Sum: {np.sum(analyzer.R_svd):.2f})")
+    ax3.set_title(f"SVD based reconstructor\n(Sum: {np.sum(analyzer.R_svd):.2f})", color='white')
     print(f"Sum of SVD based reconstructor: {np.sum(analyzer.R_svd)}")
     
     plt.tight_layout()
@@ -432,10 +435,10 @@ def main():
         # Generate timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        if method is "Model":
-            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_stretch_{stretch_factor:.2f}_{timestamp}.fits'
+        if method == "Model":
+            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_stretch_{stretch_factor:.2f}_tel_{timestamp}.fits'
         else:# Create filename with timestamp and alpha
-            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_{timestamp}.fits'
+            filename = f'{base_name}_{method}_alpha_{alpha:.2f}_tel_{timestamp}.fits'
         
         # Create and save FITS file
         hdu = fits.PrimaryHDU(reconstructor)
@@ -445,8 +448,44 @@ def main():
         
         print(f"Saved {method} reconstructor to {filename}")
     
+    
+    def create_filtered_reconstructor_known_pattern(M, focus_slope_pattern, focus_fraction=0.5):
+        """
+        Create filtered reconstructor using known focus pattern in slope space
+        
+        Parameters:
+        M: (277, 376) original reconstructor matrix
+        focus_slope_pattern: (376,) known focus pattern in slopes
+        focus_fraction: fraction to filter out
+        
+        Returns:
+        M_filtered: (277, 376) filtered reconstructor matrix
+        """
+        
+        # Normalize focus pattern
+        focus_mode = focus_slope_pattern / np.linalg.norm(focus_slope_pattern)
+        
+        # Remove mean from focus pattern
+        #focus_demean = focus_slope_pattern - np.mean(focus_slope_pattern)
+        #focus_demean_norm = focus_demean / np.linalg.norm(focus_demean)
+        
+        # Create filter matrix
+        P_focus = np.outer(focus_mode, focus_mode)
+        I = np.eye(376)
+        focus_filter = I - focus_fraction * P_focus
+        
+        # Premultiply
+        M_filtered = M @ focus_filter
+        
+        return M_filtered
+    
+    wavefront, slopes_x, slopes_y, slopes, slopes_keck, slopes_flipped = analyzer.generate_wavefront(zernike_defocus)
+    R_filtered = create_filtered_reconstructor_known_pattern(analyzer.R, slopes_keck, focus_fraction=0.8)
+    analyzer.R = R_filtered
+    analyzer.analyze_wavefront(zernike_defocus, "Defocus")
+
     # Save both reconstructors
-    save_reconstructor_fits(analyzer.R, 'Model', analyzer.alpha_model, analyzer.stretch_factor)
+    #save_reconstructor_fits(analyzer.R, 'Model', analyzer.alpha_model, analyzer.stretch_factor)
     save_reconstructor_fits(analyzer.R_im, 'IM', analyzer.alpha_im)
     
 if __name__ == "__main__":
