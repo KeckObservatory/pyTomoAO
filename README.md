@@ -16,13 +16,13 @@
 ## Installation
 
 ```sh
-pip install git+https://github.com/jacotay7/pyTomoAO.git
+pip install git+https://github.com/KeckObservatory/pyTomoAO.git
 ```
 
 or clone the repository:
 
 ```sh
-git clone https://github.com/jacotay7/pyTomoAO.git
+git clone https://github.com/KeckObservatory/pyTomoAO.git
 cd pyTomoAO
 pip install -e .
 ```
@@ -46,7 +46,7 @@ import pyTomoAO
 ### Development Setup
 
 ```sh
-git clone https://github.com/jacotay7/pyTomoAO.git
+git clone https://github.com/KeckObservatory/pyTomoAO.git
 cd pyTomoAO
 pip install .
 ```
@@ -89,5 +89,5 @@ TODO
 ## Contact
 
 For questions and discussions, open an issue on GitHub or contact one of:
-- **Jacob Taylor** (Software): jtaylor@keck.hawaii.edu
+- **Jacob Taylor** (Software): jacobataylor7@gmail.com
 - **Uriel Conod** (Algorithm): urielconod@phas.ubc.ca
