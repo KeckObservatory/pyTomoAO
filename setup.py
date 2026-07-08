@@ -12,7 +12,7 @@ setup(
     url='https://github.com/jacotay7/pyTomoAO',
     author='Jacob Taylor',
     author_email='jtaylor@keck.hawaii.edu',
-    license='GNU',
+    license='MIT',
     packages=['pyTomoAO'],
     install_requires=[
         'numpy',
@@ -32,7 +32,7 @@ setup(
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'License :: OSI Approved :: MIT License',
         'Environment :: MacOS X',  
         'Operating System :: OS Independent',        
         'Programming Language :: Python :: 3',

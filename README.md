@@ -1,5 +1,11 @@
 # pyTomoAO
 
+[![Tests](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/test.yml/badge.svg)](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/test.yml)
+[![Docs](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/docs.yml/badge.svg)](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/docs.yml)
+[![PyPI version](https://img.shields.io/pypi/v/pyTomoAO.svg)](https://pypi.org/project/pyTomoAO/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pyTomoAO.svg)](https://pypi.org/project/pyTomoAO/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **pyTomoAO** is an open-source Python library for tomographic reconstruction in tomography-based Adaptive Optics (AO) systems. It provides tools to reconstruct atmospheric turbulence phase maps and project them onto deformable mirrors for different AO architectures, including:
 
 - **LTAO (Laser Tomography Adaptive Optics)**
@@ -83,8 +89,7 @@ Contributions are welcome! Feel free to open issues or submit pull requests.
 
 ## License
 
-TODO
-<!-- This project is licensed under the MIT License. See [LICENSE](LICENSE) for details. -->
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## Contact
 
