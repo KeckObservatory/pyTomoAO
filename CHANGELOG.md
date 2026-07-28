@@ -46,7 +46,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of Python 3.9–3.13, and installs the package itself instead of `requirements.txt` so that
   dependency metadata is exercised. The coverage gate runs once, on 3.12. The workflow's
   `actions/checkout@v2` and `actions/setup-python@v2` pins, which use a retired Node
-  runtime, were updated to v4/v5.
+  runtime, were updated to v4/v5. The plain `pytest` step is skipped on 3.12, where the
+  coverage gate already runs the same suite and fails the job on any test failure —
+  previously the slowest job in the matrix ran every test twice (#95).
 - The coverage wrapper now runs pytest as `sys.executable -m pytest` instead of whichever
   `pytest` is first on `PATH`, so the coverage run always matches the environment under
   test.
@@ -58,6 +60,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`wfsLensletsRotation` was applied in the wrong units.** `_create_guide_star_grid`
+  converted the angle from radians to degrees and then passed it to `_rotateWFS`, which
+  treats its argument as radians, so a requested rotation of θ was applied as `57.3·θ`. Both
+  backends were affected. This was invisible in every shipped example configuration, all of
+  which set the rotation to zero (#92).
+- **`assemble_reconstructor_and_fitting` was not idempotent.** The `simu` and `keck` branches
+  wrote their X/Y block swap back into `_reconstructor`, so calling the method a second
+  time — natural when tuning `scalingFactor`, `rotation` or `stretch_factor` — swapped the
+  blocks again and silently returned a different, wrong `FR`. The reordering is now derived
+  into a local and `reconstructor`/`R` keeps the matrix `build_reconstructor` produced (#93).
+- **Valid grid points that reconstructed to exactly zero were turned into NaN.**
+  `reconstruct_wavefront` and `visualize_commands` used zero as the "outside the pupil"
+  sentinel; they now build their output from the boolean mask (#94).
+- **Zero-separation covariance entries were wrong by a factor of ~1.887 on GPU.** The CUDA
+  tiny-argument shortcut for `K_{5/6}` used a coefficient of `1.89719` where the
+  small-argument limit gives `2^(5/6)·Γ(5/6)/2 = 1.005635`, and both backends selected the
+  zero-separation case with an exact `rho != 0` test. Because the two coordinate grids are
+  built by different arithmetic, a mathematically-zero separation could evaluate to a few
+  ULPs instead and take the Bessel branch — corrupting the largest entries of `Cxx`/`Cox`.
+  The constant is corrected and the selection is now tolerance-based (#90).
+- **The GPU interaction-matrix reconstructor could not run at all.** `_build_reconstructor_im`
+  called `cp.sqeeze`, and the `IM` argument was never copied to the device (#89).
 - **Importing pyTomoAO no longer reconfigures logging for the whole application.**
   `tomographicReconstructor` called `logging.basicConfig(level=logging.DEBUG)` and
   `fitting` called it with `CRITICAL`, so importing the package switched on debug logging

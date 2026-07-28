@@ -22,8 +22,9 @@ kv56_real_kernel_float64_optimized = cp.ElementwiseKernel(
     if (z_abs < 2.0) {
         // Series approximation for small z
         if (z_abs < 1e-12) {
-            // Very small z approximation to avoid numerical issues
-            K = 1.89718990814 * pow(z_abs, -5.0/6.0); // Approximation for tiny values
+            // Small-argument limit: K_v(z) -> (1/2)*Gamma(v)*(2/z)^v, so for v = 5/6 the
+            // coefficient is 2^(5/6)*Gamma(5/6)/2 = 1.005634918.
+            K = 1.005634918 * pow(z_abs, -5.0/6.0);
             return;
         }
 
@@ -103,8 +104,9 @@ kv56_real_kernel_float32_optimized = cp.ElementwiseKernel(
     if (z_abs < 2.0f) {
         // Series approximation for small z
         if (z_abs < 1e-6f) {
-            // Very small z approximation to avoid numerical issues
-            K = 1.897f * powf(z_abs, -5.0f/6.0f); // Simplified approximation for tiny values
+            // Small-argument limit: K_v(z) -> (1/2)*Gamma(v)*(2/z)^v, so for v = 5/6 the
+            // coefficient is 2^(5/6)*Gamma(5/6)/2 = 1.005634918.
+            K = 1.0056349f * powf(z_abs, -5.0f/6.0f);
             return;
         }
 
@@ -227,13 +229,17 @@ def _kv56(z_gpu, use_float32=False):
     return out_gpu
 
 
-def _compute_block(rho_block_gpu, L0, cst, var_term, use_float32=False):
-    """GPU implementation of block computation"""
+def _compute_block(rho_block_gpu, L0, cst, var_term, use_float32=False, zero_tol=0.0):
+    """GPU implementation of block computation
+
+    Separations at or below ``zero_tol`` are treated as coincident points and take the
+    variance term. See :func:`_covariance_matrix` for why an exact test is not enough.
+    """
     dtype = cp.float32 if use_float32 else cp.float64
 
     var_term_gpu = cp.asarray(var_term, dtype=dtype)
     out_gpu = cp.full(rho_block_gpu.shape, dtype=dtype, fill_value=var_term_gpu)
-    mask_gpu = rho_block_gpu != 0
+    mask_gpu = rho_block_gpu > zero_tol
 
     if cp.any(mask_gpu):
         rho_nonzero = rho_block_gpu[mask_gpu]
@@ -322,6 +328,12 @@ def _covariance_matrix(*args, use_float32=False):
     rho2_reshaped = cp.reshape(rho2_gpu, (1, m))
     rho_gpu = cp.abs(rho1_reshaped - rho2_reshaped)
 
+    # Coincident points must take the variance term. The two coordinate grids are built by
+    # different arithmetic, so a separation that is mathematically zero can evaluate to a few
+    # ULPs instead; an exact `!= 0` test would send those into the Bessel branch and return a
+    # badly wrong value for the largest entries of the matrix.
+    zero_tol = float(1e-12 * rho_gpu.max())
+
     # Block processing for large matrices
     block_size = 5000
     if max(n, m) > block_size:
@@ -335,14 +347,14 @@ def _covariance_matrix(*args, use_float32=False):
 
                 block_gpu = rho_gpu[i:i_end, j:j_end]
                 out_gpu[i:i_end, j:j_end] = _compute_block(
-                    block_gpu, L0, cst, var_term, use_float32
+                    block_gpu, L0, cst, var_term, use_float32, zero_tol
                 )
 
         out_gpu *= fractionalR0
         return out_gpu
 
     # Single block processing for smaller matrices
-    out_gpu = _compute_block(rho_gpu, L0, cst, var_term, use_float32)
+    out_gpu = _compute_block(rho_gpu, L0, cst, var_term, use_float32, zero_tol)
     return out_gpu * fractionalR0
 
 
@@ -356,10 +368,9 @@ def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y, use
     y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D / 2
     x_gpu, y_gpu = cp.meshgrid(x_range, y_range)
 
-    # Flatten, rotate, and apply offsets
-    x_flat, y_flat = _rotateWFS(
-        x_gpu.flatten(), y_gpu.flatten(), rotation_angle * 180 / cp.pi, use_float32
-    )
+    # Flatten, rotate, and apply offsets. wfsLensletsRotation is specified in radians and
+    # _rotateWFS expects radians, so the angle is passed straight through.
+    x_flat, y_flat = _rotateWFS(x_gpu.flatten(), y_gpu.flatten(), rotation_angle, use_float32)
     x_flat = x_flat - offset_x * D
     y_flat = y_flat - offset_y * D
 

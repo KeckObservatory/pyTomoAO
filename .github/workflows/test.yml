@@ -40,7 +40,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install ".[dev]"
 
+      # Skipped on 3.12, where the coverage gate below runs the same suite and fails the
+      # job on any test failure. Running both would execute every test twice on the
+      # slowest job in the matrix.
       - name: Run tests
+        if: matrix.python-version != '3.12'
         run: pytest
 
       # The coverage gate only needs to run once; 3.12 matches the docs workflow.
