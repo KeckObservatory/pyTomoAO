@@ -66,14 +66,22 @@ The following packages are installed automatically:
 :gutter: 2
 
 :::{grid-item-card} GPU acceleration
-Install [CuPy](https://cupy.dev) matching your CUDA toolkit, for example:
+```bash
+pip install "pyTomoAO[gpu]"
+```
+
+which pulls in [CuPy](https://cupy.dev) for CUDA 12. On CUDA 11, install the matching wheel
+yourself instead:
 
 ```bash
-pip install cupy-cuda12x
+pip install cupy-cuda11x
 ```
 
 pyTomoAO detects CuPy at import time and switches to the GPU covariance kernels
-automatically. See {doc}`../user-guide/gpu`.
+automatically. If CuPy is installed but fails to load — a driver or toolkit mismatch, or no
+visible device — pyTomoAO logs a **warning** with the underlying error and falls back to the
+CPU backend, rather than silently reporting that CUDA is unavailable. See
+{doc}`../user-guide/gpu`.
 :::
 
 :::{grid-item-card} Documentation toolchain

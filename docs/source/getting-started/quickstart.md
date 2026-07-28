@@ -17,9 +17,10 @@ at a YAML configuration file. The file is parsed and validated immediately, so c
 errors surface here rather than halfway through a long computation.
 
 ```python
+from pyTomoAO import example_config
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 
-reconstructor = tomographicReconstructor("examples/benchmark/tomography_config_kapa.yaml")
+reconstructor = tomographicReconstructor(example_config("kapa"))
 ```
 
 The configuration is split into five parameter objects, each of which pretty-prints itself:

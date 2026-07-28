@@ -14,6 +14,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The reference configurations now ship inside the package**, so `pip install pyTomoAO` is
+  enough to run the documented examples. Previously the published wheel contained ten `.py`
+  files and no data, and the configuration path in the README raised `FileNotFoundError` for
+  anyone who had not cloned the repository (#106):
+
+  ```python
+  from pyTomoAO import example_config, list_example_configs
+  rec = tomographicReconstructor(example_config("kapa"))
+  ```
+
+  `list_example_configs()` returns `['kapa', 'kapa-single-channel', 'keck', 'revolt']`. The
+  YAML files moved from `examples/benchmark/` to `pyTomoAO/data/`; `example_config` returns a
+  path inside the installed package, so copy one before editing.
+- `pip install "pyTomoAO[gpu]"` extra, which pulls in `cupy-cuda12x` (#109).
+- `CITATION.cff`, so GitHub renders a "Cite this repository" button (#108).
+
 - Documentation site built with Sphinx, MyST and the Furo theme, published to GitHub Pages
   at <https://keckobservatory.github.io/pyTomoAO/>. The site covers installation, a
   quickstart, a configuration reference with units and validation rules for every key, a
@@ -35,6 +51,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A CuPy that is installed but fails to load is now reported as a warning**, with the
+  underlying exception, instead of an `INFO` message claiming CUDA is unavailable. A driver
+  or toolkit mismatch was indistinguishable from CuPy simply not being installed, so users
+  silently took the CPU path and a ~35× slowdown. CuPy genuinely not being installed stays
+  at `INFO` and now points at the `[gpu]` extra (#110).
+- The README no longer advertises MOAO support. There is one reconstructor and no
+  MOAO-specific code path; the feature list now describes what the library actually does,
+  and the roadmap ticks the items that are already shipped rather than listing GPU support
+  and DM fitting as outstanding (#107).
 - **The covariance kernels are ~5× faster and produce bit-identical results.** They used to
   evaluate the covariance over the full `sampling × sampling` grid and only then cut it down
   to the valid pupil points, discarding 71% of the Bessel evaluations on the function that

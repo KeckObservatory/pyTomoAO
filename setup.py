@@ -25,6 +25,10 @@ setup(
     author_email="jacobataylor7@gmail.com",
     license="MIT",
     packages=["pyTomoAO"],
+    # The reference YAML configurations ship inside the package so that `pip install
+    # pyTomoAO` is enough to run the documented examples; see pyTomoAO.example_config.
+    package_data={"pyTomoAO": ["data/*.yaml"]},
+    include_package_data=True,
     python_requires=">=3.9",
     # Runtime dependencies only. Test and documentation tooling lives in the
     # extras below so that installing pyTomoAO does not drag them in.
@@ -51,6 +55,9 @@ setup(
             "pytest",
             "pytest-cov",
         ],
+        # CUDA 12 build of CuPy. Users on CUDA 11 should install cupy-cuda11x instead;
+        # pyTomoAO detects whichever is importable at import time.
+        "gpu": ["cupy-cuda12x"],
     },
     classifiers=[
         # Keep in sync with python_requires and the CI matrix in

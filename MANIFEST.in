@@ -1,0 +1,5 @@
+# The reference configurations are package data (see setup.py); include them in sdists too.
+include pyTomoAO/data/*.yaml
+include LICENSE
+include CHANGELOG.md
+include CITATION.cff

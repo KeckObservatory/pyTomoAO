@@ -10,10 +10,11 @@ Run with::
 
 import importlib
 import logging
-from pathlib import Path
 
 import numpy as np
 import pytest
+
+from pyTomoAO import example_config
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +24,12 @@ reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructo
 
 # The single-LGS REVOLT configuration keeps Cxx at 277x277, so the whole build runs in
 # well under a second on either backend.
-CONFIG = Path(__file__).resolve().parents[1] / "examples" / "benchmark"
-CONFIG /= "reconstructor_config_revolt.yaml"
+CONFIG = example_config("revolt")
 
 
 @pytest.fixture
 def reconstructor():
-    return reconstructor_module.tomographicReconstructor(str(CONFIG))
+    return reconstructor_module.tomographicReconstructor(CONFIG)
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def test_build_reconstructor_im_accepts_alpha(reconstructor, interaction_matrix)
     """Stronger regularization damps the reconstructor rather than failing."""
     weak = reconstructor.build_reconstructor(IM=interaction_matrix, alpha=1).copy()
 
-    fresh = reconstructor_module.tomographicReconstructor(str(CONFIG))
+    fresh = reconstructor_module.tomographicReconstructor(CONFIG)
     strong = fresh.build_reconstructor(IM=interaction_matrix, alpha=1000).copy()
 
     assert np.all(np.isfinite(strong))

@@ -10,18 +10,19 @@
 
 📖 **[Documentation](https://keckobservatory.github.io/pyTomoAO/)** — installation, configuration reference, tutorials and API reference.
 
-**pyTomoAO** is an open-source Python library for tomographic reconstruction in tomography-based Adaptive Optics (AO) systems. It provides tools to reconstruct atmospheric turbulence phase maps and project them onto deformable mirrors for different AO architectures, including:
-
-- **LTAO (Laser Tomography Adaptive Optics)**
-- **MOAO (Multi-Object Adaptive Optics)**
+**pyTomoAO** is an open-source Python library for tomographic reconstruction in Adaptive Optics (AO) systems. It reconstructs atmospheric turbulence phase maps from several laser guide star Shack–Hartmann wavefront sensors and projects them onto a deformable mirror.
 
 ## Features
 
-- Support for **LTAO, and MOAO** tomographic reconstructions.
-- Efficient numerical solvers for tomographic phase reconstruction.
+- **Minimum-mean-square-error tomographic reconstruction** from multiple LGS wavefront
+  sensors, driven by a layered Von Kármán turbulence model. This is the single-DM,
+  single-optimisation-direction case used for **LTAO**; MOAO and MCAO are on the roadmap
+  below.
+- Both a **model-based** reconstructor and one built from a measured **interaction matrix**.
+- **Super-resolution** support: per-WFS lenslet rotation and lateral offset.
 - Tools for **fitting reconstructed phase maps** onto deformable mirrors.
-- Extensible and modular design to allow easy adaptation to different AO systems.
-- Optimized for performance with **NumPy, SciPy, and Numba**.
+- **GPU acceleration** through CuPy, selected automatically when it is available, with a
+  NumPy/Numba CPU backend otherwise.
 
 ## Installation
 
@@ -44,10 +45,11 @@ See the [installation guide](https://keckobservatory.github.io/pyTomoAO/getting-
 Everything is driven by a single YAML configuration file:
 
 ```python
+from pyTomoAO import example_config
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 
 # Build a tomographic reconstructor from a configuration file
-rec = tomographicReconstructor("examples/benchmark/tomography_config_kapa.yaml")
+rec = tomographicReconstructor(example_config("kapa"))
 rec.build_reconstructor()
 
 # Fold in the DM fitting step to go from slopes straight to commands
@@ -59,11 +61,12 @@ Full walkthrough: [quickstart](https://keckobservatory.github.io/pyTomoAO/gettin
 
 ## Roadmap
 
-- [ ] Implement fundamental reconstruction algorithms.
-- [ ] Add GPU acceleration for real-time processing.
-- [ ] Improve deformable mirror fitting routines.
-- [x] Develop detailed documentation and examples.
-- [ ] Implement MCAO reconstructor
+- [x] Fundamental tomographic reconstruction algorithms.
+- [x] GPU acceleration.
+- [x] Deformable mirror fitting routines.
+- [x] Detailed documentation and examples.
+- [ ] MOAO reconstructor (per-direction outputs).
+- [ ] MCAO reconstructor (multiple DM altitudes).
 
 ## Development
 
