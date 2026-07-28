@@ -5,25 +5,91 @@ import numpy as np
 from scipy.sparse import block_diag
 from scipy.special import gamma
 
+# Constants shared by the complex and real K_{5/6} kernels below. They are module-level so
+# that the two implementations cannot drift apart -- a coefficient that disagreed between
+# copies of this expansion is exactly what issue #97 turned out to be. Numba folds
+# module-level floats in as compile-time constants, so this costs nothing at runtime.
+#
+# Gamma values are given to full double precision: the series expansion subtracts two
+# quantities that grow like exp(z), and that cancellation amplifies any truncation in the
+# leading constants into the dominant error term.
+_GAMMA_1_6 = 5.566316001780236  # Gamma(1/6)
+_GAMMA_11_6 = 0.94065585825677167  # Gamma(11/6)
+_NU = 5.0 / 6.0
+
+# Crossover between the two expansions. The series stays accurate to ~2e-8 out to z ~ 9 and
+# converges in 24 iterations there, whereas the asymptotic expansion is not converged below
+# z ~ 8. Switching at 2.0 cost seven digits over the range carrying most pupil baselines.
+_KV56_CROSSOVER = 9.0
+
+# Asymptotic expansion coefficients, a_k = a_{k-1}*(4v^2 - (2k-1)^2)/(8k) for v = 5/6.
+_A1 = 2.0 / 9.0
+_A2 = -7.0 / 81.0
+_A3 = 175.0 / 2187.0
+_A4 = -2275.0 / 19683.0
+_A5 = 40040.0 / 177147.0
+_A6 = -2662660.0 / 4782969.0
+_A7 = 71131060.0 / 43046721.0
+_A8 = -2222845625.0 / 387420489.0
+
+
+@nb.njit(nb.float64(nb.float64), cache=False)
+def _kv56_real_scalar(z):
+    """K_{5/6}(z) for a real, positive argument.
+
+    The hot path. `_compute_block` feeds this real distances and uses the result directly,
+    so routing through the complex kernel would double the arithmetic and force a
+    complex128 copy of the input for no benefit.
+    """
+    gamma_1_6 = _GAMMA_1_6
+    gamma_11_6 = _GAMMA_11_6
+    v = _NU
+    z_abs = abs(z)
+    if z_abs < _KV56_CROSSOVER:
+        term_a = (0.5 * z) ** v / gamma_11_6
+        term_b = (0.5 * z) ** -v / gamma_1_6
+        sum_a = term_a
+        sum_b = term_b
+        z_sq_over_4 = (0.5 * z) ** 2
+        k = 1
+        tol = 1e-15
+        for _ in range(1000):
+            term_a *= z_sq_over_4 / (k * (k + v))
+            sum_a += term_a
+            term_b *= z_sq_over_4 / (k * (k - v))
+            sum_b += term_b
+            if abs(term_a) < tol * abs(sum_a) and abs(term_b) < tol * abs(sum_b):
+                break
+            k += 1
+        return np.pi * (sum_b - sum_a)
+    z_inv = 1.0 / z
+    # Horner's method: fewer multiplications than the explicit powers.
+    sum_terms = 1.0 + z_inv * (
+        _A1
+        + z_inv
+        * (
+            _A2
+            + z_inv
+            * (_A3 + z_inv * (_A4 + z_inv * (_A5 + z_inv * (_A6 + z_inv * (_A7 + z_inv * _A8)))))
+        )
+    )
+    return np.sqrt(np.pi / (2.0 * z)) * np.exp(-z) * sum_terms
+
+
+@nb.vectorize([nb.float64(nb.float64)], nopython=True, target="parallel")
+def _kv56_real(z):
+    """Modified Bessel function K_{5/6}(z) for real numpy arrays."""
+    return _kv56_real_scalar(z)
+
 
 @nb.njit(nb.complex128(nb.complex128), cache=False)
 def _kv56_scalar(z):
     """Scalar implementation used as kernel for array version"""
-    # Precomputed Gamma function values for v=5/6, to full double precision. The series
-    # below subtracts two quantities that grow like exp(z), so a truncated constant is
-    # amplified by that cancellation: the previous 12-digit gamma_11_6 (0.94065585824)
-    # was the dominant error term above z ~ 4.
-    gamma_1_6 = 5.566316001780236  # Gamma(1/6)
-    gamma_11_6 = 0.94065585825677167  # Gamma(11/6)
-    # Precompute constants for numerical stability
-    # Constants for the series expansion and asymptotic approximation
-    v = 5.0 / 6.0
+    gamma_1_6 = _GAMMA_1_6
+    gamma_11_6 = _GAMMA_11_6
+    v = _NU
     z_abs = np.abs(z)
-    # Crossover between the two expansions. The series stays accurate to ~1e-13 out to
-    # z ~ 9 and needs only 24 iterations there, whereas the asymptotic series is still
-    # far from converged below z ~ 8 -- switching at 2.0 cost seven digits of accuracy
-    # over the range that carries most of the pupil's baselines.
-    if z_abs < 9.0:
+    if z_abs < _KV56_CROSSOVER:
         # Series expansion for small |z|
         sum_a = 0.0j
         sum_b = 0.0j
@@ -47,19 +113,18 @@ def _kv56_scalar(z):
             k += 1
         K = np.pi * (sum_b - sum_a)
     else:
-        # Asymptotic expansion for large |z|, with a_k = a_{k-1}*(4v^2 - (2k-1)^2)/(8k).
-        # a_5 previously read 5005/177147, which is exactly 8x too small.
+        # Asymptotic expansion for large |z|; coefficients shared with the real kernel.
         z_inv = 1.0 / z
         sum_terms = (
             1.0
-            + (2.0 / 9.0) * z_inv
-            + (-7.0 / 81.0) * z_inv**2
-            + (175.0 / 2187.0) * z_inv**3
-            + (-2275.0 / 19683.0) * z_inv**4
-            + (40040.0 / 177147.0) * z_inv**5
-            + (-2662660.0 / 4782969.0) * z_inv**6
-            + (71131060.0 / 43046721.0) * z_inv**7
-            + (-2222845625.0 / 387420489.0) * z_inv**8
+            + _A1 * z_inv
+            + _A2 * z_inv**2
+            + _A3 * z_inv**3
+            + _A4 * z_inv**4
+            + _A5 * z_inv**5
+            + _A6 * z_inv**6
+            + _A7 * z_inv**7
+            + _A8 * z_inv**8
         )
         prefactor = np.sqrt(np.pi / (2.0 * z)) * np.exp(-z)
         K = prefactor * sum_terms
@@ -178,8 +243,9 @@ def _compute_block(rho_block, L0, cst, var_term, zero_tol=0.0):
     # Find non-zero distances and compute covariance
     mask = rho_block > zero_tol
     u = (2 * np.pi * rho_block[mask]) / L0
-    # Vectorized Bessel function calculation with explicit conversion to real
-    out[mask] = cst * u ** (5 / 6) * np.real(_kv56(u.astype(np.complex128)))
+    # Real-valued Bessel kernel: the distances are real and the result is used directly,
+    # so the complex overload would only add a complex128 copy of u and twice the work.
+    out[mask] = cst * u ** (5 / 6) * _kv56_real(u)
     return out
 
 
@@ -359,8 +425,14 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     kGs[0] = 1
     kGs = kGs[kGs != 0]
 
-    # Initialize a list of zero matrices based on the mask
-    S = [np.zeros((np.sum(mask), np.sum(mask))) for _ in range(len(kGs))]
+    # The covariance was previously evaluated over the full sampling x sampling grid and
+    # then cut down to the valid points, discarding ~71% of the Bessel evaluations on the
+    # function that dominates runtime. Masking the coordinates first is exactly equivalent:
+    # the rows and columns of `out` are indexed by iZ.T.flatten() and jZ.T.flatten(), so
+    # selecting the same entries from those vectors selects the same pairs. The mask does
+    # not depend on the layer, so it is applied once, outside the loop.
+    mask_flat = mask.flatten()
+    S = [None] * len(kGs)
 
     for k in range(len(kGs)):
         # Get the indices iGs and jGs from the index kGs(k)
@@ -368,7 +440,7 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
 
         buf = 0
 
-        # Create grids for the first and second guide stars
+        # Create grids for the first and second guide stars, keeping only valid points
         x1, y1 = _create_guide_star_grid(
             sampling,
             D,
@@ -383,6 +455,8 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
             wfsLensletsOffset[0, jGs],
             wfsLensletsOffset[1, jGs],
         )
+        x1, y1 = x1.T.flatten()[mask_flat], y1.T.flatten()[mask_flat]
+        x2, y2 = x2.T.flatten()[mask_flat], y2.T.flatten()[mask_flat]
 
         for kLayer in range(nLayer):
             # Calculate the scaled and shifted coordinates for the first and second guide stars
@@ -393,18 +467,17 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
                 x2, y2, srcACdirectionVector, jGs, altitude, kLayer, srcACheight
             )
 
-            # Compute the covariance matrix
-            out = _covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
-            out = out[mask.flatten(), :]
-            out = out[:, mask.flatten()]
-            # Accumulate the results
-            buf += out
+            # Compute the covariance matrix over the valid points only
+            buf = buf + _covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
 
         S[k] = buf.T
 
-    # Rearrange the results into a full nGs x nGs matrix
+    # Rearrange the results into a full nGs x nGs matrix. The blocks not covered by kGs or
+    # the diagonal stay zero and are discarded by the symmetrisation below, so they can all
+    # share one read-only zero block rather than each allocating their own.
     buf = S
-    S_tmp = [np.zeros((np.sum(mask), np.sum(mask))) for _ in range(nGs**2)]
+    zero_block = np.zeros((np.sum(mask), np.sum(mask)))
+    S_tmp = [zero_block] * (nGs**2)
     for c, i in enumerate(kGs):
         S_tmp[i - 1] = buf[c]
 
@@ -504,11 +577,13 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
     L0 = atmParams.L0
     fractionnalR0 = atmParams.fractionnalR0
 
-    # Initialize a 2d list (nSs,nGs) of zero matrices of size (sampling**2,sampling**2)
-    C = [
-        [np.zeros((np.sum(sampling**2), np.sum(sampling**2))) for _ in range(nGs)]
-        for _ in range(nSs)
-    ]
+    # Placeholders: every entry is overwritten below before it is read, so allocating
+    # sampling**2 x sampling**2 zeros here was 46 MB per entry of pure page-faulting.
+    C = [[None] * nGs for _ in range(nSs)]
+
+    # As in _auto_correlation, the pupil mask is applied to the coordinates rather than to
+    # the finished covariance matrix, and is hoisted out of the layer loop.
+    mask_flat = mask.flatten()
 
     for k in range(nSs * nGs):
         # Get the indices kGs and jGs
@@ -516,7 +591,7 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
 
         buf = 0
 
-        # Create grids for the first and second guide stars
+        # Create grids for the first and second guide stars, keeping only valid points
         x1, y1 = _create_guide_star_grid(
             sampling,
             D,
@@ -529,6 +604,9 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
             np.linspace(-1, 1, sampling) * D / 2, np.linspace(-1, 1, sampling) * D / 2
         )
 
+        x1, y1 = x1.T.flatten()[mask_flat], y1.T.flatten()[mask_flat]
+        x2, y2 = x2.T.flatten()[mask_flat], y2.T.flatten()[mask_flat]
+
         for kLayer in range(nLayer):
             # Calculate the scaled and shifted coordinates for the first and second guide stars
             iZ = _calculate_scaled_shifted_coords(
@@ -538,12 +616,8 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
                 x2, y2, srcCCdirectionVector, kGs, altitude, kLayer, srcCCheight
             )
 
-            # Compute the covariance matrix
-            out = _covariance_matrix(iZ.T, jZ.T, r0, L0, fractionnalR0[kLayer])
-            out = out[mask.flatten(), :]
-            out = out[:, mask.flatten()]
-            # Accumulate the results
-            buf += out
+            # Compute the covariance matrix over the valid points only
+            buf = buf + _covariance_matrix(iZ, jZ, r0, L0, fractionnalR0[kLayer])
 
         C[kGs][iGs] = buf.T
 

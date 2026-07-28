@@ -104,6 +104,66 @@ class TestBesselAccuracy:
         rel = np.abs(got - ref) / np.abs(ref)
         assert rel.max() < 1e-7, f"max rel err {rel.max():.3e} at z={z[rel.argmax()]:.4f}"
 
+    def test_real_kernel_matches_the_complex_one(self):
+        """The real kernel is the hot path; the complex one stays for compatibility (#102).
+
+        Both carry their own copy of the expansion, so this guards against them drifting
+        apart. A coefficient disagreeing between copies of this expansion is exactly what
+        #97 turned out to be.
+        """
+        real = cpu._kv56_real(self.Z)
+        complex_ = np.real(cpu._kv56(self.Z.astype(np.complex128)))
+        assert np.allclose(real, complex_, rtol=1e-13, atol=0), (
+            f"max rel diff {np.abs(real / complex_ - 1).max():.3e}"
+        )
+
+    def test_real_kernel_matches_scipy(self):
+        ref = kv(5 / 6, self.Z)
+        rel = np.abs(cpu._kv56_real(self.Z) - ref) / np.abs(ref)
+        assert rel.max() < 1e-6, f"max rel err {rel.max():.3e} at z={self.Z[rel.argmax()]:.4f}"
+
+
+class TestMaskedCovarianceEquivalence:
+    """Masking the coordinates must equal masking the finished covariance matrix (#101).
+
+    The kernels used to evaluate the covariance over the full grid and then drop ~71% of
+    it. Restricting the coordinates first has to select exactly the same pairs -- the rows
+    and columns of the full matrix are indexed by `z.T.flatten()`, so the mask has to be
+    applied to that same ordering.
+    """
+
+    @staticmethod
+    def _grids():
+        x1, y1 = cpu._create_guide_star_grid(SAMPLING, DIAMETER, 0.21, 0.05, -0.03)
+        x2, y2 = np.meshgrid(
+            np.linspace(-1, 1, SAMPLING) * DIAMETER / 2,
+            np.linspace(-1, 1, SAMPLING) * DIAMETER / 2,
+        )
+        # An off-centre elliptical pupil: deliberately not symmetric under transpose, so a
+        # mask applied to the wrong axis ordering would show up.
+        yy, xx = np.mgrid[0:SAMPLING, 0:SAMPLING]
+        cy, cx = (SAMPLING - 1) / 2 + 1.0, (SAMPLING - 1) / 2 - 0.5
+        mask = ((xx - cx) / 5.5) ** 2 + ((yy - cy) / 4.0) ** 2 < 1.0
+        return (x1 + 1j * y1), (x2 + 1j * y2), mask
+
+    def test_matches_masking_after_the_fact(self):
+        z1, z2, mask = self._grids()
+        assert 0 < mask.sum() < mask.size, "test mask must be a strict subset"
+        mask_flat = mask.flatten()
+
+        full = cpu._covariance_matrix(z1.T, z2.T, R0, L0, 0.7)
+        after = full[mask_flat, :][:, mask_flat]
+
+        before = cpu._covariance_matrix(
+            z1.T.flatten()[mask_flat], z2.T.flatten()[mask_flat], R0, L0, 0.7
+        )
+
+        assert before.shape == after.shape == (mask.sum(), mask.sum())
+        assert np.array_equal(before, after), (
+            f"max diff {np.abs(before - after).max():.3e} -- coordinate masking is not "
+            "equivalent to masking the finished matrix"
+        )
+
 
 class TestZeroSeparation:
     """Coincident points take the variance term, exactly or to within rounding (#90)."""
