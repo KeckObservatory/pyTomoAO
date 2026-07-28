@@ -4,6 +4,7 @@ Adaptive Optics Reconstructor Analysis Script
 """
 import numpy as np
 import matplotlib.pyplot as plt
+from pyTomoAO import example_config
 from matplotlib.gridspec import GridSpec
 from pyTomoAO.fitting import fitting
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
@@ -375,7 +376,7 @@ class reconstructorAnalyzer:
 def main():
     """Main function to run the analysis"""
     # Initialize the analyzer
-    analyzer = reconstructorAnalyzer("../examples/benchmark/tomography_config_kapa_single_channel.yaml")
+    analyzer = reconstructorAnalyzer(example_config("kapa-single-channel"))
     # remove central actuator
     analyzer.reconstructor.mask_DM_actuators(174)
     # Analyze different Zernike modes

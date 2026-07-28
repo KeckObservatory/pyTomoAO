@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from pyTomoAO import example_config
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES = REPO_ROOT / "examples" / "benchmark"
 
 
 @pytest.fixture(scope="session")
@@ -19,18 +20,12 @@ def repo_root() -> Path:
 
 
 @pytest.fixture(scope="session")
-def example_configs() -> Path:
-    """Directory holding the example YAML configurations."""
-    return EXAMPLES
-
-
-@pytest.fixture(scope="session")
 def kapa_config() -> str:
     """Four-LGS KAPA configuration (20x20 lenslets, 21x21 actuators, 7 layers)."""
-    return str(EXAMPLES / "tomography_config_kapa.yaml")
+    return example_config("kapa")
 
 
 @pytest.fixture(scope="session")
 def revolt_config() -> str:
     """Single-LGS REVOLT configuration. Small enough for fast round trips."""
-    return str(EXAMPLES / "reconstructor_config_revolt.yaml")
+    return example_config("revolt")

@@ -28,9 +28,10 @@ deformable mirror (DM) commands that correct it.
 Everything is driven by a single YAML configuration file:
 
 ```python
+from pyTomoAO import example_config
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 
-reconstructor = tomographicReconstructor("examples/benchmark/tomography_config_kapa.yaml")
+reconstructor = tomographicReconstructor(example_config("kapa"))
 reconstructor.build_reconstructor()
 FR = reconstructor.assemble_reconstructor_and_fitting(nChannels=4, slopesOrder="simu")
 ```

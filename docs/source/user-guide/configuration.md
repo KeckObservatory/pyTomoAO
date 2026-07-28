@@ -16,9 +16,20 @@ All five sections are required. Values are validated as they are read, and an in
 raises `TypeError` (wrong type) or `ValueError` (out of range) naming the parameter.
 
 :::{tip}
-Start from one of the configurations in `examples/benchmark/` — `tomography_config_kapa.yaml`
-(Keck/KAPA, four LGS) or `reconstructor_config_revolt.yaml` (REVOLT, single WFS) — and edit
-from there rather than writing a file from scratch.
+Start from one of the configurations bundled with the package rather than writing a file
+from scratch — `validLLMap` and `validActuators` are hand-authored 2D maps of several
+hundred entries each.
+
+```python
+import shutil
+from pyTomoAO import example_config, list_example_configs
+
+print(list_example_configs())        # ['kapa', 'kapa-single-channel', 'keck', 'revolt']
+shutil.copy(example_config("kapa"), "my_config.yaml")
+```
+
+`example_config` returns a path inside the installed package, so treat it as read-only and
+edit a copy.
 :::
 
 ## `atmosphere_parameters`

@@ -1,7 +1,7 @@
 """
 This module contains the tomographicReconstructor class for computing tomographic reconstructors
-for adaptive optics systems. It supports both LTAO and MOAO configurations, with options for
-model-based and interaction matrix-based reconstruction approaches.
+for adaptive optics systems, with options for model-based and interaction matrix-based
+reconstruction approaches.
 """
 
 import logging
@@ -33,9 +33,12 @@ try:
     )
 
     logger.info("\nCUDA is available. Using GPU for computations.")
-except Exception:
-    # Any failure importing CuPy (missing package, driver mismatch, no device)
-    # falls back to the CPU kernels.
+except Exception as _gpu_import_error:
+    # Fall back to the CPU kernels. CuPy simply not being installed is the ordinary case
+    # and is reported at INFO; anything else -- a driver or toolkit mismatch, a partial
+    # install, no visible device -- means the user asked for GPU support and is not getting
+    # it, which costs roughly 35x on a reconstructor build. That is worth a warning with
+    # the underlying error attached, rather than a message claiming CuPy is absent.
     CUDA = False
     from pyTomoAO.tomographyUtilsCPU import (
         _auto_correlation,
@@ -45,7 +48,19 @@ except Exception:
         _sparseGradientMatrixAmplitudeWeighted,
     )
 
-    logger.info("\nCUDA is not available. Using CPU for computations.")
+    if isinstance(_gpu_import_error, ModuleNotFoundError):
+        logger.info(
+            "\nCuPy is not installed; using the CPU backend. "
+            "Install pyTomoAO[gpu] for GPU acceleration."
+        )
+    else:
+        logger.warning(
+            "\nCuPy is installed but the GPU backend could not be loaded, so pyTomoAO is "
+            "falling back to the CPU backend: %s: %s",
+            type(_gpu_import_error).__name__,
+            _gpu_import_error,
+        )
+    del _gpu_import_error
 
 
 class tomographicReconstructor:
@@ -1163,29 +1178,13 @@ class tomographicReconstructor:
 
 # Example usage
 if __name__ == "__main__":
-    # Use a path relative to the script's location
-    import os
+    # The reference configurations ship with the package, so this resolves wherever
+    # pyTomoAO is installed from. Pass a path on the command line to use your own.
+    import sys
 
-    script_dir = os.path.dirname(
-        os.path.abspath(__file__)
-    )  # Get the directory where the script is located
-    config_path = os.path.join(
-        script_dir, "..", "examples", "benchmark", "tomography_config_kapa_single_channel.yaml"
-    )
+    from pyTomoAO import example_config
 
-    # Check if the file exists, otherwise prompt for a different path
-    if not os.path.exists(config_path):
-        print(f"Warning: Configuration file not found at {config_path}")
-        print("Current directory is:", os.getcwd())
-        print("Please provide the full path to your configuration file:")
-        user_config_path = input()
-        if user_config_path and os.path.exists(user_config_path):
-            config_path = user_config_path
-        else:
-            print("No valid configuration file provided. Exiting.")
-            import sys
-
-            sys.exit(1)
+    config_path = sys.argv[1] if len(sys.argv) > 1 else example_config("kapa-single-channel")
 
     # Create the reconstructor
     reconstructor = tomographicReconstructor(config_path)

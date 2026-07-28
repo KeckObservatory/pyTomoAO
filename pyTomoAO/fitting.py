@@ -538,13 +538,12 @@ class fitting:
 
 # Main execution block
 if __name__ == "__main__":
+    from pyTomoAO import example_config
     from pyTomoAO.fitting import fitting
     from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 
     # Load the reconstructor
-    reconstructor = tomographicReconstructor(
-        "../examples/benchmark/reconstructor_config_revolt.yaml"
-    )
+    reconstructor = tomographicReconstructor(example_config("revolt"))
     reconstructor.build_reconstructor()
     gridMask = reconstructor.gridMask
 

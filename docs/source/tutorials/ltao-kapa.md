@@ -16,13 +16,14 @@ pip install .
 
 ```python
 import numpy as np
+from pyTomoAO import example_config
 from pyTomoAO.tomographicReconstructor import tomographicReconstructor
 ```
 
 ## Step 1 — Load the configuration
 
 ```python
-reconstructor = tomographicReconstructor("examples/benchmark/tomography_config_kapa.yaml")
+reconstructor = tomographicReconstructor(example_config("kapa"))
 ```
 
 Loading parses and validates all five parameter sections. Print them to confirm the
@@ -166,7 +167,7 @@ testing, for instance — set `nChannels=1`:
 
 ```python
 reconstructor = tomographicReconstructor(
-    "examples/benchmark/tomography_config_kapa_single_channel.yaml"
+    example_config("kapa-single-channel")
 )
 reconstructor.build_reconstructor()
 FR = reconstructor.assemble_reconstructor_and_fitting(nChannels=1, slopesOrder="simu")

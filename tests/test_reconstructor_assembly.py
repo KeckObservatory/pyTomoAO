@@ -6,23 +6,23 @@ grid points that were being turned into NaN (#94).
 
 import importlib
 import logging
-from pathlib import Path
 
 import numpy as np
 import pytest
+
+from pyTomoAO import example_config
 
 logger = logging.getLogger(__name__)
 
 reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
 
-CONFIG = Path(__file__).resolve().parents[1] / "examples" / "benchmark"
-CONFIG /= "reconstructor_config_revolt.yaml"
+CONFIG = example_config("revolt")
 
 
 @pytest.fixture(scope="module")
 def built():
     """A built single-LGS reconstructor, shared across the module (the build is the slow part)."""
-    rec = reconstructor_module.tomographicReconstructor(str(CONFIG))
+    rec = reconstructor_module.tomographicReconstructor(CONFIG)
     rec.build_reconstructor()
     return rec
 
@@ -72,7 +72,7 @@ class TestPupilMasking:
 
     def test_zero_valued_points_are_not_masked(self, built):
         n_valid = int(built.gridMask.sum())
-        rec = reconstructor_module.tomographicReconstructor(str(CONFIG))
+        rec = reconstructor_module.tomographicReconstructor(CONFIG)
         rec._gridMask = built.gridMask
         rec.method = "Model"
         # A reconstructor that maps every slope vector to exactly zero.
@@ -88,7 +88,7 @@ class TestPupilMasking:
 
     def test_masked_points_are_nan(self, built):
         n_valid = int(built.gridMask.sum())
-        rec = reconstructor_module.tomographicReconstructor(str(CONFIG))
+        rec = reconstructor_module.tomographicReconstructor(CONFIG)
         rec._gridMask = built.gridMask
         rec.method = "Model"
         rng = np.random.default_rng(0)

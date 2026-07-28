@@ -1,6 +1,7 @@
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+from pyTomoAO import example_config
 
 def display_mask(mask, title="Mask Visualization", cmap='viridis'):
     """
@@ -502,7 +503,7 @@ def visualize_external_ring(grid, ring_positions=None, outside_value=None, title
 # Example usage
 if __name__ == "__main__":
     from pyTomoAO.tomographicReconstructor import tomographicReconstructor
-    rec = tomographicReconstructor("../examples/benchmark/reconstructor_config_revolt.yaml")
+    rec = tomographicReconstructor(example_config("revolt"))
     dmMask = rec.dmParams.validActuators
     wfsMask = rec.lgsWfsParams.validLLMap
     
