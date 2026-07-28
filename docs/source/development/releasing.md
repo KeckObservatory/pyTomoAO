@@ -42,8 +42,11 @@ breaking change, even though nothing in Python raises.
    publishes the updated documentation to GitHub Pages.
 5. Create a GitHub release targeting `main`, tagged `v<version>` (e.g. `v1.1.0`), using the
    changelog entry as the release notes.
-6. Creating the release triggers `publish.yml`, which builds an sdist and wheel and uploads
-   them to PyPI.
+6. Creating the release triggers `publish.yml`. It builds the sdist and wheel, verifies
+   them with `twine check --strict`, installs the wheel into a clean virtualenv and imports
+   it, then publishes through the `pypi` GitHub environment. Add a required reviewer to that
+   environment in the repository settings if you want releases to need a second pair of
+   eyes.
 7. Verify the result:
 
    ```bash

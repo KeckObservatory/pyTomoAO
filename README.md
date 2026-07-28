@@ -108,21 +108,17 @@ make -C docs livehtml      # auto-reloading preview (needs sphinx-autobuild)
 
 See the [documentation guide](https://keckobservatory.github.io/pyTomoAO/development/documentation.html) for conventions and how publishing works.
 
-## Testing
+### Testing
 
-To run tests using `pytest`, ensure you have `pytest` installed. You can install it via pip:
-
-```sh
-pip install pytest
-```
-
-Once installed, you can run the tests by executing the following command in the root directory of the repository:
+The `dev` extra installs pytest and coverage:
 
 ```sh
+pip install -e ".[dev]"
 pytest
 ```
 
-This will automatically discover and run all the test files in the repository.
+CI runs the suite against Python 3.8–3.12 and applies a coverage threshold. See the
+[testing guide](https://keckobservatory.github.io/pyTomoAO/development/testing.html).
 
 ## Changelog
 

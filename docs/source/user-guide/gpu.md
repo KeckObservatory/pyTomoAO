@@ -17,8 +17,9 @@ except Exception:
     from pyTomoAO.tomographyUtilsCPU import ...
 ```
 
-If CuPy imports successfully the GPU kernels are used; otherwise the CPU kernels are. You
-will see one of these lines in the log:
+If CuPy imports successfully the GPU kernels are used; otherwise the CPU kernels are. With
+logging enabled (see {doc}`../getting-started/installation`) one of these lines is emitted
+at import:
 
 ```text
 CUDA is available. Using GPU for computations.

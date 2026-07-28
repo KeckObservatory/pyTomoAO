@@ -14,11 +14,8 @@ import numpy as np
 
 sys.path.append("..")
 
-# Configure logging
-logging.basicConfig(level=logging.CRITICAL)
-logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
+# Module logger; see the note in pyTomoAO/tomographicReconstructor.py.
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 class fitting:

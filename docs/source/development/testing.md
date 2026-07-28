@@ -3,7 +3,7 @@
 ## Running the suite
 
 ```bash
-pip install pytest pytest-cov
+pip install -e ".[dev]"
 pytest
 ```
 
@@ -36,8 +36,13 @@ for both the accepted and rejected cases.
 
 ## The CI gate
 
-Pull requests run `.github/workflows/test.yml`, which calls a wrapper script rather than
-pytest directly:
+`.github/workflows/test.yml` runs on pull requests and on pushes to `main` and `dev`. It
+installs the package itself — `pip install ".[dev]"` — and runs `pytest` against a matrix of
+Python 3.8 through 3.12, so both the code and the dependency metadata are checked on every
+supported version. (The 3.8 leg pins `ubuntu-22.04`, because newer runner images no longer
+ship that interpreter.)
+
+On the 3.12 leg it additionally runs a wrapper script rather than pytest directly:
 
 ```bash
 python .github/github_pytest_workflow.py --fail-on-problems --verbose --coverage-threshold 50
@@ -73,3 +78,11 @@ before opening a pull request if you want to see exactly what CI will say.
 
 - GPU code paths cannot run on the CI runner. Guard any CuPy-dependent test with
   `pytest.importorskip("cupy")`.
+
+:::{note}
+Coverage depends on which backend the machine selects. `tomographyUtilsCPU` and
+`tomographyUtilsGPU` are alternative implementations chosen at import, so whichever one is
+not loaded reports 0%: the CI runner has no GPU and covers the CPU kernels, while a
+CUDA-equipped workstation covers the GPU kernels instead. Construct a reconstructor with
+`force_cpu=True` if you want to exercise the CPU path on a GPU machine.
+:::

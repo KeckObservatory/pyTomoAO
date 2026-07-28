@@ -1,0 +1,31 @@
+version: 2
+
+updates:
+  # Keep the pinned action versions current; they go stale silently and start
+  # failing when GitHub retires a runtime.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    # Feature work merges into dev, so updates should land there too.
+    target-branch: dev
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+    open-pull-requests-limit: 5
+
+  # The docs toolchain is pinned in docs/requirements.txt; a broken Sphinx or
+  # theme release should arrive as a pull request that CI can build, not as a
+  # surprise on the next docs deploy.
+  - package-ecosystem: pip
+    directory: "/docs"
+    schedule:
+      interval: monthly
+    target-branch: dev
+    commit-message:
+      prefix: "docs"
+    labels:
+      - dependencies
+      - documentation
+    open-pull-requests-limit: 3

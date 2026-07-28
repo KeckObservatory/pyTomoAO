@@ -92,13 +92,32 @@ locally. See {doc}`../development/documentation`.
 python -c "import pyTomoAO; print(pyTomoAO.__version__)"
 ```
 
-On import you will see a log line reporting whether CUDA was found:
+## Logging
+
+pyTomoAO logs through the standard {mod}`logging` module and does **not** configure
+logging for you — importing it is silent. Turn its messages on from your own code:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
+from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+```
+
+You will then see progress messages, including which backend was selected:
 
 ```text
 INFO:pyTomoAO.tomographicReconstructor:
 CUDA is not available. Using CPU for computations.
 ```
 
-Both paths are fully supported — the message is informational, not an error.
+Both backends are fully supported — that message is informational, not an error.
+
+To keep pyTomoAO quiet while your own application logs at `INFO`:
+
+```python
+logging.getLogger("pyTomoAO").setLevel(logging.WARNING)
+```
 
 Next: {doc}`quickstart`.

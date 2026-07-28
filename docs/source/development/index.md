@@ -72,11 +72,17 @@ the Sphinx toolchain.
 
 ## What CI checks
 
-| Workflow        | Runs on                        | Gate                                              |
-| --------------- | ------------------------------ | ------------------------------------------------- |
-| `Run Pytest`    | pull requests                  | Test suite and a coverage threshold                |
-| `Code health`   | pull requests, `main`, `dev`   | `ruff check` and `ruff format --check`             |
-| `Documentation` | pull requests, `main`, `dev`   | Sphinx build with warnings as errors               |
+| Workflow        | Runs on                      | Gate                                                  |
+| --------------- | ---------------------------- | ----------------------------------------------------- |
+| `Run Pytest`    | pull requests, `main`, `dev` | Test suite on Python 3.8–3.12, plus a coverage gate    |
+| `Code health`   | pull requests, `main`, `dev` | `ruff check` and `ruff format --check`                 |
+| `Documentation` | pull requests, `main`, `dev` | Sphinx build with warnings as errors                   |
 
-`Documentation` additionally deploys to GitHub Pages on pushes to `main`, and
-`Publish Python Package to PyPI` runs when a GitHub release is created.
+`Run Pytest` installs the built package (`pip install ".[dev]"`) rather than a requirements
+file, so the dependency metadata users resolve is exercised on every run. The coverage gate
+runs once, on 3.12.
+
+`Documentation` additionally deploys to GitHub Pages on pushes to `main`.
+`Publish Python Package to PyPI` runs when a GitHub release is created: it builds the sdist
+and wheel, runs `twine check --strict`, installs the wheel into a clean virtualenv and
+imports it, and only then publishes through the `pypi` environment.

@@ -9,16 +9,26 @@ def get_version():
         return re.search(r'__version__ = "(.*)"', f.read()).group(1)
 
 
+def get_long_description():
+    with open("README.md", encoding="utf-8") as f:
+        return f.read()
+
+
 setup(
     name="pyTomoAO",
     version=get_version(),
     description="An open-source tool for tomographic reconstuction for AO systems",
+    long_description=get_long_description(),
+    long_description_content_type="text/markdown",
     url="https://github.com/KeckObservatory/pyTomoAO",
     author="Jacob Taylor",
     author_email="jacobataylor7@gmail.com",
     license="MIT",
     packages=["pyTomoAO"],
-    install_requires=["numpy", "matplotlib", "numba", "scipy", "pytest", "PyYAML"],
+    python_requires=">=3.8",
+    # Runtime dependencies only. Test and documentation tooling lives in the
+    # extras below so that installing pyTomoAO does not drag them in.
+    install_requires=["numpy", "matplotlib", "numba", "scipy", "PyYAML"],
     project_urls={
         "Documentation": "https://keckobservatory.github.io/pyTomoAO/",
         "Source": "https://github.com/KeckObservatory/pyTomoAO",
@@ -43,6 +53,8 @@ setup(
         ],
     },
     classifiers=[
+        # Keep in sync with python_requires and the CI matrix in
+        # .github/workflows/test.yml.
         "Development Status :: 2 - Pre-Alpha",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",

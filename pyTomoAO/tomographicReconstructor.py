@@ -18,11 +18,9 @@ from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("matplotlib").setLevel(logging.CRITICAL)
+# Module logger. Handlers and levels are the application's business; the package
+# only attaches a NullHandler (see pyTomoAO/__init__.py).
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 try:
     CUDA = True

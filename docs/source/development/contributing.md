@@ -73,7 +73,8 @@ Useful bug reports include:
 
 - The configuration file, or the part of it that matters.
 - The full traceback.
-- Whether CUDA was detected — the log line printed at import.
+- Whether CUDA was detected — the log line emitted at import when logging is enabled at
+  `INFO` (`logging.basicConfig(level=logging.INFO)`).
 - `pyTomoAO.__version__`, NumPy version, and Python version.
 
 ## Sandbox scripts
