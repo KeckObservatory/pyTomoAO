@@ -1,12 +1,15 @@
-import numpy as np
 from numbers import Number
-from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
+
+import numpy as np
+
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
+from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
+
 
 class lgsWfsParameters:
     """
     Encapsulates Laser Guide Star Wavefront Sensor (LGS WFS) parameters with validation.
-    
+
     Handles:
     - Telescope characteristics
     - Lenslet array configuration
@@ -17,21 +20,21 @@ class lgsWfsParameters:
     def __init__(self, config: dict, lgsAsterism_params: lgsAsterismParameters):
         """
         Initialize from configuration dictionary.
-        
+
         Args:
             config: Dictionary containing "lgs_wfs_parameters" key with subkeys:
                     D, nLenslet, nPx, fieldStopSize, nLGS, validLLMap
         """
         self._config = config["lgs_wfs_parameters"]
         self._lgsAsterism_params = lgsAsterism_params
-        
+
         # Initialize nLGS first since other properties depend on it
         self._nLGS = self._lgsAsterism_params.nLGS
-        
+
         # Initialize default values for arrays before they're set properly
         self._wfsLensletsRotation = np.zeros(self._nLGS, dtype=float)
         self._wfsLensletsOffset = np.zeros((2, self._nLGS), dtype=float)
-        
+
         self._initialize_properties()
 
     def _initialize_properties(self):
@@ -42,10 +45,12 @@ class lgsWfsParameters:
         self.nPx = params["nPx"]
         self.fieldStopSize = params["fieldStopSize"]
         self.validLLMap_list = params["validLLMap"]
-        #self.validActuatorMap_list = params["validActuatorMap"]
-        self.wfsLensletsRotation = params.get("wfsLensletsRotation", [0]*self._nLGS)
-        self.wfsLensletsOffset = params.get("wfsLensletsOffset", np.zeros((2, self._nLGS), dtype=float))
-    
+        # self.validActuatorMap_list = params["validActuatorMap"]
+        self.wfsLensletsRotation = params.get("wfsLensletsRotation", [0] * self._nLGS)
+        self.wfsLensletsOffset = params.get(
+            "wfsLensletsOffset", np.zeros((2, self._nLGS), dtype=float)
+        )
+
     # === Core Telescope Properties ===
     @property
     def D(self) -> float:
@@ -113,12 +118,12 @@ class lgsWfsParameters:
             raise TypeError("LGS count must be integer")
         if value < 0:
             raise ValueError("LGS count cannot be negative")
-        
+
         # Only update arrays if the value is actually changing
         if value != self._nLGS:
             old_value = self._nLGS
             self._nLGS = value
-            
+
             # Update the rotation array
             # If increasing, pad with zeros; if decreasing, truncate
             if value > old_value:
@@ -130,7 +135,7 @@ class lgsWfsParameters:
             else:
                 # Truncate to the new length
                 self._wfsLensletsRotation = self._wfsLensletsRotation[:value]
-            
+
             # Update the offset array
             if value > old_value:
                 # Create a new array with the right size
@@ -200,23 +205,23 @@ class lgsWfsParameters:
     # def validActuatorMap(self) -> np.ndarray:
     #     """2D boolean array of valid actuators"""
     #     return np.array(self.validActuatorMap_list, dtype=bool)
-    
+
     @property
     def validLLMapSupport(self) -> np.ndarray:
         """Padded valid lenslet map with super-resolution support"""
-        return np.pad(self.validLLMap, pad_width=2, mode='constant', constant_values=0)
+        return np.pad(self.validLLMap, pad_width=2, mode="constant", constant_values=0)
 
     @property
     def DSupport(self) -> float:
         """Effective diameter accounting for support padding"""
         return self.D * self.validLLMapSupport.shape[0] / self.nLenslet
-    
+
     @property
     def wfsLensletsRotation(self) -> np.ndarray:
         """Rotation angles of WFS lenslets in radians"""
         return self._wfsLensletsRotation
 
-    @wfsLensletsRotation.setter 
+    @wfsLensletsRotation.setter
     def wfsLensletsRotation(self, value):
         if value is None:
             value = [0] * self.nLGS
@@ -224,7 +229,9 @@ class lgsWfsParameters:
         if arr.ndim != 1:
             raise ValueError("wfsLensletsRotation must be 1D array")
         if len(arr) != self.nLGS:
-            raise ValueError(f"wfsLensletsRotation length ({len(arr)}) must match nLGS ({self.nLGS})")
+            raise ValueError(
+                f"wfsLensletsRotation length ({len(arr)}) must match nLGS ({self.nLGS})"
+            )
         self._wfsLensletsRotation = arr
 
     @property
@@ -232,7 +239,7 @@ class lgsWfsParameters:
         """Offsets of WFS lenslets in subapertures"""
         return self._wfsLensletsOffset
 
-    @wfsLensletsOffset.setter 
+    @wfsLensletsOffset.setter
     def wfsLensletsOffset(self, value):
         if value is None:
             value = np.zeros((2, self.nLGS), dtype=float)
@@ -240,15 +247,17 @@ class lgsWfsParameters:
         if arr.ndim != 2:
             raise ValueError("wfsLensletsOffset must be 2D array")
         if arr.shape[1] != self.nLGS:
-            raise ValueError(f"wfsLensletsOffset length ({arr.shape[1]}) must match nLGS ({self.nLGS})")
+            raise ValueError(
+                f"wfsLensletsOffset length ({arr.shape[1]}) must match nLGS ({self.nLGS})"
+            )
         self._wfsLensletsOffset = arr
 
     def __str__(self):
         """Human-readable string representation with new properties"""
         # Existing calculations
         ll_total = np.prod(self.validLLMap.shape)
-        #act_valid = np.sum(self.validActuatorMap)
-        #act_total = np.prod(self.validActuatorMap.shape)
+        # act_valid = np.sum(self.validActuatorMap)
+        # act_total = np.prod(self.validActuatorMap.shape)
 
         # New properties
         support_shape = self.validLLMapSupport.shape
@@ -257,23 +266,26 @@ class lgsWfsParameters:
         return (
             "Laser Guide Star WFS Parameters:\n"
             f"  - Telescope Diameter: {self.D:.2f} m (Support-adjusted: {self.DSupport:.2f} m)\n"
-            f"  - Lenslet Array: {self.nLenslet}x{self.nLenslet} → Support: {support_shape[0]}x{support_shape[1]}\n"
+            f"  - Lenslet Array: {self.nLenslet}x{self.nLenslet} "
+            f"→ Support: {support_shape[0]}x{support_shape[1]}\n"
             f"  - Pixels per Lenslet: {self.nPx}\n"
             f"  - Field Stop: {self.fieldStopSize:.2f} arcsec\n"
             f"  - Number of LGS: {self.nLGS}\n"
             f"  - WFS Lenslets Rotation: \n       {np.rad2deg(self.wfsLensletsRotation)} deg\n"
-            f"  - WFS Lenslets Offset: \n       {self.wfsLensletsOffset[0,:]}\n       {self.wfsLensletsOffset[1,:]} subap"
-            
+            f"  - WFS Lenslets Offset: \n       {self.wfsLensletsOffset[0, :]}\n"
+            f"       {self.wfsLensletsOffset[1, :]} subap"
             "\nValidation Maps:"
             "\n  - Valid Lenslet Map:"
-            f"\n    Valid Elements: {self.nValidSubap}/{ll_total} ({self.nValidSubap/ll_total:.1%})"
-#            f"\n    Preview:\n{self._format_map_preview(self.validLLMap)}"
+            f"\n    Valid Elements: {self.nValidSubap}/{ll_total} "
+            f"({self.nValidSubap / ll_total:.1%})"
+            #            f"\n    Preview:\n{self._format_map_preview(self.validLLMap)}"
             "\n\n  - Padded Support Map:"
             f"\n    Scaling Factor: {support_ratio:.2f}x"
-#            f"\n    Preview:\n{self._format_map_preview(self.validLLMapSupport)}"
+            #            f"\n    Preview:\n{self._format_map_preview(self.validLLMapSupport)}"
             "\n\n  - Valid Actuator Map:"
-#            f"\n    Valid Elements: {act_valid}/{act_total} ({act_valid/act_total:.1%})"
-#            f"\n    Preview:\n{self._format_map_preview(self.validActuatorMap)}"
+            #            f"\n    Valid Elements: {act_valid}/{act_total} "
+            #            f"({act_valid / act_total:.1%})"
+            #            f"\n    Preview:\n{self._format_map_preview(self.validActuatorMap)}"
         )
 
 
@@ -289,63 +301,59 @@ if __name__ == "__main__":
             "fractionnalR0": [0.5, 0.3, 0.2],
             "wavelength": 500e-9,
             "windDirection": [90, 45, 180],
-            "windSpeed": [10, 20, 15]
+            "windSpeed": [10, 20, 15],
         }
     }
-    
+
     atmParams = atmosphereParameters(atmConfig)
-    
+
     lgsAsterismConfig = {
         "lgs_asterism": {
-            "radiusAst": 30.0,       # arcseconds
-            "LGSwavelength": 589e-9, # meters (sodium wavelength)
-            "baseLGSHeight": 90000,   # meters (90km nominal sodium layer height)
-            "nLGS": 4
+            "radiusAst": 30.0,  # arcseconds
+            "LGSwavelength": 589e-9,  # meters (sodium wavelength)
+            "baseLGSHeight": 90000,  # meters (90km nominal sodium layer height)
+            "nLGS": 4,
         }
     }
-    
+
     lgsAsterismParams = lgsAsterismParameters(lgsAsterismConfig, atmParams)
-    
+
     config = {
         "lgs_wfs_parameters": {
             "D": 8.2,
             "nLenslet": 40,
             "nPx": 16,
             "fieldStopSize": 2.5,
-            "validLLMap": [
-                [1, 0, 1],
-                [0, 1, 0],
-                [1, 0, 1]
-            ],
-            "wfsLensletsRotation": [0,1,0,0],
-            "wfsLensletsOffset": [[0.1,-0.1,-0.1,0.1],[0.1,0.1,-0.1,-0.1]]
+            "validLLMap": [[1, 0, 1], [0, 1, 0], [1, 0, 1]],
+            "wfsLensletsRotation": [0, 1, 0, 0],
+            "wfsLensletsOffset": [[0.1, -0.1, -0.1, 0.1], [0.1, 0.1, -0.1, -0.1]],
         }
     }
-    
+
     try:
         lgsWfsParams = lgsWfsParameters(config, lgsAsterismParams)
         print("Successfully initialized LGS WFS parameters.")
         print(lgsWfsParams)
-        
+
         # Test changing nLGS to demonstrate auto-adjustment of arrays
         print("\n--- Testing nLGS change ---")
         print(f"Original nLGS: {lgsWfsParams.nLGS}")
         print(f"Original rotation array shape: {lgsWfsParams.wfsLensletsRotation.shape}")
         print(f"Original offset array shape: {lgsWfsParams.wfsLensletsOffset.shape}")
-        
+
         # Increase nLGS
         lgsWfsParams.nLGS = 6
         print(f"\nChanged nLGS to: {lgsWfsParams.nLGS}")
         print(f"New rotation array shape: {lgsWfsParams.wfsLensletsRotation.shape}")
         print(f"New rotation values: {lgsWfsParams.wfsLensletsRotation}")
         print(f"New offset array shape: {lgsWfsParams.wfsLensletsOffset.shape}")
-        
+
         # Decrease nLGS
         lgsWfsParams.nLGS = 2
         print(f"\nChanged nLGS to: {lgsWfsParams.nLGS}")
         print(f"New rotation array shape: {lgsWfsParams.wfsLensletsRotation.shape}")
         print(f"New rotation values: {lgsWfsParams.wfsLensletsRotation}")
         print(f"New offset array shape: {lgsWfsParams.wfsLensletsOffset.shape}")
-        
+
     except (ValueError, TypeError) as e:
         print(f"Configuration Error: {e}")

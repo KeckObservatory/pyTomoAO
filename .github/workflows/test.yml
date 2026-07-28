@@ -1,24 +1,51 @@
 name: Run Pytest
 
-on: [pull_request]
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  test:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      # Report every failing version, not just the first.
+      fail-fast: false
+      matrix:
+        # Keep in sync with python_requires and the classifiers in setup.py.
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.x'
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov
+      # Install the package itself rather than a requirements file, so CI
+      # exercises the dependency metadata that users actually resolve.
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
 
-    - name: Run tests
-      run: python .github/github_pytest_workflow.py --fail-on-problems --verbose --coverage-threshold 50 
+      - name: Run tests
+        run: pytest
+
+      # The coverage gate only needs to run once; 3.12 matches the docs workflow.
+      - name: Run coverage gate
+        if: matrix.python-version == '3.12'
+        run: |
+          python .github/github_pytest_workflow.py \
+            --fail-on-problems --verbose --coverage-threshold 50

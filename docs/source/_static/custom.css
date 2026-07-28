@@ -1,0 +1,46 @@
+/* pyTomoAO documentation — small tweaks on top of the Furo theme. */
+
+:root {
+  --pytomoao-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Tighter, more readable API signatures. */
+dl.py > dt {
+  font-family: var(--pytomoao-mono);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Give parameter tables in the API reference some breathing room. */
+dl.field-list > dd {
+  margin-bottom: 0.6rem;
+}
+
+/* Landing-page cards from sphinx-design. */
+.sd-card {
+  border-radius: 0.6rem;
+  transition: border-color 120ms ease-in-out, transform 120ms ease-in-out;
+}
+
+.sd-card:hover {
+  border-color: var(--color-brand-primary);
+  transform: translateY(-2px);
+}
+
+.sd-card-title {
+  font-weight: 600;
+}
+
+/* Figures are frequently wide matplotlib exports — keep them centred. */
+figure img,
+.figure img {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Config-key definition lists used in the user guide. */
+dl.simple > dt code.literal {
+  font-weight: 600;
+}

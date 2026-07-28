@@ -1,3 +1,62 @@
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+# sandbox/ holds exploratory scripts that are deliberately not packaged or tested;
+# linting them would gate real work on throwaway code.
+extend-exclude = ["sandbox", "docs/build", "docs/source/api/generated"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes: undefined names, unused imports and variables
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # isort: import ordering
+    "UP",   # pyupgrade: modern syntax
+    "B",    # flake8-bugbear: likely bugs
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie: misc lints
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "ARG",  # flake8-unused-arguments
+    "PL",   # pylint
+    "RUF",  # ruff-specific rules
+]
+
+ignore = [
+    # Naming (pep8-naming, "N") is deliberately not enabled. This codebase is a
+    # translation of MATLAB adaptive-optics code: class names such as
+    # `tomographicReconstructor` are public API, and matrix names such as `Gamma`,
+    # `Cxx` and `R` match the equations they implement. Renaming them would break
+    # user scripts and make the maths harder to follow.
+
+    # Numerical code is full of meaningful constants (2, 5/6, 1e-15).
+    "PLR2004",
+    # The reconstruction kernels legitimately take many parameter objects and are
+    # long, linear numerical routines. Splitting them for a lint rule would hurt
+    # readability more than it helps.
+    "PLR0912",  # too many branches
+    "PLR0913",  # too many arguments
+    "PLR0915",  # too many statements
+    # tomographicReconstructor imports the CPU or GPU kernels inside a try block at
+    # module scope, and a few helpers import lazily on purpose.
+    "PLC0415",
+    # The CUDA backend is selected through a module-level flag.
+    "PLW0603",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and benchmarks: unused arguments are common in fixtures, and asserting on
+# hard-coded expected values is the point.
+"tests/*" = ["ARG"]
+"examples/*" = ["ARG", "T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pyTomoAO"]
+
+[tool.ruff.format]
+docstring-code-format = true
