@@ -35,6 +35,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The covariance kernels are ~5× faster and produce bit-identical results.** They used to
+  evaluate the covariance over the full `sampling × sampling` grid and only then cut it down
+  to the valid pupil points, discarding 71% of the Bessel evaluations on the function that
+  is 89% of runtime. The pupil mask is now applied to the coordinates, once per guide-star
+  pair rather than once per turbulence layer. `build_reconstructor` on the KAPA
+  configuration drops from **14.4 s to 2.9 s** on CPU and 0.11 s to 0.08 s on GPU, and the
+  CPU test suite from 63 s to 16 s (#101, #103).
+- A real-valued `float64 → float64` Bessel kernel (`_kv56_real`) is now used on the hot
+  path. The distances are real and the result was immediately passed through `np.real`, so
+  the complex overload only added a `complex128` copy of the input and twice the arithmetic;
+  the copy alone was ~7% of `build_reconstructor`. The complex `_kv56` remains for
+  compatibility, and both now share one set of module-level expansion constants so they
+  cannot drift apart (#102).
 - The whole codebase is now formatted with `ruff format` (100-column lines). This is a
   formatting-only change; no behaviour was altered.
 - Normalised the NumPy-style docstring sections in `tomographyUtilsCPU` and

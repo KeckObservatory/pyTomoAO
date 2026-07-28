@@ -486,11 +486,16 @@ def _auto_correlation(
     kGs[0] = 1
     kGs = kGs[kGs != 0]
 
-    # Initialize result list
+    # The covariance was previously evaluated over the full sampling x sampling grid and
+    # then cut down to the valid points, discarding ~71% of the work. Masking the
+    # coordinates instead is exactly equivalent -- the rows and columns of the covariance
+    # are indexed by iZ.T.flatten() and jZ.T.flatten(), so taking the same entries from
+    # those vectors selects the same pairs -- and the mask does not depend on the layer, so
+    # it is applied once per guide-star pair rather than once per layer.
     mask_flat = mask_gpu.flatten()
     mask_indices = cp.where(mask_flat)[0]
     mask_sum = len(mask_indices)
-    S_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(len(kGs))]
+    S_gpu = [None] * len(kGs)
 
     for k in range(len(kGs)):
         # Get the indices
@@ -498,7 +503,7 @@ def _auto_correlation(
 
         buf_gpu = cp.zeros((mask_sum, mask_sum), dtype=dtype)
 
-        # Create grids for guide stars
+        # Create grids for guide stars, keeping only the valid points
         x1_gpu, y1_gpu = _create_guide_star_grid(
             sampling,
             D,
@@ -516,6 +521,11 @@ def _auto_correlation(
             wfsLensletsOffset[1, jGs],
             use_float32,
         )
+
+        x1_gpu = x1_gpu.T.flatten()[mask_indices]
+        y1_gpu = y1_gpu.T.flatten()[mask_indices]
+        x2_gpu = x2_gpu.T.flatten()[mask_indices]
+        y2_gpu = y2_gpu.T.flatten()[mask_indices]
 
         for kLayer in range(nLayer):
             # Calculate coordinates
@@ -541,36 +551,18 @@ def _auto_correlation(
                 use_float32,
             )
 
-            # Compute covariance matrix
-            out_gpu = _covariance_matrix(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
+            # Compute covariance matrix over the valid points only
+            buf_gpu += _covariance_matrix(
+                iZ_gpu, jZ_gpu, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
 
-            # Directly apply mask using precomputed indices
-            if out_gpu.shape[0] >= len(mask_flat):
-                # When output is large enough to accommodate all mask points
-                masked_out = out_gpu[mask_indices, :][:, mask_indices]
+        S_gpu[k] = buf_gpu.T
 
-                # Accumulate results without shape checking
-                buf_gpu += masked_out
-            else:
-                # Only when output is smaller than expected (should be rare)
-                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
-
-                if len(valid_indices) > 0:
-                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
-
-                    # Resize buffer if needed (first encounter only)
-                    if buf_gpu.shape != masked_out.shape:
-                        buf_gpu = cp.zeros_like(masked_out)
-
-                    buf_gpu += masked_out
-
-        if k < len(S_gpu):
-            S_gpu[k] = buf_gpu.T
-
-    # Rearrange results into full matrix
-    S_tmp_gpu = [cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs**2)]
+    # Rearrange results into full matrix. Blocks not covered by kGs or the diagonal stay
+    # zero and are discarded by the symmetrisation below, so they share one zero block
+    # instead of each allocating their own.
+    zero_block = cp.zeros((mask_sum, mask_sum), dtype=dtype)
+    S_tmp_gpu = [zero_block] * (nGs**2)
     for c, i in enumerate(kGs):
         S_tmp_gpu[i - 1] = S_gpu[c]
 
@@ -654,8 +646,8 @@ def _cross_correlation(
     L0 = atmParams.L0
     fractionnalR0 = atmParams.fractionnalR0
 
-    # Initialize a 2D list of GPU arrays
-    C_gpu = [[cp.zeros((mask_sum, mask_sum), dtype=dtype) for _ in range(nGs)] for _ in range(nSs)]
+    # Placeholders; every entry is overwritten below before it is read.
+    C_gpu = [[None] * nGs for _ in range(nSs)]
 
     for k in range(nSs * nGs):
         # Get the indices kGs and jGs
@@ -677,6 +669,12 @@ def _cross_correlation(
         x_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D / 2
         y_range = cp.linspace(-1, 1, sampling, dtype=dtype) * D / 2
         x2_gpu, y2_gpu = cp.meshgrid(x_range, y_range)
+
+        # As in _auto_correlation, mask the coordinates rather than the finished covariance
+        x1_gpu = x1_gpu.T.flatten()[mask_indices]
+        y1_gpu = y1_gpu.T.flatten()[mask_indices]
+        x2_gpu = x2_gpu.T.flatten()[mask_indices]
+        y2_gpu = y2_gpu.T.flatten()[mask_indices]
 
         for kLayer in range(nLayer):
             # Calculate coordinates
@@ -702,30 +700,10 @@ def _cross_correlation(
                 use_float32,
             )
 
-            # Compute covariance matrix
-            out_gpu = _covariance_matrix(
-                iZ_gpu.T, jZ_gpu.T, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
+            # Compute covariance matrix over the valid points only
+            buf_gpu += _covariance_matrix(
+                iZ_gpu, jZ_gpu, r0, L0, fractionnalR0[kLayer], use_float32=use_float32
             )
-
-            # Directly apply mask using precomputed indices
-            if out_gpu.shape[0] >= len(mask_flat):
-                # When output is large enough for all mask points
-                masked_out = out_gpu[mask_indices, :][:, mask_indices]
-
-                # Accumulate without shape checking
-                buf_gpu += masked_out
-            else:
-                # Only when output is smaller than expected (rare case)
-                valid_indices = mask_indices[mask_indices < out_gpu.shape[0]]
-
-                if len(valid_indices) > 0:
-                    masked_out = out_gpu[valid_indices, :][:, valid_indices]
-
-                    # Resize buffer if needed (first encounter only)
-                    if buf_gpu.shape != masked_out.shape:
-                        buf_gpu = cp.zeros_like(masked_out)
-
-                    buf_gpu += masked_out
 
         C_gpu[kGs][iGs] = buf_gpu.T
 
