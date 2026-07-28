@@ -8,9 +8,11 @@ from scipy.special import gamma
 
 # from test_auto import sparseGradientMatrixAmplitudeWeighted
 
-# Pre-computed gamma values
-gamma_1_6 = 5.56631600178  # Gamma(1/6)
-gamma_11_6 = 0.94065585824  # Gamma(11/6)
+# Pre-computed gamma values, to full double precision. The series expansion below
+# subtracts two quantities that grow like exp(z), so a truncated constant is amplified by
+# that cancellation and becomes the dominant error term. See the CPU kernel.
+gamma_1_6 = 5.566316001780236  # Gamma(1/6)
+gamma_11_6 = 0.94065585825677167  # Gamma(11/6)
 
 # Optimized Real-valued Bessel function kernel for float64
 kv56_real_kernel_float64_optimized = cp.ElementwiseKernel(
@@ -19,7 +21,9 @@ kv56_real_kernel_float64_optimized = cp.ElementwiseKernel(
     """
     double v = 5.0 / 6.0;
     double z_abs = fabs(z);
-    if (z_abs < 2.0) {
+    // The series stays accurate to ~2e-8 out to z ~ 9 and converges in 24 iterations
+    // there; the asymptotic series is not converged below z ~ 8. See the CPU kernel.
+    if (z_abs < 9.0) {
         // Series approximation for small z
         if (z_abs < 1e-12) {
             // Small-argument limit: K_v(z) -> (1/2)*Gamma(v)*(2/z)^v, so for v = 5/6 the
@@ -75,11 +79,14 @@ kv56_real_kernel_float64_optimized = cp.ElementwiseKernel(
         // Asymptotic approximation for larger z
         double z_inv = 1.0 / z;
 
-        // Horner's method for polynomial evaluation
+        // Horner's method for polynomial evaluation. a_k = a_{k-1}*(4v^2-(2k-1)^2)/(8k);
+        // a_5 previously read 5005/177147, which is exactly 8x too small.
         double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
                     -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (
-                        -2275.0/19683.0 + z_inv * 5005.0/177147.0
-                    ))));
+                        -2275.0/19683.0 + z_inv * (40040.0/177147.0 + z_inv * (
+                            -2662660.0/4782969.0 + z_inv * (71131060.0/43046721.0 + z_inv *
+                                -2222845625.0/387420489.0
+                            )))))));
 
         // More numerically stable computation
         double sqrt_term = sqrt(M_PI / (2.0 * z));
@@ -101,7 +108,11 @@ kv56_real_kernel_float32_optimized = cp.ElementwiseKernel(
     """
     float v = 5.0f / 6.0f;
     float z_abs = fabsf(z);
-    if (z_abs < 2.0f) {
+    // Lower crossover than the float64 kernel: the series subtracts two quantities that
+    // grow like exp(z), and in single precision that cancellation bites much earlier.
+    // 3.25 is where the two branches cross over in accuracy; a scan of the crossover
+    // gives a worst-case relative error of 2.3e-4 there, against 1.3e-2 at 2.0.
+    if (z_abs < 3.25f) {
         // Series approximation for small z
         if (z_abs < 1e-6f) {
             // Small-argument limit: K_v(z) -> (1/2)*Gamma(v)*(2/z)^v, so for v = 5/6 the
@@ -155,12 +166,19 @@ kv56_real_kernel_float32_optimized = cp.ElementwiseKernel(
         // Asymptotic approximation for larger z
         float z_inv = 1.0f / z;
 
-        // Optimized Horner's method with fewer operations and FMA
+        // Optimized Horner's method with fewer operations and FMA. a_5 previously read
+        // 5005/177147, which is exactly 8x too small; a_6..a_8 are new.
         float sum_terms = 1.0f + z_inv * __fmaf_rn(z_inv,
                     __fmaf_rn(z_inv,
                         __fmaf_rn(z_inv,
                             __fmaf_rn(z_inv,
-                                5005.0f/177147.0f,
+                                __fmaf_rn(z_inv,
+                                    __fmaf_rn(z_inv,
+                                        __fmaf_rn(z_inv,
+                                            -2222845625.0f/387420489.0f,
+                                            71131060.0f/43046721.0f),
+                                        -2662660.0f/4782969.0f),
+                                    40040.0f/177147.0f),
                                 -2275.0f/19683.0f),
                             175.0f/2187.0f),
                         -7.0f/81.0f),

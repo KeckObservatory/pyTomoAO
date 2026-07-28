@@ -55,11 +55,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Publish Python Package to PyPI` now verifies distributions with `twine check --strict`
   and installs the wheel into a clean virtualenv before publishing, and publishes through a
   `pypi` GitHub environment that can carry a review rule.
+- The reconstruction integration test no longer pins 7-significant-figure mean-OPD values
+  with `rtol=0`. Those failed on any machine with a CUDA device, because the float32 GPU
+  path lands 1.3e-3 away from the float64 reference — so the suite was red on developer
+  machines and green in CI only because the runners have no GPU. Reconstruction accuracy is
+  now checked by a physical round trip (known phase → gradient operator → reconstruction),
+  which holds on both backends and survives numerical improvements (#98).
+- Added `tests/conftest.py` with path fixtures resolved from `__file__`, so the tests no
+  longer depend on being run from the repository root, and moved the temporary config
+  written by `simple_config` into `tmp_path` (#99).
 - Contact email for Jacob Taylor updated to jacobataylor7@gmail.com.
 - Project URLs point at <https://github.com/KeckObservatory/pyTomoAO>.
 
 ### Fixed
 
+- **The `K_{5/6}` Bessel kernel lost seven digits of accuracy above `z = 2`.** Three
+  compounding defects: the `1/z^5` coefficient of the asymptotic expansion read
+  `5005/177147` where the recurrence `a_k = a_{k-1}(4v²-(2k-1)²)/(8k)` gives
+  `40040/177147` (exactly 8× too small); the series/asymptotic crossover sat at `z = 2`,
+  where the asymptotic expansion is nowhere near converged; and `Γ(11/6)` was stored to
+  only 12 digits, which the series' `exp(z)` cancellation amplified into the dominant error
+  term above `z ≈ 4`. Worst-case relative error against `scipy.special.kv` drops from
+  **2.1e-3 to 3.6e-8** in double precision (2.1e-4 in single, where cancellation is the
+  limit). With the KAPA configuration 17% of point pairs fell in the affected range, so
+  reconstructor values shift slightly — about 0.1–0.4% on mean reconstructed OPD (#97).
 - **`wfsLensletsRotation` was applied in the wrong units.** `_create_guide_star_grid`
   converted the angle from radians to degrees and then passed it to `_rotateWFS`, which
   treats its argument as radians, so a requested rotation of θ was applied as `57.3·θ`. Both

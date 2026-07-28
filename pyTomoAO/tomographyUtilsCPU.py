@@ -9,14 +9,21 @@ from scipy.special import gamma
 @nb.njit(nb.complex128(nb.complex128), cache=False)
 def _kv56_scalar(z):
     """Scalar implementation used as kernel for array version"""
-    # Precomputed Gamma function values for v=5/6
-    gamma_1_6 = 5.56631600178  # Gamma(1/6)
-    gamma_11_6 = 0.94065585824  # Gamma(11/6)
+    # Precomputed Gamma function values for v=5/6, to full double precision. The series
+    # below subtracts two quantities that grow like exp(z), so a truncated constant is
+    # amplified by that cancellation: the previous 12-digit gamma_11_6 (0.94065585824)
+    # was the dominant error term above z ~ 4.
+    gamma_1_6 = 5.566316001780236  # Gamma(1/6)
+    gamma_11_6 = 0.94065585825677167  # Gamma(11/6)
     # Precompute constants for numerical stability
     # Constants for the series expansion and asymptotic approximation
     v = 5.0 / 6.0
     z_abs = np.abs(z)
-    if z_abs < 2.0:
+    # Crossover between the two expansions. The series stays accurate to ~1e-13 out to
+    # z ~ 9 and needs only 24 iterations there, whereas the asymptotic series is still
+    # far from converged below z ~ 8 -- switching at 2.0 cost seven digits of accuracy
+    # over the range that carries most of the pupil's baselines.
+    if z_abs < 9.0:
         # Series expansion for small |z|
         sum_a = 0.0j
         sum_b = 0.0j
@@ -40,7 +47,8 @@ def _kv56_scalar(z):
             k += 1
         K = np.pi * (sum_b - sum_a)
     else:
-        # Asymptotic expansion for large |z|
+        # Asymptotic expansion for large |z|, with a_k = a_{k-1}*(4v^2 - (2k-1)^2)/(8k).
+        # a_5 previously read 5005/177147, which is exactly 8x too small.
         z_inv = 1.0 / z
         sum_terms = (
             1.0
@@ -48,8 +56,11 @@ def _kv56_scalar(z):
             + (-7.0 / 81.0) * z_inv**2
             + (175.0 / 2187.0) * z_inv**3
             + (-2275.0 / 19683.0) * z_inv**4
-            + (5005.0 / 177147.0) * z_inv**5
-        )  # + (-2662660.0/4782969.0)*z_inv**6
+            + (40040.0 / 177147.0) * z_inv**5
+            + (-2662660.0 / 4782969.0) * z_inv**6
+            + (71131060.0 / 43046721.0) * z_inv**7
+            + (-2222845625.0 / 387420489.0) * z_inv**8
+        )
         prefactor = np.sqrt(np.pi / (2.0 * z)) * np.exp(-z)
         K = prefactor * sum_terms
     return K
