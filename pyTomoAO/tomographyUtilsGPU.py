@@ -961,8 +961,9 @@ def _build_reconstructor_im(
 
     Parameters
     ----------
-    IM : numpy.ndarray
-        Block-diagonal interaction matrix, one block per wavefront sensor.
+    IM : numpy.ndarray or cupy.ndarray
+        Block-diagonal interaction matrix, one block per wavefront sensor. A host array is
+        copied to the device.
     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams : object
         Configuration objects held by the reconstructor.
     use_float32 : bool, optional
@@ -978,6 +979,10 @@ def _build_reconstructor_im(
     cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
+
+    # The caller hands us a host array; every matrix it is multiplied with below lives on
+    # the device, and CuPy will not mix the two.
+    IM = cp.asarray(IM, dtype=dtype)
 
     # Create a CUDA stream for asynchronous operations
     stream = cp.cuda.Stream()
@@ -1013,7 +1018,7 @@ def _build_reconstructor_im(
         ).astype(dtype)
         cp.get_default_memory_pool().free_all_blocks()  # Free memory after Cxx computation
 
-        Cox = cp.sqeeze(Cox)
+        Cox = cp.squeeze(Cox)
 
         # Noise covariance matrix
         weight = cp.ones(IM.shape[0])
