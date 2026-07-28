@@ -763,36 +763,33 @@ class tomographicReconstructor:
         self.fit.F = np.linalg.pinv(self.modes)
         logger.info(f"\nFitting matrix shape: {self.fit.F.shape}")
 
+        # The column reordering below is derived into a local rather than written back into
+        # self._reconstructor. Assigning it back made the method non-idempotent: a second
+        # call swapped the X and Y blocks a second time, silently undoing the first swap and
+        # producing a different, wrong FR. self._reconstructor stays as build_reconstructor
+        # left it, which is also what reconstruct_wavefront assumes.
+        R = self._reconstructor
+
         # prepare the reconstructor for single channel
         if nChannels == 1:
-            self.reconstructor = self._reconstructor[:, : self.lgsWfsParams.nValidSubap * 2]
+            R = R[:, : self.lgsWfsParams.nValidSubap * 2]
 
         # Rearrange the reconstructor to accomodate slopes = [slopeX, slopeY]
         if slopesOrder == "simu":
             # Swap X and Y blocks
-            self.reconstructor = self.swap_xy_blocks(
-                self._reconstructor, self.lgsWfsParams.nValidSubap, nChannels
-            )
-            # Generate the reconstructor with fitting
-            self.FR = -self.fit.F @ self.reconstructor * scalingFactor
+            R = self.swap_xy_blocks(R, self.lgsWfsParams.nValidSubap, nChannels)
         # Rearrange the reconstructor to accomodate slopes = [slopesXY,..,slopesXY]
         elif slopesOrder == "keck":
-            # Swap X and Y blocks
-            self._reconstructor = self.swap_xy_blocks(
-                self._reconstructor, self.lgsWfsParams.nValidSubap, nChannels
-            )
-            # Rearrange the rows into [XY, ..., XY]
-            self.reconstructor = np.apply_along_axis(self.sort_row, 1, self._reconstructor)
-            # Generate the reconstructor with fitting
-            self.FR = -self.fit.F @ self.reconstructor * scalingFactor
-        # Rearrange the reconstructor to accomodate slopes = [slopeY, slopesX]
-        elif slopesOrder == "inverted":
-            self.reconstructor = self._reconstructor
-            # Generate the reconstructor with fitting
-            self.FR = -self.fit.F @ self.reconstructor * scalingFactor
-        else:
+            # Swap X and Y blocks, then rearrange the rows into [XY, ..., XY]
+            R = self.swap_xy_blocks(R, self.lgsWfsParams.nValidSubap, nChannels)
+            R = np.apply_along_axis(self.sort_row, 1, R)
+        # Slopes already ordered [slopeY, slopeX] need no rearranging
+        elif slopesOrder != "inverted":
             logger.error("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
             raise ValueError("Invalid slopes order. Use 'simu', 'keck' or 'inverted'.")
+
+        # Generate the reconstructor with fitting
+        self.FR = -self.fit.F @ R * scalingFactor
         logger.info("\n-->> Reconstructor and Fitting assembled <<--")
 
         return self._FR
@@ -941,15 +938,14 @@ class tomographicReconstructor:
         wavefront = self._reconstructor @ slopes
         wavefront = wavefront.flatten()
 
-        # Apply mask
-        mask = np.array(self._gridMask * 1, dtype=np.float64)
-        ones_indices = np.where(mask == 1)
-        mask[ones_indices] = wavefront
+        # Scatter onto the pupil grid, leaving points outside the mask as NaN. The mask
+        # itself decides what is invalid: testing the reconstructed values for zero would
+        # also blank out valid points that happen to reconstruct to exactly zero.
+        valid = np.asarray(self._gridMask, dtype=bool)
+        out = np.full(valid.shape, np.nan, dtype=np.float64)
+        out[valid] = wavefront
 
-        # Set masked values to NaN for visualization
-        mask[mask == 0] = np.nan
-
-        return mask
+        return out
 
     # Visualize Commands
     def visualize_commands(self, slopes):
@@ -981,12 +977,11 @@ class tomographicReconstructor:
             logger.error("Invalid method. Please build the reconstructor first.")
             raise ValueError("Invalid method. Please build the reconstructor first.")
 
-        # project the commands on the DM surface
-        cmd_mask = np.array(self.dmParams.validActuatorsSupport * 1, dtype=np.float64)
-        ones_indices = np.where(cmd_mask == 1)
-        cmd_mask[ones_indices] = dm_commands
-        # Set masked values to NaN for visualization
-        cmd_mask[cmd_mask == 0] = np.nan
+        # Project the commands on the DM surface. As in reconstruct_wavefront, the actuator
+        # map decides what is invalid, so that a genuinely zero command stays visible.
+        valid_act = np.asarray(self.dmParams.validActuatorsSupport, dtype=bool)
+        cmd_mask = np.full(valid_act.shape, np.nan, dtype=np.float64)
+        cmd_mask[valid_act] = dm_commands
         # display the DM commands
         fig, (ax1, ax2) = plt.subplots(1, 2)
         # display the DM commands

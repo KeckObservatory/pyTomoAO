@@ -100,7 +100,7 @@ def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
     -----------
         sampling (int): Number of samples in each dimension for the grid.
         D (float): Diameter of the telescope, used to scale the grid.
-        rotation_angle (float): Angle to rotate the grid in degrees.
+        rotation_angle (float): Angle to rotate the grid, in radians.
         offset_x (float): Offset in the x-direction to apply to the grid.
         offset_y (float): Offset in the y-direction to apply to the grid.
 
@@ -112,8 +112,10 @@ def _create_guide_star_grid(sampling, D, rotation_angle, offset_x, offset_y):
     # Create a grid of points in Cartesian coordinates
     x, y = np.meshgrid(np.linspace(-1, 1, sampling) * D / 2, np.linspace(-1, 1, sampling) * D / 2)
 
-    # Flatten the grid, rotate the positions, and apply the specified offsets
-    x, y = _rotateWFS(x.flatten(), y.flatten(), rotation_angle * 180 / np.pi)
+    # Flatten the grid, rotate the positions, and apply the specified offsets.
+    # wfsLensletsRotation is specified in radians and _rotateWFS expects radians, so the
+    # angle is passed straight through.
+    x, y = _rotateWFS(x.flatten(), y.flatten(), rotation_angle)
     x = x - offset_x * D  # Apply x offset
     y = y - offset_y * D  # Apply y offset
 
@@ -153,14 +155,17 @@ def _calculate_scaled_shifted_coords(
     return x * scale + beta[0] + 1j * (y * scale + beta[1])
 
 
-def _compute_block(rho_block, L0, cst, var_term):
+def _compute_block(rho_block, L0, cst, var_term, zero_tol=0.0):
     """
     Vectorized computation of covariance values for a matrix block
+
+    Separations at or below ``zero_tol`` are treated as coincident points and take the
+    variance term. See :func:`_covariance_matrix` for why an exact test is not enough.
     """
     # Initialize output with variance term
     out = np.full(rho_block.shape, var_term, dtype=np.float64)
     # Find non-zero distances and compute covariance
-    mask = rho_block != 0
+    mask = rho_block > zero_tol
     u = (2 * np.pi * rho_block[mask]) / L0
     # Vectorized Bessel function calculation with explicit conversion to real
     out[mask] = cst * u ** (5 / 6) * np.real(_kv56(u.astype(np.complex128)))
@@ -234,6 +239,12 @@ def _covariance_matrix(*args):
     rho = np.abs(rho1[:, np.newaxis] - rho2)
     n, m = rho.shape
 
+    # Coincident points must take the variance term. The two coordinate grids are built by
+    # different arithmetic, so a separation that is mathematically zero can evaluate to a few
+    # ULPs instead; an exact `!= 0` test would send those into the Bessel branch and return a
+    # badly wrong value for the largest entries of the matrix.
+    zero_tol = 1e-12 * rho.max()
+
     # ==================================================================
     # Block processing for large matrices (>5000 elements per dimension)
     # ==================================================================
@@ -252,14 +263,14 @@ def _covariance_matrix(*args):
 
                 # Process current block
                 block = rho[i:i_end, j:j_end]
-                out[i:i_end, j:j_end] = _compute_block(block, L0, cst, var_term)
+                out[i:i_end, j:j_end] = _compute_block(block, L0, cst, var_term, zero_tol)
 
         # Apply fractional weighting
         out *= fractionalR0
         return out
 
     # Single block processing for smaller matrices
-    out = _compute_block(rho, L0, cst, var_term)
+    out = _compute_block(rho, L0, cst, var_term, zero_tol)
     return out * fractionalR0
 
 
