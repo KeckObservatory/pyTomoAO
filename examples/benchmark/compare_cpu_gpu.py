@@ -1,37 +1,38 @@
-#%%
-import numpy as np
-import matplotlib.pyplot as plt
+# %%
 import os
 import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
+
 # Ensure the script is run from its own directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 sys.path.insert(0, script_dir)
-from test_auto import build_reconstructor as build_reconstructor_cpu
-from test_auto import auto_correlation as auto_correlation_cpu
-from test_auto import cross_correlation as cross_correlation_cpu
-import cupy as cp
-from test_auto_gpu import build_reconstructor_gpu 
-from test_auto_gpu import auto_correlation_gpu 
-from test_auto_gpu import cross_correlation_gpu 
-import time
-from test_auto import sparseGradientMatrixAmplitudeWeighted
+# The imports below deliberately follow the sys.path setup above so that the
+# sibling benchmark modules can be imported when this script is run directly.
+import time  # noqa: E402
 
-#%% Import cupy and print available devices
+import cupy as cp  # noqa: E402
+from test_auto import build_reconstructor as build_reconstructor_cpu  # noqa: E402
+from test_auto import sparseGradientMatrixAmplitudeWeighted  # noqa: E402
+from test_auto_gpu import build_reconstructor_gpu  # noqa: E402
+
+# %% Import cupy and print available devices
 print("Available GPU devices:")
 for i in range(cp.cuda.runtime.getDeviceCount()):
     device = cp.cuda.Device(i)
     print(f"Device {i}: {device}")
 
 
-#%% Define the same parameter classes
+# %% Define the same parameter classes
 class TomoParams:
     def __init__(self, nFitSrc, directionVectorSrc, fitSrcHeight):
         self.sampling = None
         self.nFitSrc = nFitSrc
         self.directionVectorSrc = directionVectorSrc
         self.fitSrcHeight = fitSrcHeight
-        self.fitSrcWeight = np.ones(self.nFitSrc**2)/self.nFitSrc**2
+        self.fitSrcWeight = np.ones(self.nFitSrc**2) / self.nFitSrc**2
 
 
 class LgsWfsParams:
@@ -39,7 +40,8 @@ class LgsWfsParams:
         self.DSupport = DSupport
         self.wfsLensletsRotation = wfsLensletsRotation
         self.wfsLensletsOffset = wfsLensletsOffset
-        self.validLLMapSupport = np.pad(validLLMap, pad_width=2, mode='constant', constant_values=0)
+        self.validLLMapSupport = np.pad(validLLMap, pad_width=2, mode="constant", constant_values=0)
+
 
 class AtmParams:
     def __init__(self, nLayer, altitude, r0, L0, fractionnalR0):
@@ -49,6 +51,7 @@ class AtmParams:
         self.L0 = L0
         self.fractionnalR0 = fractionnalR0
 
+
 class LgsAsterismParams:
     def __init__(self, nLGS, directionVectorLGS, LGSheight, LGSwavelength):
         self.nLGS = nLGS
@@ -56,47 +59,54 @@ class LgsAsterismParams:
         self.LGSheight = LGSheight
         self.LGSwavelength = LGSwavelength
 
+
 # %%
 DSupport = 8.0
 wfsLensletsRotation = np.zeros(4)
 wfsLensletsOffset = np.zeros((2, 4))
 nLayer = 2
-altitude = np.array([    0.  ,         577.35026919,  1154.70053838,  2309.40107676,
-4618.80215352,  9237.60430703, 18475.20861407])
+altitude = np.array(
+    [0.0, 577.35026919, 1154.70053838, 2309.40107676, 4618.80215352, 9237.60430703, 18475.20861407]
+)
 r0 = 0.171
 L0 = 30.0
 nFitSrc = 1
-directionVectorSrc = np.array([[0.0],
-                                [0.0]])
+directionVectorSrc = np.array([[0.0], [0.0]])
 fitSrcHeight = np.inf
 fractionnalR0 = np.array([0.46, 0.13, 0.04, 0.05, 0.12, 0.09, 0.11])
 nLGS = 4
-directionVectorLGS = np.array([[ 3.68458398e-05,  2.25615699e-21, -3.68458398e-05, -6.76847096e-21],
-                                [ 0.00000000e+00, 3.68458398e-05,  4.51231397e-21, -3.68458398e-05],
-                                [ 1.00000000e+00,  1.00000000e+00,  1.00000000e+00,  1.00000000e+00]])
+directionVectorLGS = np.array(
+    [
+        [3.68458398e-05, 2.25615699e-21, -3.68458398e-05, -6.76847096e-21],
+        [0.00000000e00, 3.68458398e-05, 4.51231397e-21, -3.68458398e-05],
+        [1.00000000e00, 1.00000000e00, 1.00000000e00, 1.00000000e00],
+    ]
+)
 LGSheight = 103923.04845413263
-validLLMap = np.array([
-    [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0],
-    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
-    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
-    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
-    [0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0]
-])
+validLLMap = np.array(
+    [
+        [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+    ]
+)
 LGSwavelength = 5.89e-7
 
 # Create parameter objects
@@ -105,23 +115,25 @@ lgsWfsParams = LgsWfsParams(DSupport, wfsLensletsRotation, wfsLensletsOffset, va
 atmParams = AtmParams(nLayer, altitude, r0, L0, fractionnalR0)
 lgsAsterismParams = LgsAsterismParams(nLGS, directionVectorLGS, LGSheight, LGSwavelength)
 _, gridMask = sparseGradientMatrixAmplitudeWeighted(
-    lgsWfsParams.validLLMapSupport,
-    amplMask=None, 
-    overSampling=2
+    lgsWfsParams.validLLMapSupport, amplMask=None, overSampling=2
 )
-tomoParams.sampling =  gridMask.shape[0]
-#%%
+tomoParams.sampling = gridMask.shape[0]
+# %%
 # # Test the performance of the auto correlation
 # print("\n=== Testing Auto Correlation Performance ===")
 # cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 # start_time = time.time()
-# R_gpu_auto = auto_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+# R_gpu_auto = auto_correlation_gpu(
+#     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask
+# )
 # end_time = time.time()
 # R_gpu_auto = cp.asnumpy(R_gpu_auto)
 
 # # Create the reconstructor using CPU
 # start_time_cpu = time.time()
-# R_cpu_auto = auto_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+# R_cpu_auto = auto_correlation_cpu(
+#     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask
+# )
 # end_time_cpu = time.time()
 
 # print(f"GPU Auto Correlation Execution time: {end_time - start_time:.2f} seconds")
@@ -148,12 +160,16 @@ tomoParams.sampling =  gridMask.shape[0]
 # print("\n=== Testing Cross Correlation Performance ===")
 # cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 # start_time = time.time()
-# R_gpu_cross = cross_correlation_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+# R_gpu_cross = cross_correlation_gpu(
+#     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask
+# )
 # end_time = time.time()
 # R_gpu_cross = cp.asnumpy(R_gpu_cross).squeeze()
 # # Create the reconstructor using CPU
 # start_time_cpu = time.time()
-# R_cpu_cross = cross_correlation_cpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask)
+# R_cpu_cross = cross_correlation_cpu(
+#     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask
+# )
 # end_time_cpu = time.time()
 # R_cpu_cross = R_cpu_cross.squeeze()
 
@@ -177,12 +193,14 @@ tomoParams.sampling =  gridMask.shape[0]
 # plt.title("CPU Reconstructor")
 # plt.show()
 
-#Create the reconstructor using GPU (float64)
+# Create the reconstructor using GPU (float64)
 print("\n=== Testing Reconstructor Performance (float64) ===")
 cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 
 start_time = time.time()
-R_gpu_f64 = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False)
+R_gpu_f64 = build_reconstructor_gpu(
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False
+)
 end_time = time.time()
 print(f"GPU Reconstructor (float64) Execution time: {end_time - start_time:.2f} seconds")
 
@@ -213,7 +231,9 @@ else:
 print("\n=== Testing Reconstructor Performance (float32) ===")
 cp.cuda.Stream.null.synchronize()  # Ensure GPU is clear
 start_time = time.time()
-R_gpu_f32 = build_reconstructor_gpu(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=True)
+R_gpu_f32 = build_reconstructor_gpu(
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=True
+)
 end_time = time.time()
 print(f"GPU Reconstructor (float32) Execution time: {end_time - start_time:.2f} seconds")
 
@@ -238,31 +258,31 @@ plt.figure(figsize=(15, 10))
 
 # CPU Reconstructor
 plt.subplot(2, 3, 1)
-plt.imshow(R_cpu, cmap='viridis')
+plt.imshow(R_cpu, cmap="viridis")
 plt.colorbar()
 plt.title("CPU Reconstructor")
 
 # GPU Reconstructor (float64)
 plt.subplot(2, 3, 2)
-plt.imshow(R_gpu_f64, cmap='viridis')
+plt.imshow(R_gpu_f64, cmap="viridis")
 plt.colorbar()
 plt.title("GPU Reconstructor (float64)")
 
 # Difference (float64)
 plt.subplot(2, 3, 3)
-plt.imshow(abs_diff_f64, cmap='hot')
+plt.imshow(abs_diff_f64, cmap="hot")
 plt.colorbar()
 plt.title("Difference (float64)")
 
 # GPU Reconstructor (float32)
 plt.subplot(2, 3, 4)
-plt.imshow(R_gpu_f32, cmap='viridis')
+plt.imshow(R_gpu_f32, cmap="viridis")
 plt.colorbar()
 plt.title("GPU Reconstructor (float32)")
 
 # Difference (float32)
 plt.subplot(2, 3, 5)
-plt.imshow(abs_diff_f32, cmap='hot')
+plt.imshow(abs_diff_f32, cmap="hot")
 plt.colorbar()
 plt.title("Difference (float32)")
 

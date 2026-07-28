@@ -1,8 +1,11 @@
 # lgsAsterismParametersClass.py
-from numbers import Number
-from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 import math
+from numbers import Number
+
 import numpy as np
+
+from pyTomoAO.atmosphereParametersClass import atmosphereParameters
+
 
 class lgsAsterismParameters:
     """
@@ -60,7 +63,7 @@ class lgsAsterismParameters:
         if value <= 0:
             raise ValueError("Base height must be positive")
         self._baseLGSHeight = float(value)
-        
+
     @property
     def nLGS(self) -> int:
         """Number of laser guide stars (non-negative integer)"""
@@ -82,7 +85,7 @@ class lgsAsterismParameters:
     def LGSdirections(self) -> np.ndarray:
         """
         Compute LGS asterism directions in polar coordinates (radians).
-        
+
         Returns:
             np.ndarray: Array of shape (4, 2) containing [radius, azimuth] pairs
                         for four LGS positions in a square pattern:
@@ -90,25 +93,22 @@ class lgsAsterismParameters:
                         - Azimuth: 45° spaced angles starting from 225°
         """
         arcsec_to_rad = math.pi / (180 * 3600)  # 1 arcsec in radians
-        
+
         # Calculate base radius in radians
         base_radius = self.radiusAst * arcsec_to_rad
-        
+
         # Define azimuth angles in degrees (225°, 135°, 315°, 45°)
-        azimuth_deg =np.zeros(self.nLGS)
+        azimuth_deg = np.zeros(self.nLGS)
         for i in range(self.nLGS):
-            azimuth_deg[i] = i*360/self.nLGS
-        
-        return np.array([
-            [base_radius, math.radians(angle)]
-            for angle in azimuth_deg
-        ])
-        
+            azimuth_deg[i] = i * 360 / self.nLGS
+
+        return np.array([[base_radius, math.radians(angle)] for angle in azimuth_deg])
+
     @property
     def directionVectorLGS(self) -> np.ndarray:
         """
         Compute 3D direction vectors for LGS in observer's coordinate system.
-        
+
         Returns:
             np.ndarray: 3xN array where N = nLGS, with vectors:
                         [ [x1, x2, ...],
@@ -118,24 +118,23 @@ class lgsAsterismParameters:
         """
         n_lgs = self.nLGS
         vectors = np.zeros((3, n_lgs))
-        
+
         for i in range(n_lgs):
             zenith = self.LGSdirections[i, 0]
             azimuth = self.LGSdirections[i, 1]
-            
+
             # Compute transverse components
             tan_zenith = math.tan(zenith)
             vectors[0, i] = tan_zenith * math.cos(azimuth)
             vectors[1, i] = tan_zenith * math.sin(azimuth)
-            
+
             # Optical axis component normalized to 1
             vectors[2, i] = 1.0
 
         return vectors
-        
+
     def __str__(self):
         """Human-readable string representation with full geometry details"""
-        arcsec_to_deg = 1/3600  # Conversion from arcseconds to degrees
         rad_to_arcsec = 180 * 3600 / math.pi  # Radians to arcseconds conversion
 
         # Core parameters
@@ -144,9 +143,9 @@ class lgsAsterismParameters:
             f"  - Number of LGS: {self.nLGS}\n"
             f"  - Base Radius: {self.radiusAst:.2f} arcsec\n"
             f"  - Wavelength: {self._format_wavelength()}\n"
-            f"  - Base Height: {self.baseLGSHeight/1000:.1f} km\n"
+            f"  - Base Height: {self.baseLGSHeight / 1000:.1f} km\n"
             f"  - Current Airmass: {self._atm_params.airmass:.2f}\n"
-            f"  - Effective Height: {self.LGSheight/1000:.1f} km\n"
+            f"  - Effective Height: {self.LGSheight / 1000:.1f} km\n"
             "\nAsterism Geometry:"
         )
 
@@ -156,8 +155,7 @@ class lgsAsterismParameters:
             radius_arcsec = self.LGSdirections[i, 0] * rad_to_arcsec
             azimuth_deg = math.degrees(self.LGSdirections[i, 1]) % 360
             directions_str.append(
-                f"    LGS {i+1}: {radius_arcsec:.2f} arcsec "
-                f"@ {azimuth_deg:.1f}°"
+                f"    LGS {i + 1}: {radius_arcsec:.2f} arcsec @ {azimuth_deg:.1f}°"
             )
 
         # Direction vectors section
@@ -165,14 +163,12 @@ class lgsAsterismParameters:
             "\n  Direction Vectors (x,y,z normalization):",
             np.array2string(
                 self.directionVectorLGS,
-                prefix='    ',
-                formatter={
-                    'float_kind': lambda x: f"{x:.2e}" if abs(x) < 1e-3 else f"{x:.4f}"
-                }
-            ).replace('[', '    [')
+                prefix="    ",
+                formatter={"float_kind": lambda x: f"{x:.2e}" if abs(x) < 1e-3 else f"{x:.4f}"},
+            ).replace("[", "    ["),
         ]
 
-        return "\n".join([base_str] + directions_str + vectors_str)
+        return "\n".join([base_str, *directions_str, *vectors_str])
 
     def _format_wavelength(self) -> str:
         """Format wavelength with unit conversion"""
@@ -182,6 +178,7 @@ class lgsAsterismParameters:
     @property
     def atmospheric_parameters(self) -> atmosphereParameters:
         return self._atm_params
+
 
 # Example Usage
 if __name__ == "__main__":
@@ -196,21 +193,21 @@ if __name__ == "__main__":
             "fractionnalR0": [0.5, 0.3, 0.2],
             "wavelength": 500e-9,
             "windDirection": [90, 45, 180],
-            "windSpeed": [10, 20, 15]
+            "windSpeed": [10, 20, 15],
         }
     }
-    
+
     atmParams = atmosphereParameters(atmConfig)
-    
+
     config = {
         "lgs_asterism": {
-            "radiusAst": 30.0,       # arcseconds
-            "LGSwavelength": 589e-9, # meters (sodium wavelength)
-            "baseLGSHeight": 90000,   # meters (90km nominal sodium layer height)
-            "nLGS": 4
+            "radiusAst": 30.0,  # arcseconds
+            "LGSwavelength": 589e-9,  # meters (sodium wavelength)
+            "baseLGSHeight": 90000,  # meters (90km nominal sodium layer height)
+            "nLGS": 4,
         }
     }
-    
+
     try:
         lgsAsterismParams = lgsAsterismParameters(config, atmParams)
         print("Successfully initialized LGS asterism parameters.")
