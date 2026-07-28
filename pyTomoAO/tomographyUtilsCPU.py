@@ -151,19 +151,28 @@ def _compute_block(rho_block, L0, cst, var_term):
 
 def _covariance_matrix(*args):
     """
-    Optimized phase covariance matrix calculation using Von Karman turbulence model
-    
-    Parameters:
-    -----------
-        *args: (rho1, [rho2], r0, L0, fractionalR0)
-            rho1, rho2: Complex coordinate arrays (x + iy)
-            r0: Fried parameter (m)
-            L0: Outer scale (m)
-            fractionalR0: Turbulence layer weighting factor
-    
-    Returns:
-    --------
-        Covariance matrix with same dimensions as input coordinates
+    Optimized phase covariance matrix calculation using the Von Karman turbulence model.
+
+    Parameters
+    ----------
+    *args : tuple
+        Either ``(rho1, r0, L0, fractionalR0)`` for the auto-covariance, or
+        ``(rho1, rho2, r0, L0, fractionalR0)`` for the cross-covariance, where:
+
+        - ``rho1``, ``rho2`` : complex coordinate arrays (x + iy)
+        - ``r0`` : Fried parameter [m]
+        - ``L0`` : outer scale [m]
+        - ``fractionalR0`` : turbulence layer weighting factor
+
+    Returns
+    -------
+    numpy.ndarray
+        Covariance matrix with the same dimensions as the input coordinates.
+
+    Raises
+    ------
+    ValueError
+        If the number of positional arguments is neither 4 nor 5.
     """
     # Validate input arguments
     if len(args) not in {4, 5}:
@@ -243,40 +252,44 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     """
     Computes the auto-correlation meta-matrix for tomographic atmospheric reconstruction.
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     tomoParams : object
-        Contains tomography parameters:
-        - sampling (int): Number of grid samples per axis
-        - mask (ndarray): 2D boolean grid mask
-    
+        Tomography parameters:
+
+        - ``sampling`` (int): number of grid samples per axis
+        - ``mask`` (ndarray): 2D boolean grid mask
+
     lgsWfsParams : object
         LGS WFS parameters:
-        - D (float): Telescope diameter [m]
-        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-    
+
+        - ``D`` (float): telescope diameter [m]
+        - ``wfsLensletsRotation`` (ndarray): lenslet rotations [rad]
+        - ``wfsLensletsOffset`` (ndarray): lenslet offsets [normalized]
+
     atmParams : object
         Atmospheric parameters:
-        - nLayer (int): Number of turbulence layers
-        - altitude (ndarray): Layer altitudes [m]
-        - r0 (float): Fried parameter [m]
-        - L0 (float): Outer scale [m]
-        - fractionnalR0 (ndarray): Turbulence strength per layer
-    
+
+        - ``nLayer`` (int): number of turbulence layers
+        - ``altitude`` (ndarray): layer altitudes [m]
+        - ``r0`` (float): Fried parameter [m]
+        - ``L0`` (float): outer scale [m]
+        - ``fractionnalR0`` (ndarray): turbulence strength per layer
+
     lgsAsterismParams : object
         LGS constellation parameters:
-        - nLGS (int): Number of LGS
-        - directionVectorLGS (ndarray): Direction vectors
-        - LGSheight (ndarray): LGS heights [m]
+
+        - ``nLGS`` (int): number of LGS
+        - ``directionVectorLGS`` (ndarray): direction vectors
+        - ``LGSheight`` (float): LGS height [m]
 
     gridMask : ndarray
-        2D boolean mask for valid grid points
+        2D boolean mask for valid grid points.
 
-    Returns:
-    --------
-    S : ndarray
-        Auto-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
+    Returns
+    -------
+    numpy.ndarray
+        Auto-correlation meta-matrix of shape ``(nGs*valid_pts, nGs*valid_pts)``.
     """
     #print("-->> Computing auto-correlation meta-matrix <<--\n")
     # ======================================================================
@@ -363,40 +376,44 @@ def _cross_correlation(tomoParams,lgsWfsParams, atmParams,lgsAsterismParams,grid
     """
     Computes the cross-correlation meta-matrix for tomographic atmospheric reconstruction.
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     tomoParams : object
-        Contains tomography parameters:
-        - sampling (int): Number of grid samples per axis
-        - mask (ndarray): 2D boolean grid mask
-    
+        Tomography parameters:
+
+        - ``sampling`` (int): number of grid samples per axis
+        - ``mask`` (ndarray): 2D boolean grid mask
+
     lgsWfsParams : object
         LGS WFS parameters:
-        - D (float): Telescope diameter [m]
-        - wfs_lenslets_rotation (ndarray): Lenslet rotations [rad]
-        - wfs_lenslets_offset (ndarray): Lenslet offsets [normalized]
-    
+
+        - ``D`` (float): telescope diameter [m]
+        - ``wfsLensletsRotation`` (ndarray): lenslet rotations [rad]
+        - ``wfsLensletsOffset`` (ndarray): lenslet offsets [normalized]
+
     atmParams : object
         Atmospheric parameters:
-        - nLayer (int): Number of turbulence layers
-        - altitude (ndarray): Layer altitudes [m]
-        - r0 (float): Fried parameter [m]
-        - L0 (float): Outer scale [m]
-        - fractionnalR0 (ndarray): Turbulence strength per layer
-    
+
+        - ``nLayer`` (int): number of turbulence layers
+        - ``altitude`` (ndarray): layer altitudes [m]
+        - ``r0`` (float): Fried parameter [m]
+        - ``L0`` (float): outer scale [m]
+        - ``fractionnalR0`` (ndarray): turbulence strength per layer
+
     lgsAsterismParams : object
         LGS constellation parameters:
-        - nLGS (int): Number of LGS
-        - directionVectorLGS (ndarray): Direction vectors
-        - LGSheight (ndarray): LGS heights [m]
+
+        - ``nLGS`` (int): number of LGS
+        - ``directionVectorLGS`` (ndarray): direction vectors
+        - ``LGSheight`` (float): LGS height [m]
     
-    gridMask : ndarray
-        2D boolean mask for valid grid points
-    
-    Returns:
-    --------
-    S : ndarray
-        Cross-correlation meta-matrix of shape (nGs*valid_pts, nGs*valid_pts)
+    gridMask : ndarray, optional
+        2D boolean mask for valid grid points.
+
+    Returns
+    -------
+    numpy.ndarray
+        Cross-correlation meta-matrix of shape ``(nGs*valid_pts, nGs*valid_pts)``.
     """
     #print("-->> Computing cross-correlation meta-matrix <<--\n")
     # ======================================================================
@@ -478,21 +495,21 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     """
     Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
     
-    Parameters:
+    Parameters
     ----------
-    validLenslet : 2D array
-        Valid lenslet map
-    amplMask : 2D array
-        Amplitudes Weight Mask (default=None). 
-    overSampling : int
-        Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
-    
-    Returns:
+    validLenslet : numpy.ndarray
+        2D valid lenslet map.
+    amplMask : numpy.ndarray, optional
+        2D amplitude weight mask. Defaults to uniform weighting.
+    overSampling : int, optional
+        Oversampling factor for the gridMask, either 2 or 4 (default is 2).
+
+    Returns
     -------
     Gamma : scipy.sparse.csr_matrix
         Sparse gradient matrix.
-    gridMask : 2D array
-        Mask used for the reconstructed phase.
+    gridMask : numpy.ndarray
+        2D mask used for the reconstructed phase.
     """
     #print("-->> Computing sparse gradient matrix <<--\n")
     
@@ -581,7 +598,21 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     return Gamma, gridMask
 
 def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, alpha=1):
-        
+    """
+    Build the model-based tomographic reconstructor on the CPU.
+
+    Parameters
+    ----------
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams : object
+        Configuration objects held by the reconstructor.
+    alpha : float, optional
+        Regularization weight applied to the inversion (default is 1).
+
+    Returns
+    -------
+    tuple
+        ``(reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA)``.
+    """
     Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
         lgsWfsParams.validLLMapSupport,
         amplMask=None, 
@@ -647,6 +678,23 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
     return _reconstructor, Gamma, gridMask, Cxx, Cox, CnZ, RecStatSA
 
 def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, alpha=1):
+    """
+    Build the interaction-matrix-based tomographic reconstructor on the CPU.
+
+    Parameters
+    ----------
+    IM : numpy.ndarray
+        Block-diagonal interaction matrix, one block per wavefront sensor.
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams : object
+        Configuration objects held by the reconstructor.
+    alpha : float, optional
+        Regularization weight applied to the inversion (default is 1).
+
+    Returns
+    -------
+    tuple
+        ``(reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA)``.
+    """
     # IM has to be a block diagonal matrix containing the IM for each LGS
     
     # Define gridMask based on the DM parameters

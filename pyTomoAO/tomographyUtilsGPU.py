@@ -249,7 +249,28 @@ def _rotateWFS(px_gpu, py_gpu, rotAngleInRadians, use_float32=False):
     return pxx_gpu, pyy_gpu
 
 def _covariance_matrix(*args, use_float32=False):
-    """GPU implementation of covariance matrix calculation"""
+    """
+    GPU implementation of the Von Karman phase covariance matrix calculation.
+
+    Parameters
+    ----------
+    *args : tuple
+        Either ``(rho1, r0, L0, fractionalR0)`` for the auto-covariance, or
+        ``(rho1, rho2, r0, L0, fractionalR0)`` for the cross-covariance, with the
+        coordinate arrays given as CuPy arrays of complex positions (x + iy).
+    use_float32 : bool, optional
+        Compute in single precision (default is False).
+
+    Returns
+    -------
+    cupy.ndarray
+        Covariance matrix with the same dimensions as the input coordinates.
+
+    Raises
+    ------
+    ValueError
+        If the number of positional arguments is neither 4 nor 5.
+    """
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
     
@@ -350,7 +371,26 @@ def _calculate_scaled_shifted_coords(x_gpu, y_gpu, srcACdirectionVector_gpu, gs_
     return x_gpu * scale + beta[0] + 1j * (y_gpu * scale + beta[1])
 
 def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask, use_float32=False):
-    """GPU-optimized auto-correlation function"""
+    """
+    GPU implementation of the slope auto-correlation meta-matrix.
+
+    Mirrors :func:`pyTomoAO.tomographyUtilsCPU._auto_correlation`; see that function for a
+    description of the parameter objects.
+
+    Parameters
+    ----------
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams : object
+        Configuration objects held by the reconstructor.
+    gridMask : numpy.ndarray
+        2D boolean mask for valid grid points.
+    use_float32 : bool, optional
+        Compute in single precision (default is False).
+
+    Returns
+    -------
+    numpy.ndarray
+        Auto-correlation meta-matrix of shape ``(nGs*valid_pts, nGs*valid_pts)``.
+    """
     #print("-->> Computing auto-correlation matrix <<--\n")
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
@@ -477,7 +517,26 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     return S_gpu
 
 def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gridMask=None, use_float32=False):
-    """GPU-optimized cross-correlation function"""
+    """
+    GPU implementation of the phase-to-slope cross-correlation meta-matrix.
+
+    Mirrors :func:`pyTomoAO.tomographyUtilsCPU._cross_correlation`; see that function for a
+    description of the parameter objects.
+
+    Parameters
+    ----------
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams : object
+        Configuration objects held by the reconstructor.
+    gridMask : numpy.ndarray, optional
+        2D boolean mask for valid grid points.
+    use_float32 : bool, optional
+        Compute in single precision (default is False).
+
+    Returns
+    -------
+    numpy.ndarray
+        Cross-correlation meta-matrix of shape ``(nGs*valid_pts, nGs*valid_pts)``.
+    """
     #print("-->> Computing cross-correlation matrix <<--\n")
     # Set computation dtype
     dtype = cp.float32 if use_float32 else cp.float64
@@ -591,21 +650,21 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     """
     Computes the sparse gradient matrix (3x3 or 5x5 stencil) with amplitude mask.
     
-    Parameters:
+    Parameters
     ----------
-    validLenslet : 2D array
-        Valid lenslet map
-    amplMask : 2D array
-        Amplitudes Weight Mask (default=None). 
-    overSampling : int
-        Oversampling factor for the gridMask. Can be either 2 or 4 (default=2).
-    
-    Returns:
+    validLenslet : numpy.ndarray
+        2D valid lenslet map.
+    amplMask : numpy.ndarray, optional
+        2D amplitude weight mask. Defaults to uniform weighting.
+    overSampling : int, optional
+        Oversampling factor for the gridMask, either 2 or 4 (default is 2).
+
+    Returns
     -------
     Gamma : scipy.sparse.csr_matrix
         Sparse gradient matrix.
-    gridMask : 2D array
-        Mask used for the reconstructed phase.
+    gridMask : numpy.ndarray
+        2D mask used for the reconstructed phase.
     """
     #print("-->> Computing sparse gradient matrix <<--\n")
     
@@ -695,17 +754,21 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
 def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False, alpha=1):
     """
-    GPU-optimized atmospheric tomography reconstructor builder
-    
-    Parameters:
-        tomoParams: Tomography parameters
-        lgsWfsParams: Laser guide star WFS parameters
-        atmParams: Atmospheric parameters
-        lgsAsterismParams: LGS asterism parameters
-        use_float32: If True, use float32 precision instead of float64 for faster computation
-    
-    Returns:
-        _reconstructor: Optimized tomographic reconstructor
+    Build the model-based tomographic reconstructor on the GPU.
+
+    Parameters
+    ----------
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams : object
+        Configuration objects held by the reconstructor.
+    use_float32 : bool, optional
+        Compute in single precision (default is False).
+    alpha : float, optional
+        Regularization weight applied to the inversion (default is 1).
+
+    Returns
+    -------
+    tuple
+        ``(reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA)``.
     """
     cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
     # Set computation dtype
@@ -798,17 +861,23 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
 
 def _build_reconstructor_im(IM, tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams, use_float32=False, alpha=1):
     """
-    GPU-optimized atmospheric tomography reconstructor builder
-    
-    Parameters:
-        tomoParams: Tomography parameters
-        lgsWfsParams: Laser guide star WFS parameters
-        atmParams: Atmospheric parameters
-        lgsAsterismParams: LGS asterism parameters
-        use_float32: If True, use float32 precision instead of float64 for faster computation
-    
-    Returns:
-        _reconstructor: Optimized tomographic reconstructor
+    Build the interaction-matrix-based tomographic reconstructor on the GPU.
+
+    Parameters
+    ----------
+    IM : numpy.ndarray
+        Block-diagonal interaction matrix, one block per wavefront sensor.
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, dmParams : object
+        Configuration objects held by the reconstructor.
+    use_float32 : bool, optional
+        Compute in single precision (default is False).
+    alpha : float, optional
+        Regularization weight applied to the inversion (default is 1).
+
+    Returns
+    -------
+    tuple
+        ``(reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA)``.
     """
     cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
     # Set computation dtype

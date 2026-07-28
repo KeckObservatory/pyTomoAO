@@ -9,7 +9,7 @@ setup(
     name='pyTomoAO',
     version=get_version(),
     description='An open-source tool for tomographic reconstuction for AO systems',
-    url='https://github.com/jacotay7/pyTomoAO',
+    url='https://github.com/KeckObservatory/pyTomoAO',
     author='Jacob Taylor',
     author_email='jtaylor@keck.hawaii.edu',
     license='MIT',
@@ -22,11 +22,21 @@ setup(
         'pytest',
         'PyYAML'
     ],
+    project_urls={
+        'Documentation': 'https://keckobservatory.github.io/pyTomoAO/',
+        'Source': 'https://github.com/KeckObservatory/pyTomoAO',
+        'Issues': 'https://github.com/KeckObservatory/pyTomoAO/issues',
+    },
     extras_require={
+        # Keep in sync with docs/requirements.txt.
         'docs': [
-            'sphinx',
-            'sphinx_rtd_theme',
-            'sphinx-autodoc-typehints'
+            'sphinx>=7.2,<9',
+            'furo>=2024.1.29',
+            'myst-parser>=2.0',
+            'sphinx-autodoc-typehints>=2.0',
+            'sphinx-copybutton>=0.5.2',
+            'sphinx-design>=0.5',
+            'sphinxcontrib-mermaid>=0.9',
         ]
     },
     classifiers=[
