@@ -19,6 +19,14 @@ pytest -x -vv                                    # stop at the first failure, ve
 pytest --cov=pyTomoAO --cov-report=term-missing  # coverage with uncovered lines
 ```
 
+Version-specific behaviour is easiest to reproduce in a throwaway environment:
+
+```bash
+conda create -y -n pytomoao310 python=3.10
+conda run -n pytomoao310 pip install ".[dev]"
+conda run -n pytomoao310 pytest
+```
+
 ## What is covered
 
 | Test module                         | Covers                                            |
@@ -38,9 +46,8 @@ for both the accepted and rejected cases.
 
 `.github/workflows/test.yml` runs on pull requests and on pushes to `main` and `dev`. It
 installs the package itself — `pip install ".[dev]"` — and runs `pytest` against a matrix of
-Python 3.8 through 3.12, so both the code and the dependency metadata are checked on every
-supported version. (The 3.8 leg pins `ubuntu-22.04`, because newer runner images no longer
-ship that interpreter.)
+Python 3.9 through 3.13, so both the code and the dependency metadata are checked on every
+supported version.
 
 On the 3.12 leg it additionally runs a wrapper script rather than pytest directly:
 
@@ -78,6 +85,22 @@ before opening a pull request if you want to see exactly what CI will say.
 
 - GPU code paths cannot run on the CI runner. Guard any CuPy-dependent test with
   `pytest.importorskip("cupy")`.
+- **Do not use string patch targets for pyTomoAO modules.** `pyTomoAO/__init__.py`
+  re-exports `tomographicReconstructor` and `fitting` under the same names as their
+  modules, so `"pyTomoAO.fitting.fitting"` resolves to the class, not the module. On
+  Python 3.11+ `unittest.mock` resolves modules first and it happens to work; on 3.9 and
+  3.10 mock walks attributes and the patch fails. Patch the object instead:
+
+  ```python
+  import importlib
+
+  reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
+  with patch.object(reconstructor_module, "atmosphereParameters"):
+      ...
+  ```
+
+  Note that `import pyTomoAO.tomographicReconstructor as m` binds the *class* for the same
+  reason — use `importlib.import_module` when you need the module object.
 
 :::{note}
 Coverage depends on which backend the machine selects. `tomographyUtilsCPU` and

@@ -25,7 +25,7 @@ setup(
     author_email="jacobataylor7@gmail.com",
     license="MIT",
     packages=["pyTomoAO"],
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     # Runtime dependencies only. Test and documentation tooling lives in the
     # extras below so that installing pyTomoAO does not drag them in.
     install_requires=["numpy", "matplotlib", "numba", "scipy", "PyYAML"],
@@ -61,10 +61,10 @@ setup(
         "Environment :: MacOS X",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
 )

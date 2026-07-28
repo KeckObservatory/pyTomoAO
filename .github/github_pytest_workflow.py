@@ -2,7 +2,7 @@ import argparse
 import os
 import subprocess
 import sys
-from typing import Any, Dict
+from typing import Any
 
 
 def count_file_lines(file_path: str) -> int:
@@ -34,7 +34,7 @@ def count_directory_lines(directory: str) -> int:
     return total_lines
 
 
-def get_coverage_classification(coverage_percentage: float) -> Dict[str, Any]:
+def get_coverage_classification(coverage_percentage: float) -> dict[str, Any]:
     """
     Classify coverage percentage with detailed information.
 
@@ -42,7 +42,7 @@ def get_coverage_classification(coverage_percentage: float) -> Dict[str, Any]:
         coverage_percentage: The coverage percentage as a float
 
     Returns:
-        Dict: Detailed classification information
+        dict: Detailed classification information
     """
     if coverage_percentage < 40:
         level = "low"
@@ -67,7 +67,7 @@ def get_coverage_classification(coverage_percentage: float) -> Dict[str, Any]:
 
 def run_pytest_coverage(
     test_dir: str, cov_target_dir: str, repo_dir: str = ".", verbose: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run pytest with coverage.
 
@@ -78,7 +78,7 @@ def run_pytest_coverage(
         verbose: Whether to print detailed debug information.
 
     Returns:
-        Dict with coverage results.
+        dict with coverage results.
     """
     # Set up environment with PYTHONPATH
     env = os.environ.copy()
@@ -103,8 +103,10 @@ def run_pytest_coverage(
         print(f"Coverage target relative: {cov_target_rel}")
         print(f"PYTHONPATH: {env['PYTHONPATH']}")
 
-    # Prepare pytest command
-    pytest_cmd = ["pytest", test_path]
+    # Prepare pytest command. Invoke pytest through the interpreter running this
+    # script rather than whatever "pytest" happens to be first on PATH, so the
+    # coverage run always matches the environment under test.
+    pytest_cmd = [sys.executable, "-m", "pytest", test_path]
     if verbose:
         pytest_cmd.append("-v")
 

@@ -1,6 +1,7 @@
 # Installation
 
-pyTomoAO requires **Python 3.8 or newer** and runs on Linux, macOS and Windows.
+pyTomoAO requires **Python 3.9 or newer** and runs on Linux, macOS and Windows.
+It is tested on 3.9 through 3.13.
 
 ## From PyPI
 

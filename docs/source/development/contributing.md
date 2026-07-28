@@ -57,6 +57,11 @@ than the style you would choose in a new project:
 - **CPU and GPU kernels stay in lockstep.** `tomographyUtilsCPU` and `tomographyUtilsGPU`
   expose the same private function names and signatures; a change to one needs the matching
   change in the other.
+- **The package re-exports classes under their modules' names.** `from pyTomoAO import
+  fitting` gives the class, not the module, because `__init__.py` rebinds the name. This
+  shadowing is part of the public API, but it breaks anything that resolves dotted paths by
+  attribute lookup — use `importlib.import_module` when you need the module object, and see
+  {doc}`testing` for what it means for `unittest.mock`.
 
 ## Adding a configuration parameter
 

@@ -23,8 +23,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   warnings treated as errors, and deploys to GitHub Pages on pushes to `main`.
 - `Code health` workflow: `ruff check` and `ruff format --check` on pull requests and
   pushes, with the rule set configured in `pyproject.toml`.
-- `python_requires=">=3.8"`, matching the classifiers, so pip refuses to install on
-  interpreters the package does not support.
+- `python_requires=">=3.9"`, so pip refuses to install on interpreters the package does
+  not support.
 - Package metadata now carries a long description (the README), so the PyPI project page is
   no longer blank.
 - Dependabot configuration for GitHub Actions and the pinned docs toolchain, targeting
@@ -43,10 +43,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `[docs]` extra now installs the Sphinx/Furo/MyST toolchain, pinned in
   `docs/requirements.txt`.
 - `Run Pytest` now runs on pushes to `main`/`dev` as well as pull requests, tests a matrix
-  of Python 3.8–3.12, and installs the package itself instead of `requirements.txt` so that
+  of Python 3.9–3.13, and installs the package itself instead of `requirements.txt` so that
   dependency metadata is exercised. The coverage gate runs once, on 3.12. The workflow's
   `actions/checkout@v2` and `actions/setup-python@v2` pins, which use a retired Node
   runtime, were updated to v4/v5.
+- The coverage wrapper now runs pytest as `sys.executable -m pytest` instead of whichever
+  `pytest` is first on `PATH`, so the coverage run always matches the environment under
+  test.
 - `Publish Python Package to PyPI` now verifies distributions with `twine check --strict`
   and installs the wheel into a clean virtualenv before publishing, and publishes through a
   `pypi` GitHub environment that can carry a review rule.
@@ -63,6 +66,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   To see pyTomoAO's messages, call `logging.basicConfig(level=logging.INFO)` yourself.
 - **`pytest` is no longer a runtime dependency.** It was listed in `install_requires`, so
   every installation of pyTomoAO pulled in pytest; it now lives in the `dev` extra.
+- **Tests failed on Python 3.9 and 3.10.** `test_tomographicReconstructor` and
+  `test_fitting` patched dotted string targets such as
+  `"pyTomoAO.tomographicReconstructor.atmosphereParameters"`. Because `__init__.py`
+  re-exports those classes under their modules' names, the dotted path resolves to the
+  class; `unittest.mock` resolves modules first on 3.11+ but walks attributes on older
+  versions, so the patches raised `AttributeError` and `ModuleNotFoundError` there. The
+  tests now patch the module and class objects directly.
 - `tomographyUtilsGPU` imported `gamma` from both `cupyx.scipy.special` and
   `scipy.special`, so the first import was dead. Removed it; the module only ever calls
   `gamma` on Python floats, so behaviour is unchanged.
@@ -71,6 +81,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Support for Python 3.8**, which reached end of life in October 2024. The supported and
+  tested range is now 3.9 through 3.13.
 - The previous Read the Docs oriented Sphinx configuration, including the `sphinx_rtd_theme`
   dependency. Documentation is now published to GitHub Pages.
 - Top-level `requirements.txt`, which duplicated `install_requires` and had already drifted

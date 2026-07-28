@@ -58,7 +58,10 @@ class TestFitting:
             _ = fit_instance.non_existent_attribute
         logger.info("✅ getattr forwarding test passed")
 
-    @patch("pyTomoAO.fitting.fitting.__getattr__")
+    # Patch the class object directly: "pyTomoAO.fitting" resolves to the fitting
+    # class rather than the module (see the note in pyTomoAO/__init__.py), which
+    # breaks string patch targets on Python < 3.11.
+    @patch.object(fitting, "__getattr__")
     def test_setattr_forwarding(self, mock_getattr, fit_instance, mock_dm_params):
         """Test attribute setting forwarding to dmParams using a patch."""
         logger.info("Starting setattr forwarding test")

@@ -74,7 +74,7 @@ the Sphinx toolchain.
 
 | Workflow        | Runs on                      | Gate                                                  |
 | --------------- | ---------------------------- | ----------------------------------------------------- |
-| `Run Pytest`    | pull requests, `main`, `dev` | Test suite on Python 3.8–3.12, plus a coverage gate    |
+| `Run Pytest`    | pull requests, `main`, `dev` | Test suite on Python 3.9–3.13, plus a coverage gate    |
 | `Code health`   | pull requests, `main`, `dev` | `ruff check` and `ruff format --check`                 |
 | `Documentation` | pull requests, `main`, `dev` | Sphinx build with warnings as errors                   |
 

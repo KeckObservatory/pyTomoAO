@@ -12,8 +12,10 @@ Ensure that you have pytest installed in your environment. You can install it vi
     pip install pytest
 """
 
+import importlib
 import logging
 import os
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -29,6 +31,10 @@ logger = logging.getLogger("")
 
 logger.info("#### Starting tests for tomographicReconstructor ####")
 
+# importlib returns the module from sys.modules; a plain import statement would bind
+# the re-exported class of the same name instead.
+reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
+
 
 # Mock the parameter classes to avoid initialization errors
 @pytest.fixture
@@ -38,13 +44,18 @@ def mock_parameter_classes():
     Returns a dictionary with all mock objects for easy access in tests.
     """
     logger.debug("Setting up mock parameter classes")
-    with patch("pyTomoAO.tomographicReconstructor.atmosphereParameters") as mock_atm, patch(
-        "pyTomoAO.tomographicReconstructor.lgsAsterismParameters"
-    ) as mock_lgs_asterism, patch(
-        "pyTomoAO.tomographicReconstructor.lgsWfsParameters"
-    ) as mock_lgs_wfs, patch(
-        "pyTomoAO.tomographicReconstructor.tomographyParameters"
-    ) as mock_tomo, patch("pyTomoAO.tomographicReconstructor.dmParameters") as mock_dm:
+    # Patch the module object rather than a "pyTomoAO.tomographicReconstructor.X"
+    # string: that dotted path resolves to the tomographicReconstructor *class*
+    # (see the note in pyTomoAO/__init__.py), which breaks string patch targets on
+    # Python < 3.11, where mock walks attributes instead of resolving modules.
+    with ExitStack() as stack:
+        mock_atm = stack.enter_context(patch.object(reconstructor_module, "atmosphereParameters"))
+        mock_lgs_asterism = stack.enter_context(
+            patch.object(reconstructor_module, "lgsAsterismParameters")
+        )
+        mock_lgs_wfs = stack.enter_context(patch.object(reconstructor_module, "lgsWfsParameters"))
+        mock_tomo = stack.enter_context(patch.object(reconstructor_module, "tomographyParameters"))
+        mock_dm = stack.enter_context(patch.object(reconstructor_module, "dmParameters"))
         # Configure mock atmosphere parameters
         logger.debug("Configuring mock atmosphere parameters")
         mock_atm_instance = MagicMock()

@@ -117,7 +117,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-CI runs the suite against Python 3.8–3.12 and applies a coverage threshold. See the
+CI runs the suite against Python 3.9–3.13 and applies a coverage threshold. See the
 [testing guide](https://keckobservatory.github.io/pyTomoAO/development/testing.html).
 
 ## Changelog

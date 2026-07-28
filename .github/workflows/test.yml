@@ -16,19 +16,13 @@ concurrency:
 jobs:
   test:
     name: Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       # Report every failing version, not just the first.
       fail-fast: false
       matrix:
-        include:
-          # 3.8 is the oldest version python_requires claims; the GitHub-hosted
-          # ubuntu-latest image no longer provides it, so pin that leg to 22.04.
-          - {python-version: '3.8', os: ubuntu-22.04}
-          - {python-version: '3.9', os: ubuntu-latest}
-          - {python-version: '3.10', os: ubuntu-latest}
-          - {python-version: '3.11', os: ubuntu-latest}
-          - {python-version: '3.12', os: ubuntu-latest}
+        # Keep in sync with python_requires and the classifiers in setup.py.
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +43,7 @@ jobs:
       - name: Run tests
         run: pytest
 
-      # The coverage gate only needs to run once; use the newest version.
+      # The coverage gate only needs to run once; 3.12 matches the docs workflow.
       - name: Run coverage gate
         if: matrix.python-version == '3.12'
         run: |
