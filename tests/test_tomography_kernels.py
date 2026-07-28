@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import pytest
 from scipy.special import gamma as gamma_fn
+from scipy.special import kv
 
 from pyTomoAO import tomographyUtilsCPU as cpu
 
@@ -64,6 +65,44 @@ class TestRotationUnits:
         c0 = cpu._covariance_matrix(positions(0.0), positions(0.0), R0, L0, 1.0)
         cr = cpu._covariance_matrix(positions(0.37), positions(0.37), R0, L0, 1.0)
         assert np.allclose(c0, cr, rtol=1e-10)
+
+
+class TestBesselAccuracy:
+    """`_kv56` must track scipy across the whole range it is evaluated on (#97).
+
+    The hand-rolled kernel exists for speed -- it is ~20x faster than
+    `scipy.special.kv` -- but it switches from a series to an asymptotic expansion, and the
+    crossover is easy to get wrong. It previously sat at z = 2, where the asymptotic series
+    is nowhere near converged, costing seven digits over the range that carries most of the
+    pupil's baselines.
+    """
+
+    Z = np.logspace(-4, 1.7, 600)
+
+    def test_matches_scipy_across_the_range(self):
+        ref = kv(5 / 6, self.Z)
+        got = np.real(cpu._kv56(self.Z.astype(np.complex128)))
+        rel = np.abs(got - ref) / np.abs(ref)
+        assert rel.max() < 1e-6, f"max rel err {rel.max():.3e} at z={self.Z[rel.argmax()]:.4f}"
+
+    def test_no_discontinuity_at_the_crossover(self):
+        """A step at the crossover would show up as a kink in the covariance function."""
+        z = np.linspace(8.9, 9.1, 401)
+        ref = kv(5 / 6, z)
+        got = np.real(cpu._kv56(z.astype(np.complex128)))
+        rel = np.abs(got - ref) / np.abs(ref)
+        assert rel.max() < 1e-6, f"max rel err {rel.max():.3e} across the crossover"
+
+    def test_accurate_in_the_asymptotic_branch(self):
+        """Well past the crossover, where the a_5 coefficient carries real weight.
+
+        a_5 read 5005/177147 instead of 40040/177147 -- exactly 8x too small.
+        """
+        z = np.linspace(9.0, 40.0, 200)
+        ref = kv(5 / 6, z)
+        got = np.real(cpu._kv56(z.astype(np.complex128)))
+        rel = np.abs(got - ref) / np.abs(ref)
+        assert rel.max() < 1e-7, f"max rel err {rel.max():.3e} at z={z[rel.argmax()]:.4f}"
 
 
 class TestZeroSeparation:
