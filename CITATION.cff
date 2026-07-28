@@ -12,7 +12,11 @@ authors:
     affiliation: W. M. Keck Observatory
   - given-names: Uriel
     family-names: Conod
-    email: conod6@gmail.com
+    email: urielconod@phas.ubc.ca
+    # CFF 1.2.0 allows a single affiliation string per author, so the two are joined here.
+    affiliation: >-
+      University of British Columbia; NRC - Herzberg Astronomy and
+      Astrophysics
 repository-code: 'https://github.com/KeckObservatory/pyTomoAO'
 url: 'https://keckobservatory.github.io/pyTomoAO/'
 abstract: >-
