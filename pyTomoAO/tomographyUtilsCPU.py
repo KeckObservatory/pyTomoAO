@@ -2,6 +2,8 @@ import math
 
 import numba as nb
 import numpy as np
+from numpy.linalg import LinAlgError
+from scipy.linalg import cho_factor, cho_solve
 from scipy.sparse import block_diag
 from scipy.special import gamma
 
@@ -771,6 +773,37 @@ def _sparseGradientMatrixAmplitudeWeighted(
     return Gamma, gridMask
 
 
+def _solve_spd_from_right(B, A):
+    """Return ``B @ inv(A)`` without forming the inverse, for symmetric positive definite A.
+
+    ``A`` here is the regularised slope covariance ``Gamma Cxx Gamma^T + Cn``, which is
+    symmetric positive definite by construction. Solving is both cheaper than an explicit
+    inverse and better conditioned: forming ``inv(A)`` and multiplying squares the condition
+    number's effect on the result.
+
+    ``X = B inv(A)`` means ``X A = B``; transposing and using ``A = A^T`` gives
+    ``A X^T = B^T``, so a single Cholesky solve suffices.
+
+    Parameters
+    ----------
+    B : numpy.ndarray
+        Right-hand side, shape ``(m, n)``.
+    A : numpy.ndarray
+        Symmetric positive definite matrix, shape ``(n, n)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``B @ inv(A)``, shape ``(m, n)``.
+    """
+    try:
+        return cho_solve(cho_factor(A, lower=True, check_finite=False), B.T, check_finite=False).T
+    except LinAlgError:
+        # Regularisation should keep A positive definite; fall back rather than fail if a
+        # pathological configuration makes it indefinite.
+        return np.linalg.solve(A, B.T).T
+
+
 def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, alpha=1):
     """
     Build the model-based tomographic reconstructor on the CPU.
@@ -815,10 +848,10 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
     # Cox = CoxOut[np.ix_(row_mask, col_mask)]
     Cox = CoxOut
 
-    CnZ = np.eye(Gamma.shape[0]) * alpha * np.mean(np.diag(Gamma @ Cxx @ Gamma.T))
-    invCss = np.linalg.inv(Gamma @ Cxx @ Gamma.T + CnZ)
+    Css = Gamma @ Cxx @ Gamma.T
+    CnZ = np.eye(Gamma.shape[0]) * alpha * np.mean(np.diag(Css))
 
-    RecStatSA = Cox @ Gamma.T @ invCss
+    RecStatSA = _solve_spd_from_right(Cox @ Gamma.T, Css + CnZ)
 
     # LGS WFS subapertures diameter
     d = lgsWfsParams.DSupport / lgsWfsParams.validLLMapSupport.shape[0]
@@ -873,9 +906,7 @@ def _build_reconstructor_im(
     weight = np.ones(IM.shape[0])
     CnZ = alpha * np.diag(1 / (weight.flatten(order="F")))
 
-    invCss = np.linalg.inv(IM @ Cxx @ IM.T + CnZ)
-
-    RecStatSA = Cox @ IM.T @ invCss
+    RecStatSA = _solve_spd_from_right(Cox @ IM.T, IM @ Cxx @ IM.T + CnZ)
 
     # Compute final scaled reconstructor
     _reconstructor = RecStatSA

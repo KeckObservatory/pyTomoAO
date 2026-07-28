@@ -51,6 +51,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`force_cpu=True` now actually selects the CPU kernels.** It used to flip a module-level
+  `CUDA` flag, but the GPU functions were already bound to module names at import time, so
+  the reconstructor logged "Forcing CPU usage" and then ran the GPU kernels in float64.
+  `Cxx`, `Cox`, `CnZ` and `RecStatSA` came back as `cupy.ndarray`, and the option could not
+  serve its main purpose of side-stepping a misbehaving GPU. The backend is now resolved per
+  instance by the new `pyTomoAO.backend` module and exposed as `rec.backend` (`"cpu"` or
+  `"gpu"`); constructing one reconstructor with `force_cpu=True` no longer changes the
+  backend of any other. The module-level `pyTomoAO.tomographicReconstructor.CUDA` remains as
+  a read-only "is CuPy importable" flag (#112).
+- The reconstructor now **solves** the regularised system instead of forming an explicit
+  inverse and multiplying. `Γ·Cxx·Γᵀ + Cₙ` is symmetric positive definite, so a Cholesky
+  solve is both cheaper and better conditioned; `build_reconstructor` drops from 2.9 s to
+  2.4 s on CPU for the KAPA configuration. Results move only at round-off (8.7e-15 relative
+  in float64).
 - **A CuPy that is installed but fails to load is now reported as a warning**, with the
   underlying exception, instead of an `INFO` message claiming CUDA is unavailable. A driver
   or toolkit mismatch was indistinguishable from CuPy simply not being installed, so users
