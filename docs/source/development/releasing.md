@@ -4,6 +4,13 @@ pyTomoAO is published to [PyPI](https://pypi.org/project/pyTomoAO/) by
 `.github/workflows/publish.yml`, which runs when a GitHub **release** is created. Publishing
 uses PyPI's trusted publishing (OIDC), so no API token is stored in the repository.
 
+## The changelog
+
+`CHANGELOG.md` at the repository root follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and is rendered in the docs as
+{doc}`../changelog`. Every user-visible change should land in the `Unreleased` section as
+part of the pull request that makes it, not be reconstructed at release time.
+
 ## Version numbering
 
 The version lives in a single place, `pyTomoAO/__init__.py`:
@@ -28,13 +35,16 @@ breaking change, even though nothing in Python raises.
 
 1. Merge everything you want in the release into `dev`, with CI green.
 2. Bump `__version__` in `pyTomoAO/__init__.py` on `dev`.
-3. Open a pull request from `dev` into `main` and merge it once CI passes. This also
+3. Update `CHANGELOG.md`: rename the `Unreleased` heading to the new version with today's
+   date, add a fresh empty `Unreleased` section above it, and update the comparison links at
+   the bottom of the file.
+4. Open a pull request from `dev` into `main` and merge it once CI passes. This also
    publishes the updated documentation to GitHub Pages.
-4. Create a GitHub release targeting `main`, tagged `v<version>` (e.g. `v1.1.0`), with
-   release notes covering user-visible changes and any migration steps.
-5. Creating the release triggers `publish.yml`, which builds an sdist and wheel and uploads
+5. Create a GitHub release targeting `main`, tagged `v<version>` (e.g. `v1.1.0`), using the
+   changelog entry as the release notes.
+6. Creating the release triggers `publish.yml`, which builds an sdist and wheel and uploads
    them to PyPI.
-6. Verify the result:
+7. Verify the result:
 
    ```bash
    pip install --upgrade pyTomoAO

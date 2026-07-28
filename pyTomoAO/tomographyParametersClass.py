@@ -1,7 +1,9 @@
 # tomographyParametersClass.py
-import numpy as np
-from numbers import Number
 import math
+from numbers import Number
+
+import numpy as np
+
 
 class tomographyParameters:
     """
@@ -50,14 +52,11 @@ class tomographyParameters:
         arcsec_to_rad = np.pi / (180 * 3600)
         if self.nFitSrc == 1:
             return np.array([0.0]), np.array([0.0])
-        x = np.linspace(-self.fovOptimization/2, self.fovOptimization/2, self.nFitSrc)
+        x = np.linspace(-self.fovOptimization / 2, self.fovOptimization / 2, self.nFitSrc)
         x_grid, y_grid = np.meshgrid(x, x)
         azimuth = np.arctan2(y_grid, x_grid)
         zenith_arcsec = np.sqrt(x_grid**2 + y_grid**2)
-        return (
-            zenith_arcsec.flatten() * arcsec_to_rad,
-            azimuth.T.flatten()
-        )
+        return (zenith_arcsec.flatten() * arcsec_to_rad, azimuth.T.flatten())
 
     @property
     def optimization_shape(self) -> tuple:
@@ -67,7 +66,7 @@ class tomographyParameters:
     def directionVectorSrc(self) -> np.ndarray:
         """
         Compute 3D direction vectors for optimization sources in observer's coordinate system.
-        
+
         Returns:
             np.ndarray: 3xN array where N = nFitSrc*nFitSrc, with vectors:
                         [ [x1, x2, ...],
@@ -78,13 +77,13 @@ class tomographyParameters:
         n_src = self.nFitSrc**2
         vectors = np.zeros((3, n_src))
         zenith, azimuth = self.compute_optimization_geometry()
-        
+
         for i in range(n_src):
             # Compute transverse components
             tan_zenith = math.tan(zenith[i])
             vectors[0, i] = tan_zenith * math.cos(azimuth[i])
             vectors[1, i] = tan_zenith * math.sin(azimuth[i])
-            
+
             # Optical axis component normalized to 1
             vectors[2, i] = 1.0
 
@@ -98,29 +97,30 @@ class tomographyParameters:
             f"Altitude of fitting sources (fitSrcHeight): {self.fitSrcHeight}",
             f"Field of View (arcsec): {self.fovOptimization}",
             f"Optimization grid shape: {self.optimization_shape}",
-            f"Total optimization points: {self.nFitSrc**2}"
+            f"Total optimization points: {self.nFitSrc**2}",
         ]
-        
+
         # Add geometry preview
         zenith, azimuth = self.compute_optimization_geometry()
         lines.append("\nGeometry Preview:")
         lines.append(f"Zenith angles (rad): {self._format_array_preview(zenith)}")
         lines.append(f"Azimuth angles (rad): {self._format_array_preview(azimuth)}")
-        
+
         return "\n".join(lines)
 
     def _format_array_preview(self, arr: np.ndarray, max_items: int = 5) -> str:
         """Helper to format array previews"""
         if len(arr) <= max_items:
-            return np.array2string(arr, precision=4, separator=', ')
+            return np.array2string(arr, precision=4, separator=", ")
         return f"[{', '.join(f'{x:.4f}' for x in arr[:max_items])}, ...] ({len(arr)} total)"
-    
+
+
 # Example Usage
 if __name__ == "__main__":
     config = {
         "tomography_parameters": {
             "nFitSrc": 3,
-            "fovOptimization": 4.0  # arcseconds
+            "fovOptimization": 4.0,  # arcseconds
         }
     }
 

@@ -18,20 +18,31 @@ Feature branches
 1. Open (or claim) an issue describing the change.
 2. Branch from `dev`.
 3. Make the change, with tests for anything that could regress.
-4. Run the suite locally — see {doc}`testing`.
-5. Update the documentation if behaviour or configuration keys changed.
+4. Run the checks locally:
+
+   ```bash
+   pytest
+   ruff check .
+   ruff format .
+   ```
+
+   See {doc}`testing` and {doc}`code-style` for what these enforce.
+5. Update the documentation if behaviour or configuration keys changed, and add an entry to
+   the `Unreleased` section of `CHANGELOG.md`.
 6. Open a pull request against `dev` and reference the issue.
 
-Every pull request runs the test suite and a documentation build; both must pass.
+Every pull request runs the test suite, the lint and format checks, and a documentation
+build. All three must pass.
 
 ## Coding conventions
 
-The codebase follows a few consistent patterns. Match them rather than the style you would
-choose in a new project:
+Formatting and lint rules are enforced by ruff and described in {doc}`code-style`. Beyond
+what a linter can check, the codebase follows a few consistent patterns. Match them rather
+than the style you would choose in a new project:
 
 - **Class names are lowerCamelCase** (`tomographicReconstructor`, `dmParameters`). This is
   unusual for Python but consistent throughout, and changing it would break every existing
-  configuration script.
+  configuration script. The naming lint rules are switched off for this reason.
 - **Parameters are validated in property setters.** Each configuration class exposes
   properties that raise `TypeError` for the wrong type and `ValueError` for out-of-range
   values, with a message naming the parameter. New configuration keys should follow suit.
@@ -54,6 +65,7 @@ choose in a new project:
 3. Add it to the `__str__` output so it shows up when a user prints the object.
 4. Document it in {doc}`../user-guide/configuration`, including units and the valid range.
 5. Add it to the example configurations under `examples/benchmark/` if it is not optional.
+6. Note it in the `Unreleased` section of `CHANGELOG.md`.
 
 ## Reporting a bug
 

@@ -2,6 +2,8 @@
 
 [![Tests](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/test.yml/badge.svg)](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/test.yml)
 [![Docs](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/docs.yml/badge.svg)](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/docs.yml)
+[![Code health](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/code-health.yml/badge.svg)](https://github.com/KeckObservatory/pyTomoAO/actions/workflows/code-health.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PyPI version](https://img.shields.io/pypi/v/pyTomoAO.svg)](https://pypi.org/project/pyTomoAO/)
 [![Python versions](https://img.shields.io/pypi/pyversions/pyTomoAO.svg)](https://pypi.org/project/pyTomoAO/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -63,13 +65,30 @@ Full walkthrough: [quickstart](https://keckobservatory.github.io/pyTomoAO/gettin
 - [x] Develop detailed documentation and examples.
 - [ ] Implement MCAO reconstructor
 
-### Development Setup
+## Development
+
+### Setup
 
 ```sh
 git clone https://github.com/KeckObservatory/pyTomoAO.git
 cd pyTomoAO
-pip install -e ".[docs]"
+pip install -e ".[docs,dev]"
 ```
+
+### Code Style
+
+Linting and formatting are handled by [ruff](https://docs.astral.sh/ruff/), configured in
+`pyproject.toml` and enforced by the `Code health` workflow:
+
+```sh
+ruff check .            # lint
+ruff format .           # format
+ruff format --check .   # what CI checks
+```
+
+Naming rules are deliberately disabled: class names such as `tomographicReconstructor` are
+public API, and matrix names such as `Gamma` and `Cxx` mirror the equations they implement.
+See the [code style guide](https://keckobservatory.github.io/pyTomoAO/development/code-style.html).
 
 ### Documentation
 
@@ -105,12 +124,18 @@ pytest
 
 This will automatically discover and run all the test files in the repository.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history, and the `Unreleased` section for what
+is coming next.
+
 ## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests. Branch from
 `dev` and open the pull request against `dev`; see the
 [contributing guide](https://keckobservatory.github.io/pyTomoAO/development/contributing.html)
-for conventions.
+for conventions. Pull requests must pass the tests, the ruff lint/format checks and the
+documentation build, and should add an entry to the changelog.
 
 ## License
 
@@ -119,5 +144,5 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 ## Contact
 
 For questions and discussions, open an issue on GitHub or contact one of:
-- **Jacob Taylor** (Software): jtaylor@keck.hawaii.edu
+- **Jacob Taylor** (Software): jacobataylor7@gmail.com
 - **Uriel Conod** (Algorithm): urielconod@phas.ubc.ca

@@ -14,6 +14,13 @@ configuration questions and pull requests are all welcome.
 Branching model, coding conventions and the pull request checklist.
 :::
 
+:::{grid-item-card} {octicon}`sparkle-fill;1.2em` Code style
+:link: code-style
+:link-type: doc
+
+The ruff lint and format gate, and why certain rules are switched off.
+:::
+
 :::{grid-item-card} {octicon}`checklist;1.2em` Testing
 :link: testing
 :link-type: doc
@@ -57,6 +64,19 @@ pyTomoAO/
 ```bash
 git clone https://github.com/KeckObservatory/pyTomoAO.git
 cd pyTomoAO
-pip install -e ".[docs]"
-pip install pytest pytest-cov
+pip install -e ".[docs,dev]"
 ```
+
+The `dev` extra installs pytest, coverage and the pinned ruff used by CI; `docs` installs
+the Sphinx toolchain.
+
+## What CI checks
+
+| Workflow        | Runs on                        | Gate                                              |
+| --------------- | ------------------------------ | ------------------------------------------------- |
+| `Run Pytest`    | pull requests                  | Test suite and a coverage threshold                |
+| `Code health`   | pull requests, `main`, `dev`   | `ruff check` and `ruff format --check`             |
+| `Documentation` | pull requests, `main`, `dev`   | Sphinx build with warnings as errors               |
+
+`Documentation` additionally deploys to GitHub Pages on pushes to `main`, and
+`Publish Python Package to PyPI` runs when a GitHub release is created.

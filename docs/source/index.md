@@ -120,6 +120,7 @@ tutorials/ltao-kapa
 :caption: Reference
 
 api/index
+changelog
 ```
 
 ```{toctree}
@@ -128,6 +129,7 @@ api/index
 
 development/index
 development/contributing
+development/code-style
 development/testing
 development/documentation
 development/releasing
