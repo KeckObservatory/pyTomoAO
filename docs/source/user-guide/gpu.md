@@ -54,11 +54,17 @@ exactly, for benchmarking, or when the GPU is busy:
 reconstructor = tomographicReconstructor("config.yaml", force_cpu=True)
 ```
 
-:::{warning}
-`force_cpu` sets a module-level flag, so it affects every reconstructor created afterwards
-in the same process, not just this one. Keep CPU-forced work in its own process if you also
-need GPU results.
-:::
+The backend is resolved when the object is constructed and is fixed for its lifetime. Check
+which one you got with `reconstructor.backend`, which returns `"cpu"` or `"gpu"`:
+
+```python
+>>> reconstructor.backend
+'cpu'
+```
+
+Mixing CPU-forced and GPU reconstructors in one process is fine — each keeps its own
+backend. `pyTomoAO.tomographicReconstructor.CUDA` reports whether CuPy is importable at all,
+and is not affected by `force_cpu`.
 
 ## Precision
 

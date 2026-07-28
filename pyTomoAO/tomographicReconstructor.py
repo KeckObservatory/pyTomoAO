@@ -11,6 +11,7 @@ import numpy as np
 import yaml
 from scipy.io import loadmat
 
+from pyTomoAO import backend
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 from pyTomoAO.dmParametersClass import dmParameters
 from pyTomoAO.fitting import fitting
@@ -22,45 +23,9 @@ from pyTomoAO.tomographyParametersClass import tomographyParameters
 # only attaches a NullHandler (see pyTomoAO/__init__.py).
 logger = logging.getLogger(__name__)
 
-try:
-    CUDA = True
-    from pyTomoAO.tomographyUtilsGPU import (
-        _auto_correlation,
-        _build_reconstructor_im,
-        _build_reconstructor_model,
-        _cross_correlation,
-        _sparseGradientMatrixAmplitudeWeighted,
-    )
-
-    logger.info("\nCUDA is available. Using GPU for computations.")
-except Exception as _gpu_import_error:
-    # Fall back to the CPU kernels. CuPy simply not being installed is the ordinary case
-    # and is reported at INFO; anything else -- a driver or toolkit mismatch, a partial
-    # install, no visible device -- means the user asked for GPU support and is not getting
-    # it, which costs roughly 35x on a reconstructor build. That is worth a warning with
-    # the underlying error attached, rather than a message claiming CuPy is absent.
-    CUDA = False
-    from pyTomoAO.tomographyUtilsCPU import (
-        _auto_correlation,
-        _build_reconstructor_im,
-        _build_reconstructor_model,
-        _cross_correlation,
-        _sparseGradientMatrixAmplitudeWeighted,
-    )
-
-    if isinstance(_gpu_import_error, ModuleNotFoundError):
-        logger.info(
-            "\nCuPy is not installed; using the CPU backend. "
-            "Install pyTomoAO[gpu] for GPU acceleration."
-        )
-    else:
-        logger.warning(
-            "\nCuPy is installed but the GPU backend could not be loaded, so pyTomoAO is "
-            "falling back to the CPU backend: %s: %s",
-            type(_gpu_import_error).__name__,
-            _gpu_import_error,
-        )
-    del _gpu_import_error
+#: Whether the CuPy kernels are importable. Read-only: the backend a given reconstructor
+#: actually uses is resolved per instance (see ``force_cpu``) and exposed as ``rec.backend``.
+CUDA = backend.cuda_available()
 
 
 class tomographicReconstructor:
@@ -136,10 +101,12 @@ class tomographicReconstructor:
         object.__setattr__(self, "tomoParams", None)
         object.__setattr__(self, "dmParams", None)
 
-        # If force_cpu is True, override CUDA availability
-        global CUDA
+        # Resolve the kernel backend for this instance. This used to flip a module-level
+        # CUDA flag, which did not work: the GPU functions were already bound at import, so
+        # force_cpu logged that it was forcing the CPU and then ran on the GPU anyway. It
+        # also changed the backend for every other reconstructor in the process.
+        object.__setattr__(self, "_backend", backend.get_backend("cpu" if force_cpu else "auto"))
         if force_cpu:
-            CUDA = False
             logger.info("\nForcing CPU usage for computations.")
 
         logger.info("\n-->> Initializing reconstructor object <<--")
@@ -263,6 +230,23 @@ class tomographicReconstructor:
         else:
             logger.error("Invalid reconstructor value. Must be a 2D numpy array of floats.")
             raise ValueError("Reconstructor must be a 2D numpy array of floats.")
+
+    @property
+    def backend(self):
+        """
+        Name of the kernel backend this reconstructor uses.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        str
+            ``"gpu"`` or ``"cpu"``. Fixed when the object is constructed; pass
+            ``force_cpu=True`` to select the CPU kernels even where CuPy is available.
+        """
+        return self._backend.name
 
     @property
     def R(self):
@@ -429,6 +413,7 @@ class tomographicReconstructor:
             "_reconstructor",
             "_gridMask",
             "_wavefront2Meter",
+            "_backend",
             "config",
             "valid_constructor_type",
             "fit",
@@ -537,7 +522,7 @@ class tomographicReconstructor:
             validLenslet if validLenslet is not None else self.lgsWfsParams.validLLMapSupport
         )
 
-        Gamma, gridMask = _sparseGradientMatrixAmplitudeWeighted(
+        Gamma, gridMask = self._backend._sparseGradientMatrixAmplitudeWeighted(
             validLenslet, amplMask, overSampling
         )
         self._gridMask = gridMask
@@ -558,7 +543,7 @@ class tomographicReconstructor:
             The auto-correlation matrix (Cxx)
         """
         logger.info("\n-->> Computing auto-correlation meta-matrix <<--")
-        Cxx = _auto_correlation(
+        Cxx = self._backend._auto_correlation(
             self.tomoParams,
             self.lgsWfsParams,
             self.atmParams,
@@ -583,7 +568,7 @@ class tomographicReconstructor:
             The cross-correlation matrix (Cox)
         """
         logger.info("\n-->> Computing cross-correlation meta-matrix <<--")
-        Cox = _cross_correlation(
+        Cox = self._backend._cross_correlation(
             self.tomoParams, self.lgsWfsParams, self.atmParams, self.lgsAsterismParams, gridMask
         )
         self.Cox = Cox
@@ -620,30 +605,22 @@ class tomographicReconstructor:
         - Model-based: Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA
         - IM-based: gridMask, Cxx, Cox, Cnz, RecStatSA
         """
+        # Only the GPU kernels take use_float32; the CPU ones always work in float64.
+        precision = {"use_float32": True} if self._backend.is_gpu else {}
+
         if IM is None:
             # Model based reconstructor
             logger.info("\n-->> Computing model based reconstructor <<--")
-            if CUDA:
-                _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = (
-                    _build_reconstructor_model(
-                        self.tomoParams,
-                        self.lgsWfsParams,
-                        self.atmParams,
-                        self.lgsAsterismParams,
-                        use_float32=True,
-                        alpha=alpha,
-                    )
+            _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = (
+                self._backend._build_reconstructor_model(
+                    self.tomoParams,
+                    self.lgsWfsParams,
+                    self.atmParams,
+                    self.lgsAsterismParams,
+                    alpha=alpha,
+                    **precision,
                 )
-            else:
-                _reconstructor, Gamma, gridMask, Cxx, Cox, Cnz, RecStatSA = (
-                    _build_reconstructor_model(
-                        self.tomoParams,
-                        self.lgsWfsParams,
-                        self.atmParams,
-                        self.lgsAsterismParams,
-                        alpha=alpha,
-                    )
-                )
+            )
             self.method = "Model"
             self._reconstructor = _reconstructor
             self.Gamma = Gamma
@@ -658,19 +635,8 @@ class tomographicReconstructor:
             logger.info("\n-->> Computing IM based reconstructor <<--")
             # load IM
             self.IM = IM
-            if CUDA:
-                _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor_im(
-                    self.IM,
-                    self.tomoParams,
-                    self.lgsWfsParams,
-                    self.atmParams,
-                    self.lgsAsterismParams,
-                    self.dmParams,
-                    use_float32=True,
-                    alpha=alpha,
-                )
-            else:
-                _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = _build_reconstructor_im(
+            _reconstructor, gridMask, Cxx, Cox, Cnz, RecStatSA = (
+                self._backend._build_reconstructor_im(
                     self.IM,
                     self.tomoParams,
                     self.lgsWfsParams,
@@ -678,7 +644,9 @@ class tomographicReconstructor:
                     self.lgsAsterismParams,
                     self.dmParams,
                     alpha=alpha,
+                    **precision,
                 )
+            )
             self.method = "IM"
             self._reconstructor = _reconstructor
             self._gridMask = gridMask

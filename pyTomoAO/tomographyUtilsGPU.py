@@ -939,11 +939,9 @@ def _build_reconstructor_model(
         GammaCxxGammaT = Gamma @ Cxx @ Gamma.T
         GammaCxxGammaT_reg = GammaCxxGammaT + CnZ
 
-        eye = cp.eye(GammaCxxGammaT_reg.shape[0], dtype=GammaCxxGammaT_reg.dtype)
-        invCss = cp.linalg.solve(GammaCxxGammaT_reg, eye)
-
-        # Final computation of reconstructor - match CPU exactly
-        RecStatSA = Cox @ Gamma.T @ invCss
+        # Solve rather than forming the inverse and multiplying; see the CPU kernel's
+        # _solve_spd_from_right for the identity used here.
+        RecStatSA = cp.linalg.solve(GammaCxxGammaT_reg, (Cox @ Gamma.T).T).T
 
         # LGS WFS subapertures diameter
         d = lgsWfsParams.DSupport / lgsWfsParams.validLLMapSupport.shape[0]
@@ -1035,11 +1033,9 @@ def _build_reconstructor_im(
         IMCxxIMT = IM @ Cxx @ IM.T
         IMCxxIMT_reg = IMCxxIMT + CnZ
 
-        eye = cp.eye(IMCxxIMT_reg.shape[0], dtype=IMCxxIMT_reg.dtype)
-        invCss = cp.linalg.solve(IMCxxIMT_reg, eye)
-
-        # Final computation of reconstructor - match CPU exactly
-        RecStatSA = Cox @ IM.T @ invCss
+        # Solve rather than forming the inverse and multiplying; see the CPU kernel's
+        # _solve_spd_from_right for the identity used here.
+        RecStatSA = cp.linalg.solve(IMCxxIMT_reg, (Cox @ IM.T).T).T
 
         # Compute final scaled reconstructor
         _reconstructor = cp.asnumpy(RecStatSA)
