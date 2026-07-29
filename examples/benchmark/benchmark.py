@@ -103,6 +103,13 @@ def report(results):
             print(f"{'':<22} {'agree':<8} {entry['backend_agreement']:>10.2e} (relative)")
 
 
+#: A run must be slower than the baseline by both the relative tolerance *and* this many
+#: seconds to count as a regression. Without the absolute floor, the sub-100 ms
+#: configurations trip on ordinary timing jitter -- a 0.09 s build drifting to 0.12 s is
+#: +30%, which says nothing about the code.
+MIN_REGRESSION_SECONDS = 0.25
+
+
 def compare(results, tolerance):
     """Compare against the committed baseline. Returns True if nothing regressed."""
     if not BASELINE.exists():
@@ -130,9 +137,11 @@ def compare(results, tolerance):
             now = entry[label]["min"]
             change = now / was - 1.0
             flag = ""
-            if change > tolerance:
+            if change > tolerance and now - was > MIN_REGRESSION_SECONDS:
                 flag = "  REGRESSION"
                 ok = False
+            elif change > tolerance:
+                flag = "  (noise)"
             print(f"{name:<22} {label:<8} {was:>10.3f} {now:>10.3f} {change:>+9.1%}{flag}")
     return ok
 

@@ -24,6 +24,51 @@
 - **GPU acceleration** through CuPy, selected automatically when it is available, with a
   NumPy/Numba CPU backend otherwise.
 
+## Performance
+
+Time to build a complete tomographic reconstructor, on the configurations bundled with the
+package:
+
+| Configuration | LGS | Subaps/WFS | Opt. dirs | Reconstructor | CPU | GPU | Speed-up |
+| :------------ | --: | ---------: | --------: | ------------: | ------: | ---------: | -------: |
+| `revolt` — 1.2 m, single WFS | 1 | 188 | 1 | 817 × 376 | 0.09 s | **0.011 s** | **8×** |
+| `kapa` — Keck 10 m, four LGS | 4 | 304 | 1 | 1312 × 2432 | 2.47 s | **0.081 s** | **30×** |
+| `keck` — 7.9 m, field-optimised | 4 | 304 | 49 | 1312 × 2432 | 35.6 s | **0.614 s** | **58×** |
+
+The GPU advantage grows with the problem — **8× to 58×** across these. Field optimisation
+over 49 directions takes half a minute on CPU and just over half a second on GPU.
+
+These are the numbers in `examples/benchmark/baseline.json`; reproduce them with:
+
+```sh
+python examples/benchmark/benchmark.py                    # all bundled configurations
+python examples/benchmark/benchmark.py --check-baseline   # compare against the baseline
+```
+
+<details>
+<summary>Test setup and methodology</summary>
+
+| | |
+| --- | --- |
+| CPU | AMD Ryzen 9 9950X3D, 16 cores / 32 threads |
+| GPU | NVIDIA RTX 5090, 32 GB |
+| RAM | 32 GB |
+| Software | Linux, Python 3.12, NumPy 2.2, SciPy 1.16, Numba 0.63, CuPy 13.6 |
+
+Best of five runs. The first build on each backend is discarded: it measures Numba and CuPy
+compiling their kernels, not the reconstruction. Timings cover the whole
+`build_reconstructor` call — gradient operator, covariance matrices and the regularised
+solve — not a kernel in isolation.
+
+The GPU kernels work in single precision, so CPU and GPU reconstructors agree to roughly
+1e-4 relative. That is the float32 floor, not a defect; use `force_cpu=True` if you need
+float64 end to end.
+
+`examples/benchmark/baseline.json` holds a recorded set of these numbers, and
+`--check-baseline` fails if a change makes anything more than 25% slower.
+
+</details>
+
 ## Installation
 
 ```sh
