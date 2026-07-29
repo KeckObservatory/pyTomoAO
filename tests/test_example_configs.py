@@ -4,15 +4,13 @@ The published wheel used to contain no data at all, so the configuration path in
 README raised FileNotFoundError for anyone who installed with pip.
 """
 
-import importlib
 from pathlib import Path
 
 import pytest
 import yaml
 
 from pyTomoAO import example_config, list_example_configs
-
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
+from pyTomoAO import reconstructor as reconstructor_module
 
 REQUIRED_SECTIONS = (
     "atmosphere_parameters",

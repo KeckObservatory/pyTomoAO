@@ -85,22 +85,20 @@ before opening a pull request if you want to see exactly what CI will say.
 
 - GPU code paths cannot run on the CI runner. Guard any CuPy-dependent test with
   `pytest.importorskip("cupy")`.
-- **Do not use string patch targets for pyTomoAO modules.** `pyTomoAO/__init__.py`
-  re-exports `tomographicReconstructor` and `fitting` under the same names as their
-  modules, so `"pyTomoAO.fitting.fitting"` resolves to the class, not the module. On
-  Python 3.11+ `unittest.mock` resolves modules first and it happens to work; on 3.9 and
-  3.10 mock walks attributes and the patch fails. Patch the object instead:
+- **Importing a module gives you the module.** No module shares a name with a class it
+  defines, so ordinary imports and `unittest.mock` string targets both behave normally:
 
   ```python
-  import importlib
+  from pyTomoAO import reconstructor
 
-  reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
-  with patch.object(reconstructor_module, "atmosphereParameters"):
+  with patch.object(reconstructor, "atmosphereParameters"):
       ...
   ```
 
-  Note that `import pyTomoAO.tomographicReconstructor as m` binds the *class* for the same
-  reason — use `importlib.import_module` when you need the module object.
+  Before 2.0 the package re-exported `tomographicReconstructor` and `fitting` under their
+  own modules' names, so those dotted paths resolved to the *classes*. Tests had to reach
+  for `importlib.import_module`, and string patch targets silently failed on Python 3.9 and
+  3.10. Both modules were renamed (`reconstructor`, `dm_fitting`); the workarounds are gone.
 
 :::{note}
 Coverage depends on which backend the machine selects. `tomographyUtilsCPU` and

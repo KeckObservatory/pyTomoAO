@@ -17,7 +17,7 @@ pip install .
 ```python
 import numpy as np
 from pyTomoAO import example_config
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.reconstructor import tomographicReconstructor
 ```
 
 ## Step 1 — Load the configuration

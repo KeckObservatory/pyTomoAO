@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.append("..")
 
-# Module logger; see the note in pyTomoAO/tomographicReconstructor.py.
+# Module logger; see the note in pyTomoAO/reconstructor.py.
 logger = logging.getLogger(__name__)
 
 
@@ -539,8 +539,8 @@ class fitting:
 # Main execution block
 if __name__ == "__main__":
     from pyTomoAO import example_config
-    from pyTomoAO.fitting import fitting
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.dm_fitting import fitting
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     # Load the reconstructor
     reconstructor = tomographicReconstructor(example_config("revolt"))

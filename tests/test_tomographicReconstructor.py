@@ -12,7 +12,6 @@ Ensure that you have pytest installed in your environment. You can install it vi
     pip install pytest
 """
 
-import importlib
 import logging
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
@@ -20,6 +19,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import yaml
+
+from pyTomoAO import reconstructor as reconstructor_module
 
 # Configure logging
 logging.basicConfig(
@@ -30,10 +31,6 @@ logger = logging.getLogger("")
 
 logger.info("#### Starting tests for tomographicReconstructor ####")
 
-# importlib returns the module from sys.modules; a plain import statement would bind
-# the re-exported class of the same name instead.
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
-
 
 # Mock the parameter classes to avoid initialization errors
 @pytest.fixture
@@ -43,10 +40,6 @@ def mock_parameter_classes():
     Returns a dictionary with all mock objects for easy access in tests.
     """
     logger.debug("Setting up mock parameter classes")
-    # Patch the module object rather than a "pyTomoAO.tomographicReconstructor.X"
-    # string: that dotted path resolves to the tomographicReconstructor *class*
-    # (see the note in pyTomoAO/__init__.py), which breaks string patch targets on
-    # Python < 3.11, where mock walks attributes instead of resolving modules.
     with ExitStack() as stack:
         mock_atm = stack.enter_context(patch.object(reconstructor_module, "atmosphereParameters"))
         mock_lgs_asterism = stack.enter_context(
@@ -156,7 +149,7 @@ def test_initialization(simple_config, mock_parameter_classes):
     correctly instantiates all required parameter classes.
     """
     logger.info("Starting initialization test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     logger.debug("Creating reconstructor instance")
     reconstructor = tomographicReconstructor(simple_config)
@@ -185,7 +178,7 @@ def test_attribute_forwarding_uppdate(simple_config, mock_parameter_classes):
     accessible directly from the reconstructor instance.
     """
     logger.info("Starting attribute forwarding test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     logger.debug("Creating reconstructor instance")
     reconstructor = tomographicReconstructor(simple_config)
@@ -221,7 +214,7 @@ def test_reconstruct_wavefront(simple_config, mock_parameter_classes):
     to the input slopes and maps the result to a proper wavefront.
     """
     logger.info("Starting reconstruct_wavefront test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     logger.debug("Creating reconstructor instance")
     reconstructor = tomographicReconstructor(simple_config)
@@ -276,7 +269,7 @@ def test_reconstructor_property_build(simple_config, mock_parameter_classes):
     Verifies the lazy-loading mechanism works correctly.
     """
     logger.info("Starting reconstructor property test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     # Create the reconstructor
     logger.debug("Creating reconstructor instance")
@@ -305,7 +298,7 @@ def test_R_property_alias(simple_config, mock_parameter_classes):
     Verifies both getter and setter functionality.
     """
     logger.info("Starting R property alias test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     # Create a reconstructor instance
     logger.debug("Creating reconstructor instance")
@@ -340,7 +333,7 @@ def test_visualize_reconstruction(simple_config, mock_parameter_classes):
     Verifies that appropriate figures are created for both with and without reference wavefronts.
     """
     logger.info("Starting visualization test")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     # Create the reconstructor
     logger.debug("Creating reconstructor instance")
@@ -393,7 +386,7 @@ def test_initialization_with_invalid_config():
     Verifies proper error handling.
     """
     logger.info("Starting test with invalid config file")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     logger.debug("Attempting to initialize with non-existent file")
     with pytest.raises(FileNotFoundError):
@@ -407,7 +400,7 @@ def test_build_reconstructor_error(simple_config, mock_parameter_classes):
     """Test error handling in build_reconstructor."""
     import pytest
 
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     logger.info("Starting test for error handling in build_reconstructor.")
 
@@ -454,7 +447,7 @@ def _phase_screen(n, kind):
 @pytest.fixture(scope="module")
 def kapa_reconstructor(kapa_config):
     """Built once for the whole module -- the build is the expensive part."""
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     rec = tomographicReconstructor(kapa_config)
     rec.build_reconstructor()
@@ -504,7 +497,7 @@ def test_reconstruction_recovers_known_phase(kapa_reconstructor, kind, min_corre
 def test_full_reconstruction(kapa_config):
     """Integration test for the full reconstruction pipeline."""
     logger.info("Starting integration test for full reconstruction pipeline.")
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
 
     config_file = kapa_config
     logger.debug(f"Using config file: {config_file}")

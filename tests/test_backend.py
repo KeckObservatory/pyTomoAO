@@ -5,14 +5,12 @@ flipped a module-level flag, but the GPU functions were already bound at import.
 changed the backend for every other reconstructor in the process.
 """
 
-import importlib
 import logging
 
 import pytest
 
 from pyTomoAO import backend
-
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
+from pyTomoAO import reconstructor as reconstructor_module
 
 logger = logging.getLogger(__name__)
 

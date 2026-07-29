@@ -7,8 +7,8 @@ start with {doc}`../user-guide/concepts` instead.
 
 | Class                                                                    | What it does                                                    |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| {py:class}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor`   | Loads the configuration and builds the reconstruction matrices   |
-| {py:class}`~pyTomoAO.fitting.fitting`                                    | Influence functions and the phase-to-command projection          |
+| {py:class}`~pyTomoAO.reconstructor.tomographicReconstructor`   | Loads the configuration and builds the reconstruction matrices   |
+| {py:class}`~pyTomoAO.dm_fitting.fitting`                                    | Influence functions and the phase-to-command projection          |
 | {py:class}`~pyTomoAO.atmosphereParametersClass.atmosphereParameters`     | Layered turbulence model with airmass corrections                |
 | {py:class}`~pyTomoAO.lgsAsterismParametersClass.lgsAsterismParameters`   | Guide star asterism geometry and direction vectors               |
 | {py:class}`~pyTomoAO.lgsWfsParametersClass.lgsWfsParameters`             | Shack–Hartmann geometry and valid subaperture map                |
@@ -18,9 +18,12 @@ start with {doc}`../user-guide/concepts` instead.
 All seven classes are re-exported at package level, so either import style works:
 
 ```python
-from pyTomoAO import tomographicReconstructor              # convenient
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor   # explicit
+from pyTomoAO import tomographicReconstructor                # convenient
+from pyTomoAO.reconstructor import tomographicReconstructor  # explicit
 ```
+
+Module names are distinct from the class names, so `import pyTomoAO.reconstructor` gives
+the module and `from pyTomoAO import tomographicReconstructor` gives the class.
 
 ## Classes
 
@@ -32,8 +35,8 @@ Each class gets its own page with every public method and property.
    :template: autosummary/class.rst
    :nosignatures:
 
-   pyTomoAO.tomographicReconstructor.tomographicReconstructor
-   pyTomoAO.fitting.fitting
+   pyTomoAO.reconstructor.tomographicReconstructor
+   pyTomoAO.dm_fitting.fitting
    pyTomoAO.atmosphereParametersClass.atmosphereParameters
    pyTomoAO.lgsAsterismParametersClass.lgsAsterismParameters
    pyTomoAO.lgsWfsParametersClass.lgsWfsParameters

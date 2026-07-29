@@ -1,7 +1,7 @@
 # Configuration reference
 
 Everything pyTomoAO needs comes from a single YAML file, passed to
-{py:class}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor`. The file has five
+{py:class}`~pyTomoAO.reconstructor.tomographicReconstructor`. The file has five
 sections, each of which maps onto one parameter class:
 
 | YAML section            | Parameter class                                                       |
@@ -221,7 +221,7 @@ across the field — the LTAO-versus-GLAO knob.
 The bundled example files also contain a `noise_parameters` section with an `iNoiseVar`
 key. It is a leftover from an earlier interface and is **not read** by the current code:
 measurement-noise regularisation is controlled by the `alpha` argument of
-{py:meth}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor.build_reconstructor`.
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.build_reconstructor`.
 Leaving the section in place is harmless — any key pyTomoAO does not recognise is ignored.
 
 ## Inspecting a loaded configuration

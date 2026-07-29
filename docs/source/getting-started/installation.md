@@ -111,13 +111,13 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.reconstructor import tomographicReconstructor
 ```
 
 You will then see progress messages, including which backend was selected:
 
 ```text
-INFO:pyTomoAO.tomographicReconstructor:
+INFO:pyTomoAO.reconstructor:
 CUDA is not available. Using CPU for computations.
 ```
 

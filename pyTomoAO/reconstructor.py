@@ -13,8 +13,8 @@ from scipy.io import loadmat
 
 from pyTomoAO import backend
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
+from pyTomoAO.dm_fitting import fitting
 from pyTomoAO.dmParametersClass import dmParameters
-from pyTomoAO.fitting import fitting
 from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
 from pyTomoAO.tomographyParametersClass import tomographyParameters

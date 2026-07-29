@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.reconstructor import tomographicReconstructor
 
 
 def benchmark_reconstructor(library, num_iterations=5):
