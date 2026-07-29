@@ -486,12 +486,10 @@ def _auto_correlation(
     kGs[0] = 1
     kGs = kGs[kGs != 0]
 
-    # The covariance was previously evaluated over the full sampling x sampling grid and
-    # then cut down to the valid points, discarding ~71% of the work. Masking the
-    # coordinates instead is exactly equivalent -- the rows and columns of the covariance
-    # are indexed by iZ.T.flatten() and jZ.T.flatten(), so taking the same entries from
-    # those vectors selects the same pairs -- and the mask does not depend on the layer, so
-    # it is applied once per guide-star pair rather than once per layer.
+    # Grid points are indexed in C order, matching the columns of the gradient operator and
+    # the scatter in reconstruct_wavefront. Masking the coordinates rather than the finished
+    # covariance avoids evaluating ~71% of the Bessel calls only to discard them, and the
+    # mask does not depend on the layer, so it is applied once per guide-star pair.
     mask_flat = mask_gpu.flatten()
     mask_indices = cp.where(mask_flat)[0]
     mask_sum = len(mask_indices)
@@ -522,10 +520,10 @@ def _auto_correlation(
             use_float32,
         )
 
-        x1_gpu = x1_gpu.T.flatten()[mask_indices]
-        y1_gpu = y1_gpu.T.flatten()[mask_indices]
-        x2_gpu = x2_gpu.T.flatten()[mask_indices]
-        y2_gpu = y2_gpu.T.flatten()[mask_indices]
+        x1_gpu = x1_gpu.flatten()[mask_indices]
+        y1_gpu = y1_gpu.flatten()[mask_indices]
+        x2_gpu = x2_gpu.flatten()[mask_indices]
+        y2_gpu = y2_gpu.flatten()[mask_indices]
 
         for kLayer in range(nLayer):
             # Calculate coordinates
@@ -671,10 +669,10 @@ def _cross_correlation(
         x2_gpu, y2_gpu = cp.meshgrid(x_range, y_range)
 
         # As in _auto_correlation, mask the coordinates rather than the finished covariance
-        x1_gpu = x1_gpu.T.flatten()[mask_indices]
-        y1_gpu = y1_gpu.T.flatten()[mask_indices]
-        x2_gpu = x2_gpu.T.flatten()[mask_indices]
-        y2_gpu = y2_gpu.T.flatten()[mask_indices]
+        x1_gpu = x1_gpu.flatten()[mask_indices]
+        y1_gpu = y1_gpu.flatten()[mask_indices]
+        x2_gpu = x2_gpu.flatten()[mask_indices]
+        y2_gpu = y2_gpu.flatten()[mask_indices]
 
         for kLayer in range(nLayer):
             # Calculate coordinates
@@ -845,8 +843,8 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
     import numpy as np
     from scipy.sparse import csr_matrix
 
-    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order="F")
-    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order="F")
+    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap))
+    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap))
     v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
 
     # Construct final sparse gradient matrix

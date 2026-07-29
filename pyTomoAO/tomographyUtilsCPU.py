@@ -427,12 +427,10 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
     kGs[0] = 1
     kGs = kGs[kGs != 0]
 
-    # The covariance was previously evaluated over the full sampling x sampling grid and
-    # then cut down to the valid points, discarding ~71% of the Bessel evaluations on the
-    # function that dominates runtime. Masking the coordinates first is exactly equivalent:
-    # the rows and columns of `out` are indexed by iZ.T.flatten() and jZ.T.flatten(), so
-    # selecting the same entries from those vectors selects the same pairs. The mask does
-    # not depend on the layer, so it is applied once, outside the loop.
+    # Grid points are indexed in C order, matching the columns of the gradient operator and
+    # the scatter in reconstruct_wavefront. Masking the coordinates rather than the finished
+    # covariance avoids evaluating ~71% of the Bessel calls only to discard them, and the
+    # mask does not depend on the layer, so it is applied once outside the loop.
     mask_flat = mask.flatten()
     S = [None] * len(kGs)
 
@@ -457,8 +455,8 @@ def _auto_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, gr
             wfsLensletsOffset[0, jGs],
             wfsLensletsOffset[1, jGs],
         )
-        x1, y1 = x1.T.flatten()[mask_flat], y1.T.flatten()[mask_flat]
-        x2, y2 = x2.T.flatten()[mask_flat], y2.T.flatten()[mask_flat]
+        x1, y1 = x1.flatten()[mask_flat], y1.flatten()[mask_flat]
+        x2, y2 = x2.flatten()[mask_flat], y2.flatten()[mask_flat]
 
         for kLayer in range(nLayer):
             # Calculate the scaled and shifted coordinates for the first and second guide stars
@@ -606,8 +604,8 @@ def _cross_correlation(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, g
             np.linspace(-1, 1, sampling) * D / 2, np.linspace(-1, 1, sampling) * D / 2
         )
 
-        x1, y1 = x1.T.flatten()[mask_flat], y1.T.flatten()[mask_flat]
-        x2, y2 = x2.T.flatten()[mask_flat], y2.T.flatten()[mask_flat]
+        x1, y1 = x1.flatten()[mask_flat], y1.flatten()[mask_flat]
+        x2, y2 = x2.flatten()[mask_flat], y2.flatten()[mask_flat]
 
         for kLayer in range(nLayer):
             # Calculate the scaled and shifted coordinates for the first and second guide stars
@@ -759,8 +757,8 @@ def _sparseGradientMatrixAmplitudeWeighted(
     import numpy as np
     from scipy.sparse import csr_matrix
 
-    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap), order="F")
-    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap), order="F")
+    indx = np.ravel_multi_index((i_x.astype(int) - 1, j_x.astype(int) - 1), (nMap, nMap))
+    indy = np.ravel_multi_index((i_y.astype(int) - 1, j_y.astype(int) - 1), (nMap, nMap))
     v = np.tile(np.arange(1, 2 * nValidLenslet_ + 1), (u.size, 1)).T
 
     # Construct final sparse gradient matrix
