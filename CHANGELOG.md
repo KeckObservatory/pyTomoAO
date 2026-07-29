@@ -14,6 +14,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Breaking
 
+- **The reconstructor no longer forwards arbitrary attributes to the parameter objects, and
+  assigning an unknown name now raises `AttributeError`** (#117).
+
+  `__getattr__` and `__setattr__` used to resolve any unknown attribute by searching five
+  parameter objects in turn — about 200 lines, plus a hand-maintained 15-entry
+  `special_attrs` list and a bespoke fan-out for `nLGS`. The cost was that a misspelled
+  parameter fell through to `object.__setattr__` and became a new attribute:
+
+  ```python
+  rec.r0_zenit = 0.1          # accepted silently before 2.0
+  rec.build_reconstructor()   # built with the old r0
+  ```
+
+  Nothing forwarded was visible to `dir()`, IDE completion or type checkers, and the search
+  ran on every internal assignment, doing up to five `hasattr` calls each — any of which
+  could trigger a property getter that computes an array.
+
+  `nLGS`, `r0`, `r0_zenith` and `L0` remain available directly on the reconstructor as
+  explicit properties; setting `nLGS` still updates every parameter object that tracks it.
+  Those were the only forwarded names used anywhere in the tests, docs, examples or README.
+  Everything else is reached through the object that owns it — `rec.atmParams.altitude`,
+  `rec.lgsWfsParams.nValidSubap`, `rec.dmParams.validActuators`.
+
 - **Two modules were renamed so that no module shadows a class of the same name** (#115):
 
   | before | after |

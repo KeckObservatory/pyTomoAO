@@ -72,6 +72,45 @@ class tomographicReconstructor:
         Combined fitting and reconstructor matrix
     """
 
+    # Declaring the attribute surface does three things that the previous __getattr__ /
+    # __setattr__ forwarding could not: assigning an unrecognised name raises AttributeError
+    # instead of silently creating one (a misspelled parameter used to be swallowed, and the
+    # reconstructor then built with the old value), dir() and IDE completion show something
+    # useful, and ordinary assignment no longer runs a five-way hasattr search that can
+    # trigger array-computing property getters.
+    # Grouped by role rather than alphabetically: the grouping is what makes this readable
+    # as documentation of the object's state.
+    __slots__ = (  # noqa: RUF023
+        # Configuration and the parameter objects parsed from it
+        "config",
+        "atmParams",
+        "lgsAsterismParams",
+        "lgsWfsParams",
+        "tomoParams",
+        "dmParams",
+        # Backend kernels resolved for this instance
+        "_backend",
+        # Reconstruction products
+        "_reconstructor",
+        "_gridMask",
+        "_wavefront2Meter",
+        "_FR",
+        "method",
+        # Intermediate matrices, kept for inspection and for _test_against_matlab
+        "Gamma",
+        "Cxx",
+        "Cox",
+        "CnZ",
+        "RecStatSA",
+        "IM",
+        # DM fitting
+        "fit",
+        "modes",
+    )
+
+    #: dtypes accepted by the ``reconstructor`` setter.
+    valid_constructor_type = (np.float32, np.float64)
+
     # Constructor
     def __init__(self, config_file, logger=logger, force_cpu=False):
         """
@@ -86,34 +125,38 @@ class tomographicReconstructor:
         force_cpu : bool, optional
             Force CPU usage even when CUDA is available (default is False)
         """
-        # First, initialize the object's dictionary directly to avoid attribute access issues
-        object.__setattr__(self, "_reconstructor", None)
-        object.__setattr__(self, "_gridMask", None)
-        object.__setattr__(self, "_wavefront2Meter", None)
-        object.__setattr__(self, "fit", None)
-        object.__setattr__(self, "modes", None)
-        object.__setattr__(self, "method", None)
-        object.__setattr__(self, "_FR", None)
-        object.__setattr__(self, "valid_constructor_type", [np.float32, np.float64])
-        object.__setattr__(self, "atmParams", None)
-        object.__setattr__(self, "lgsAsterismParams", None)
-        object.__setattr__(self, "lgsWfsParams", None)
-        object.__setattr__(self, "tomoParams", None)
-        object.__setattr__(self, "dmParams", None)
+        self._reconstructor = None
+        self._gridMask = None
+        self._wavefront2Meter = None
+        self._FR = None
+        self.fit = None
+        self.modes = None
+        self.method = None
+        self.atmParams = None
+        self.lgsAsterismParams = None
+        self.lgsWfsParams = None
+        self.tomoParams = None
+        self.dmParams = None
+        # Intermediate matrices, populated by build_reconstructor.
+        self.Gamma = None
+        self.Cxx = None
+        self.Cox = None
+        self.CnZ = None
+        self.RecStatSA = None
+        self.IM = None
 
         # Resolve the kernel backend for this instance. This used to flip a module-level
         # CUDA flag, which did not work: the GPU functions were already bound at import, so
         # force_cpu logged that it was forcing the CPU and then ran on the GPU anyway. It
         # also changed the backend for every other reconstructor in the process.
-        object.__setattr__(self, "_backend", backend.get_backend("cpu" if force_cpu else "auto"))
+        self._backend = backend.get_backend("cpu" if force_cpu else "auto")
         if force_cpu:
             logger.info("\nForcing CPU usage for computations.")
 
         logger.info("\n-->> Initializing reconstructor object <<--")
         # Load configuration
         with open(config_file) as f:
-            config_data = yaml.safe_load(f)
-            object.__setattr__(self, "config", config_data)
+            self.config = yaml.safe_load(f)
 
         # Initialize parameters
         self._initialize_parameters()
@@ -134,7 +177,7 @@ class tomographicReconstructor:
         """
         try:
             atm_params = atmosphereParameters(self.config)
-            object.__setattr__(self, "atmParams", atm_params)
+            self.atmParams = atm_params
             logger.info("\nSuccessfully initialized Atmosphere parameters.")
             logger.info(atm_params)
         except (ValueError, TypeError) as e:
@@ -143,7 +186,7 @@ class tomographicReconstructor:
 
         try:
             lgs_asterism_params = lgsAsterismParameters(self.config, self.atmParams)
-            object.__setattr__(self, "lgsAsterismParams", lgs_asterism_params)
+            self.lgsAsterismParams = lgs_asterism_params
             logger.info("\nSuccessfully initialized LGS asterism parameters.")
             logger.info(lgs_asterism_params)
         except (ValueError, TypeError) as e:
@@ -152,7 +195,7 @@ class tomographicReconstructor:
 
         try:
             lgs_wfs_params = lgsWfsParameters(self.config, self.lgsAsterismParams)
-            object.__setattr__(self, "lgsWfsParams", lgs_wfs_params)
+            self.lgsWfsParams = lgs_wfs_params
             logger.info("\nSuccessfully initialized LGS WFS parameters.")
             logger.info(lgs_wfs_params)
         except (ValueError, TypeError) as e:
@@ -161,7 +204,7 @@ class tomographicReconstructor:
 
         try:
             tomo_params = tomographyParameters(self.config)
-            object.__setattr__(self, "tomoParams", tomo_params)
+            self.tomoParams = tomo_params
             logger.info("\nSuccessfully initialized Tomography parameters.")
             logger.info(tomo_params)
         except (ValueError, TypeError) as e:
@@ -170,7 +213,7 @@ class tomographicReconstructor:
 
         try:
             dm_params = dmParameters(self.config)
-            object.__setattr__(self, "dmParams", dm_params)
+            self.dmParams = dm_params
             logger.info("\nSuccessfully initialized DM parameters.")
             logger.info(dm_params)
         except (ValueError, TypeError) as e:
@@ -226,7 +269,7 @@ class tomographicReconstructor:
             and value.ndim == 2
             and value.dtype in self.valid_constructor_type
         ):
-            super().__setattr__("_reconstructor", value)
+            self._reconstructor = value
         else:
             logger.error("Invalid reconstructor value. Must be a 2D numpy array of floats.")
             raise ValueError("Reconstructor must be a 2D numpy array of floats.")
@@ -319,7 +362,7 @@ class tomographicReconstructor:
         None
         """
         logger.debug("Setting the FR property.")
-        super().__setattr__("_FR", value)
+        self._FR = value
 
     @property
     def gridMask(self):
@@ -342,60 +385,37 @@ class tomographicReconstructor:
         return self._gridMask
 
     # ======================================================================
-    # Magic Methods
-    # Getters and Setters
-    def __getattr__(self, name):
+    # Forwarded parameters
+    #
+    # These four names are reached directly on the reconstructor across the tests, docs and
+    # examples, so they stay available here. Everything else lives on the parameter object
+    # that owns it -- rec.atmParams.altitude, rec.lgsWfsParams.nValidSubap and so on -- which
+    # is discoverable, unambiguous, and does not need a runtime search across five objects.
+    @property
+    def nLGS(self):
         """
-        Forwards attribute access to parameter classes if they contain the requested attribute.
+        Number of laser guide stars.
 
         Parameters
         ----------
-        name : str
-            Name of the attribute to get
+        None
 
         Returns
         -------
-        Any
-            Value of the requested attribute from the appropriate parameter class
-
-        Raises
-        ------
-        AttributeError
-            If the attribute is not found in any parameter class
+        int
+            The guide star count, taken from the LGS asterism parameters.
         """
-        # First log the request
-        logger.debug(f"Getting attribute '{name}' from parameter classes.")
+        return self.lgsAsterismParams.nLGS
 
-        # List of parameter class attributes
-        param_attrs = ["tomoParams", "lgsWfsParams", "atmParams", "lgsAsterismParams", "dmParams"]
-
-        # Check each parameter class for the attribute
-        for param_name in param_attrs:
-            try:
-                # First check if the parameter object exists
-                param = object.__getattribute__(self, param_name)
-                # Then check if the parameter object has the requested attribute
-                if param is not None and hasattr(param, name):
-                    return getattr(param, name)
-            except (AttributeError, TypeError):
-                # Skip if the parameter object doesn't exist or isn't properly initialized
-                continue
-
-        # If we get here, the attribute wasn't found
-        logger.error(f"Attribute '{name}' not found in parameter classes.")
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-
-    def __setattr__(self, name, value):
+    @nLGS.setter
+    def nLGS(self, value):
         """
-        Forwards attribute setting to parameter classes if they contain the specified attribute.
-        When setting nLGS, ensures all parameter classes that have this attribute are updated.
+        Set the number of laser guide stars on every parameter object that tracks it.
 
         Parameters
         ----------
-        name : str
-            Name of the attribute to set
-        value : Any
-            Value to set for the attribute
+        value : int
+            New guide star count. Must be non-negative.
 
         Returns
         -------
@@ -404,93 +424,95 @@ class tomographicReconstructor:
         Raises
         ------
         ValueError
-            If setting nLGS to a negative value
+            If ``value`` is negative.
         """
-        logger.debug(f"Setting attribute '{name}'.")
+        if value < 0:
+            raise ValueError("nLGS must be a non-negative integer.")
+        value = int(value)
+        # Three parameter objects carry nLGS and they must not disagree; lgsWfsParams also
+        # resizes its per-sensor rotation and offset arrays when this changes.
+        for params in (self.lgsAsterismParams, self.lgsWfsParams, self.tomoParams):
+            if params is not None and hasattr(params, "nLGS"):
+                params.nLGS = value
 
-        # These attributes are always set directly on the class
-        special_attrs = [
-            "_reconstructor",
-            "_gridMask",
-            "_wavefront2Meter",
-            "_backend",
-            "config",
-            "valid_constructor_type",
-            "fit",
-            "modes",
-            "method",
-            "_FR",
-            "dmParams",
-            "tomoParams",
-            "lgsWfsParams",
-            "atmParams",
-            "lgsAsterismParams",
-        ]
+    @property
+    def r0(self):
+        """
+        Fried parameter at the observing zenith angle, in metres.
 
-        if name in special_attrs:
-            object.__setattr__(self, name, value)
-            return
+        Parameters
+        ----------
+        None
 
-        # Special handling for nLGS to ensure all relevant parameter classes are updated
-        if name == "nLGS":
-            if value < 0:
-                raise ValueError("nLGS must be a non-negative integer.")
+        Returns
+        -------
+        float
+            Derived from ``r0_zenith`` and the zenith angle; set ``r0_zenith`` to change it.
+        """
+        return self.atmParams.r0
 
-            # Convert to integer
-            value = int(value)
+    @property
+    def r0_zenith(self):
+        """
+        Fried parameter at zenith, in metres.
 
-            # Update nLGS in all parameter classes that have this attribute
-            attr_set = False
-            param_attrs = [
-                "tomoParams",
-                "lgsWfsParams",
-                "atmParams",
-                "lgsAsterismParams",
-                "dmParams",
-            ]
+        Parameters
+        ----------
+        None
 
-            for param_name in param_attrs:
-                try:
-                    # Get the parameter object directly
-                    param = object.__getattribute__(self, param_name)
-                    if param is not None and hasattr(param, name):
-                        setattr(param, name, value)
-                        attr_set = True
-                except (AttributeError, TypeError):
-                    # Skip if parameter doesn't exist
-                    continue
+        Returns
+        -------
+        float
+        """
+        return self.atmParams.r0_zenith
 
-            # If attribute wasn't set in any parameter class, set it on the main class
-            if not attr_set:
-                object.__setattr__(self, name, value)
-        else:
-            # Check if attribute exists in any parameter class
-            attr_set = False
-            param_attrs = [
-                "tomoParams",
-                "lgsWfsParams",
-                "atmParams",
-                "lgsAsterismParams",
-                "dmParams",
-            ]
+    @r0_zenith.setter
+    def r0_zenith(self, value):
+        """
+        Set the Fried parameter at zenith.
 
-            for param_name in param_attrs:
-                try:
-                    # Get the parameter object directly
-                    param = object.__getattribute__(self, param_name)
-                    if param is not None and hasattr(param, name):
-                        setattr(param, name, value)
-                        attr_set = True
-                        break
-                except (AttributeError, TypeError):
-                    # Skip if parameter doesn't exist
-                    continue
+        Parameters
+        ----------
+        value : float
+            Fried parameter in metres. Must be positive.
 
-            # If attribute wasn't set in any parameter class, set it on the main class
-            if not attr_set:
-                object.__setattr__(self, name, value)
+        Returns
+        -------
+        None
+        """
+        self.atmParams.r0_zenith = value
 
-    # ======================================================================
+    @property
+    def L0(self):
+        """
+        Turbulence outer scale, in metres.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        float
+        """
+        return self.atmParams.L0
+
+    @L0.setter
+    def L0(self, value):
+        """
+        Set the turbulence outer scale.
+
+        Parameters
+        ----------
+        value : float
+            Outer scale in metres. Must be positive.
+
+        Returns
+        -------
+        None
+        """
+        self.atmParams.L0 = value
+
     # Class Methods
     def sparseGradientMatrixAmplitudeWeighted(
         self, amplMask=None, overSampling=2, validLenslet=None

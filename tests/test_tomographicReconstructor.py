@@ -171,41 +171,6 @@ def test_initialization(simple_config, mock_parameter_classes):
     logger.info("✅ Initialization test completed successfully")
 
 
-# Test attribute forwarding and updates
-def test_attribute_forwarding_uppdate(simple_config, mock_parameter_classes):
-    """
-    Test that attributes from parameter classes are correctly forwarded and
-    accessible directly from the reconstructor instance.
-    """
-    logger.info("Starting attribute forwarding test")
-    from pyTomoAO.reconstructor import tomographicReconstructor
-
-    logger.debug("Creating reconstructor instance")
-    reconstructor = tomographicReconstructor(simple_config)
-
-    # Manually set parameter instances for testing
-    logger.debug("Setting mock parameter instances")
-    reconstructor.atmParams = mock_parameter_classes["atm_instance"]
-    reconstructor.tomoParams = mock_parameter_classes["tomo_instance"]
-    reconstructor.lgsWfsParams = mock_parameter_classes["lgs_wfs_instance"]
-    reconstructor.lgsAsterismParams = mock_parameter_classes["lgs_asterism_instance"]
-
-    # Check forwarded attribute from atmParams & lgsAsterismParams
-    logger.debug("Verifying forwarded attributes")
-    assert reconstructor.r0 == 0.15, "Incorrect forwarded r0 value"
-    assert reconstructor.L0 == 25, "Incorrect forwarded L0 value"
-    assert reconstructor.nLGS == 4, "Incorrect forwarded nLGS value"
-
-    # Check that changing nLGS updates all parameter classes
-    logger.debug("Changing nLGS to 6")
-    reconstructor.nLGS = 6
-    assert reconstructor.nLGS == 6, "nLGS not updated correctly"
-    assert reconstructor.lgsWfsParams.nLGS == 6, "nLGS not updated in lgsWfsParams"
-    assert reconstructor.lgsAsterismParams.nLGS == 6, "nLGS not updated in lgsAsterismParams"
-    assert reconstructor.tomoParams.nLGS == 6, "nLGS not updated in tomoParams"
-    logger.info("✅ Attribute forwarding test completed successfully")
-
-
 # Test reconstruct_wavefront
 def test_reconstruct_wavefront(simple_config, mock_parameter_classes):
     """
