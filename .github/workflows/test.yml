@@ -21,7 +21,7 @@ jobs:
       # Report every failing version, not just the first.
       fail-fast: false
       matrix:
-        # Keep in sync with python_requires and the classifiers in setup.py.
+        # Keep in sync with requires-python and the classifiers in pyproject.toml.
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
     steps:

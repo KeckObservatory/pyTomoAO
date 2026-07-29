@@ -16,16 +16,17 @@ part of the pull request that makes it, not be reconstructed at release time.
 The version lives in a single place, `pyTomoAO/__init__.py`:
 
 ```python
-__version__ = "1.0.1"
+__version__ = "2.0.0"
 ```
 
-`setup.py` reads it from there at build time, and Sphinx reads it from the installed
-package metadata, so bumping that one string is enough.
+`pyproject.toml` declares `dynamic = ["version"]` and reads it from there at build time via
+`[tool.setuptools.dynamic]`, and Sphinx reads it from the installed package metadata, so
+bumping that one string is enough. Keep `CITATION.cff` in step with it.
 
 pyTomoAO follows semantic versioning:
 
-- **Patch** (`1.0.1 → 1.0.2`) — bug fixes, documentation, no interface change.
-- **Minor** (`1.0.1 → 1.1.0`) — new features, new configuration keys, backwards compatible.
+- **Patch** (`2.0.0 → 2.0.1`) — bug fixes, documentation, no interface change.
+- **Minor** (`2.0.0 → 2.1.0`) — new features, new configuration keys, backwards compatible.
 - **Major** (`1.0.1 → 2.0.0`) — changes that break existing configuration files or scripts.
 
 Renaming a configuration key or changing a default that alters reconstructor output is a

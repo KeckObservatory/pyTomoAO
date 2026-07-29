@@ -1,6 +1,81 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyTomoAO"
+description = "An open-source tool for tomographic reconstruction for AO systems"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Jacob Taylor", email = "jacobataylor7@gmail.com" },
+    { name = "Uriel Conod", email = "urielconod@phas.ubc.ca" },
+]
+keywords = ["adaptive optics", "tomography", "wavefront reconstruction", "astronomy"]
+classifiers = [
+    # Keep in sync with requires-python and the CI matrix in .github/workflows/test.yml.
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+# Runtime dependencies only. Test and documentation tooling lives in the optional
+# dependencies below so that installing pyTomoAO does not drag them in. matplotlib is
+# deliberately absent: it is needed only by the visualisation helpers, and it is a heavy
+# thing to force on a machine that only builds reconstructors. See the "plot" extra.
+dependencies = ["numpy", "numba", "scipy", "PyYAML"]
+dynamic = ["version"]
+
+[project.urls]
+Documentation = "https://keckobservatory.github.io/pyTomoAO/"
+Source = "https://github.com/KeckObservatory/pyTomoAO"
+Issues = "https://github.com/KeckObservatory/pyTomoAO/issues"
+Changelog = "https://github.com/KeckObservatory/pyTomoAO/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+# Needed only by the visualisation helpers; see the note on dependencies above.
+plot = ["matplotlib"]
+# CUDA 12 build of CuPy. On CUDA 11 install cupy-cuda11x instead; pyTomoAO uses whichever
+# is importable.
+gpu = ["cupy-cuda12x"]
+# Keep in sync with docs/requirements.txt.
+docs = [
+    "sphinx>=7.2,<9",
+    "furo>=2024.1.29",
+    "myst-parser>=2.0",
+    "sphinx-autodoc-typehints>=2.0",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.5",
+    "sphinxcontrib-mermaid>=0.9",
+]
+# Keep the ruff pin in sync with .github/workflows/code-health.yml.
+dev = [
+    "ruff==0.15.5",
+    "pytest",
+    "pytest-cov",
+    # The plotting helpers are covered by the suite, so the dev environment needs
+    # matplotlib even though the runtime does not.
+    "matplotlib",
+]
+
+[tool.setuptools]
+packages = ["pyTomoAO"]
+
+[tool.setuptools.package-data]
+# The reference YAML configurations ship inside the package so that `pip install pyTomoAO`
+# is enough to run the documented examples; see pyTomoAO.example_config.
+pyTomoAO = ["data/*.yaml"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pyTomoAO.__version__" }
 
 [tool.ruff]
 line-length = 100
