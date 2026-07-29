@@ -710,7 +710,13 @@ def _cross_correlation(
     for row in C_gpu:
         C_rows.append(cp.concatenate(row, axis=1))
 
-    return cp.concatenate(C_rows, axis=0)
+    # Stack rather than concatenate, so the optimisation directions stay on their own axis
+    # exactly as the CPU kernel returns them. Concatenating produced a 2-D
+    # (nSs*valid_pts, nGs*valid_pts) array, and _build_reconstructor_model then broadcast it
+    # against fitSrcWeight[:, None, None] -- correct only when nSs == 1. With the bundled
+    # `keck` configuration (nFitSrc = 7, so nSs = 49) that broadcast asked for a 49x larger
+    # array and the build died trying to allocate 66 GB on the device.
+    return cp.stack(C_rows, axis=0)
 
 
 def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSampling=2):

@@ -269,3 +269,46 @@ class TestBackendAgreement:
             np.linspace(-1, 1, SAMPLING) * DIAMETER / 2,
         )
         return (x + 1j * y).ravel()
+
+
+@pytest.mark.skipif(not reconstructor_module.CUDA, reason="requires CuPy and a CUDA device")
+class TestFieldOptimisationRank:
+    """Both backends must return the optimisation directions on their own axis (#119).
+
+    The GPU kernel used to concatenate them into a 2-D array while the CPU kernel stacked
+    them into a 3-D one. `_build_reconstructor_model` then weighted the result with
+    `fitSrcWeight[:, None, None]`, which is only correct when there is a single direction.
+    With the bundled `keck` configuration (nFitSrc = 7, so 49 directions) that broadcast
+    asked for a 49x larger array and the build died allocating 66 GB on the device.
+    """
+
+    @staticmethod
+    def _params(config, n_fit_src):
+        rec = reconstructor_module.tomographicReconstructor(config, force_cpu=True)
+        rec.tomoParams.nFitSrc = n_fit_src
+        if n_fit_src > 1:
+            rec.tomoParams.fovOptimization = 20.0
+        _, grid_mask = cpu._sparseGradientMatrixAmplitudeWeighted(
+            rec.lgsWfsParams.validLLMapSupport, None, 2
+        )
+        rec.tomoParams.sampling = grid_mask.shape[0]
+        return rec, grid_mask
+
+    @pytest.mark.parametrize("n_fit_src", [1, 2])
+    def test_backends_agree_on_shape_and_values(self, revolt_config, n_fit_src):
+        import cupy as cp
+
+        from pyTomoAO import tomographyUtilsGPU as gpu
+
+        rec, grid_mask = self._params(revolt_config, n_fit_src)
+        args = (rec.tomoParams, rec.lgsWfsParams, rec.atmParams, rec.lgsAsterismParams, grid_mask)
+
+        on_cpu = cpu._cross_correlation(*args)
+        on_gpu = cp.asnumpy(gpu._cross_correlation(*args, use_float32=False))
+
+        assert on_cpu.ndim == 3, "the CPU kernel should keep directions on their own axis"
+        assert on_gpu.shape == on_cpu.shape, (
+            f"nFitSrc={n_fit_src}: GPU returned {on_gpu.shape}, CPU {on_cpu.shape}"
+        )
+        assert on_cpu.shape[0] == n_fit_src**2
+        assert np.abs(on_gpu - on_cpu).max() / np.abs(on_cpu).max() < 1e-9
