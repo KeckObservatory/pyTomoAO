@@ -83,6 +83,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `examples/benchmark/benchmark.py`, which times `build_reconstructor` on every bundled
+  configuration and on every available backend, checks CPU/GPU agreement, and can record and
+  compare against a committed `baseline.json` (`--save-baseline`, `--check-baseline`). It
+  replaces `test_auto.py`, `test_auto_gpu.py` and `compare_cpu_gpu.py` — about 1700 lines
+  that carried **forked copies** of the covariance kernels instead of calling the package,
+  and had drifted far enough to contain none of the corrections made since. The benchmarks
+  therefore reported numbers for code that was no longer shipped, and could not have caught
+  the `nFitSrc > 1` defect below. Also removed `tomographicReconstructorBenchmarking.py`,
+  which imported an undeclared `tomoAO` dependency and carried a hard-coded
+  `/Users/...` path (#119).
 - **The reference configurations now ship inside the package**, so `pip install pyTomoAO` is
   enough to run the documented examples. Previously the published wheel contained ten `.py`
   files and no data, and the configuration path in the README raised `FileNotFoundError` for
@@ -120,6 +130,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The GPU backend could not build a reconstructor with more than one optimisation
+  direction.** `_cross_correlation` concatenated the directions into a 2-D array on the GPU
+  while the CPU kernel stacked them into a 3-D one, and `_build_reconstructor_model` weighted
+  the result with `fitSrcWeight[:, None, None]` — correct only for a single direction. With
+  the bundled `keck` configuration (`nFitSrc = 7`, so 49 directions) the broadcast asked for
+  a 49× larger array and the build failed trying to allocate 66 GB on the device. The GPU
+  kernel now returns the same rank as the CPU one. `keck` builds in **0.61 s on GPU against
+  36.1 s on CPU**, agreeing to 7.1e-5 (#119).
 - **`force_cpu=True` now actually selects the CPU kernels.** It used to flip a module-level
   `CUDA` flag, but the GPU functions were already bound to module names at import time, so
   the reconstructor logged "Forcing CPU usage" and then ran the GPU kernels in float64.
