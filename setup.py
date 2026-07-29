@@ -32,7 +32,10 @@ setup(
     python_requires=">=3.9",
     # Runtime dependencies only. Test and documentation tooling lives in the
     # extras below so that installing pyTomoAO does not drag them in.
-    install_requires=["numpy", "matplotlib", "numba", "scipy", "PyYAML"],
+    # matplotlib is not here on purpose: it is needed only by the two visualize_* methods
+    # and the display branch of set_influence_function, and it is a heavy thing to force on
+    # a machine that only builds reconstructors. See the [plot] extra.
+    install_requires=["numpy", "numba", "scipy", "PyYAML"],
     project_urls={
         "Documentation": "https://keckobservatory.github.io/pyTomoAO/",
         "Source": "https://github.com/KeckObservatory/pyTomoAO",
@@ -54,7 +57,12 @@ setup(
             "ruff==0.15.5",
             "pytest",
             "pytest-cov",
+            # The plotting helpers are covered by the suite, so the dev environment needs
+            # matplotlib even though the runtime does not.
+            "matplotlib",
         ],
+        # Needed only for the plotting helpers; see install_requires above.
+        "plot": ["matplotlib"],
         # CUDA 12 build of CuPy. Users on CUDA 11 should install cupy-cuda11x instead;
         # pyTomoAO detects whichever is importable at import time.
         "gpu": ["cupy-cuda12x"],

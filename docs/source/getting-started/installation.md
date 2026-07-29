@@ -54,16 +54,28 @@ The following packages are installed automatically:
 | Package      | Used for                                                    |
 | ------------ | ----------------------------------------------------------- |
 | `numpy`      | Array handling and linear algebra throughout                |
-| `scipy`      | Sparse gradient matrices, `.mat` I/O for validation data     |
+| `scipy`      | Sparse gradient matrices and the Cholesky solve              |
 | `numba`      | JIT-compiled covariance kernels on the CPU path              |
-| `matplotlib` | Reconstruction and DM command visualisations                 |
 | `PyYAML`     | Reading the configuration file                               |
-| `pytest`     | Test suite                                                   |
+
+`matplotlib` is **not** installed automatically. It is needed only by
+`visualize_reconstruction`, `visualize_commands` and the `display=True` branch of
+`set_influence_function`, and it is a heavy addition for a machine that only builds
+reconstructors. Install it with the `plot` extra below; calling one of those methods
+without it raises an `ImportError` naming the extra.
 
 ## Optional extras
 
 ::::{grid} 1 1 2 2
 :gutter: 2
+
+:::{grid-item-card} Plotting
+```bash
+pip install "pyTomoAO[plot]"
+```
+
+Adds `matplotlib`, which the visualisation helpers import on demand.
+:::
 
 :::{grid-item-card} GPU acceleration
 ```bash

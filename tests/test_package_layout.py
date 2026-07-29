@@ -62,5 +62,25 @@ def test_string_patch_targets_resolve():
     """The failure mode that made the old layout hurt: mock resolving a dotted path."""
     from unittest.mock import patch
 
-    with patch("pyTomoAO.reconstructor.atmosphereParameters"), patch("pyTomoAO.dm_fitting.plt"):
+    with patch("pyTomoAO.reconstructor.atmosphereParameters"), patch("pyTomoAO.dm_fitting.fitting"):
         pass
+
+
+def test_importing_the_package_does_not_pull_in_matplotlib():
+    """matplotlib is an optional dependency (#121).
+
+    It is imported on demand by the plotting helpers. Importing it at module scope would
+    put it, and its dependency tree, on the critical path of every `import pyTomoAO` --
+    including on machines that only ever build reconstructors.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, pyTomoAO, pyTomoAO.reconstructor, pyTomoAO.dm_fitting;"
+        "print('matplotlib' in sys.modules)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert out == "False", "importing pyTomoAO pulled in matplotlib"

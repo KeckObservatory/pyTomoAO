@@ -6,12 +6,11 @@ reconstruction approaches.
 
 import logging
 
-import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from scipy.io import loadmat
 
 from pyTomoAO import backend
+from pyTomoAO._plotting import pyplot
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 from pyTomoAO.dm_fitting import fitting
 from pyTomoAO.dmParametersClass import dmParameters
@@ -96,7 +95,7 @@ class tomographicReconstructor:
         "_wavefront2Meter",
         "_FR",
         "method",
-        # Intermediate matrices, kept for inspection and for _test_against_matlab
+        # Intermediate matrices, kept for inspection
         "Gamma",
         "Cxx",
         "Cox",
@@ -378,10 +377,9 @@ class tomographicReconstructor:
         numpy.ndarray
             The grid mask for reconstruction
         """
-        if self._gridMask is None and self._reconstructor is not None:
-            return self._gridMask
-        # Accessing the property builds the reconstructor if it is not built yet
-        _ = self.reconstructor
+        if self._gridMask is None:
+            # Accessing the property builds the reconstructor, which sets the grid mask.
+            _ = self.reconstructor
         return self._gridMask
 
     # ======================================================================
@@ -982,6 +980,8 @@ class tomographicReconstructor:
             logger.error("Invalid method. Please build the reconstructor first.")
             raise ValueError("Invalid method. Please build the reconstructor first.")
 
+        plt = pyplot()
+
         # Project the commands on the DM surface. As in reconstruct_wavefront, the actuator
         # map decides what is invalid, so that a genuinely zero command stays visible.
         valid_act = np.asarray(self.dmParams.validActuatorsSupport, dtype=bool)
@@ -1021,7 +1021,7 @@ class tomographicReconstructor:
         matplotlib.figure.Figure
             Figure object containing the visualization of reconstructed wavefront
         """
-        # Reconstruct wavefront
+        plt = pyplot()
         reconstructed_wavefront = self.reconstruct_wavefront(slopes)
 
         if reference_wavefront is None:
@@ -1060,163 +1060,3 @@ class tomographicReconstructor:
 
         plt.tight_layout()
         return fig
-
-    # ======================================================================
-    # Test Methods
-    def _test_against_matlab(self, matlab_data_dir):
-        """
-        Test the reconstructor against MATLAB results.
-
-        Parameters
-        ----------
-        matlab_data_dir : str
-            Directory containing MATLAB test data files
-
-        Returns
-        -------
-        dict
-            Dictionary containing test results for various matrices and components
-        """
-        logger.info("\nTesting reconstructor against MATLAB results...")
-        results = {}
-
-        # Test Gamma matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/Gamma.mat")
-            Gamma_matlab = mat_data["Gamma"]
-            gamma_test = np.allclose(Gamma_matlab.toarray(), self.Gamma.toarray())
-            results["gamma_test"] = gamma_test
-            logger.info(f"\nGamma matrix test: {'PASSED' if gamma_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing Gamma matrix: {e}")
-            results["gamma_test"] = False
-
-        # Test auto-correlation matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/Cxx.mat")
-            Cxx_matlab = mat_data["Cxx"]
-            cxx_test = np.allclose(Cxx_matlab, self.Cxx, rtol=5e-4)
-            results["cxx_test"] = cxx_test
-            logger.info(f"\nAuto-correlation matrix test: {'PASSED' if cxx_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing auto-correlation matrix: {e}")
-            results["cxx_test"] = False
-
-        # Test cross-correlation matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/Cox.mat")
-            Cox_matlab = mat_data["Cox"]
-            cox_test = np.allclose(Cox_matlab, self.Cox, rtol=5e-4)
-            results["cox_test"] = cox_test
-            logger.info(f"\nCross-correlation matrix test: {'PASSED' if cox_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing cross-correlation matrix: {e}")
-            results["cox_test"] = False
-
-        # Test CnZ matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/CnZ.mat")
-            CnZ_matlab = mat_data["CnZ"]
-            cnz_test = np.allclose(CnZ_matlab, self.CnZ, rtol=5e-4)
-            results["cnz_test"] = cnz_test
-            logger.info(f"\nCnZ test: {'PASSED' if cnz_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing CnZ matrix: {e}")
-            results["cnz_test"] = False
-
-        # Test invCss matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/invCss.mat")
-            invCss_matlab = mat_data["invCss"]
-            invCss_test = np.allclose(invCss_matlab, self.invCss, atol=5e-3)
-            results["invCss_test"] = invCss_test
-            logger.info(f"\ninvCss test: {'PASSED' if invCss_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing invCss matrix: {e}")
-            results["invCss_test"] = False
-
-        # Test reconstructor matrix
-        try:
-            mat_data = loadmat(f"{matlab_data_dir}/RecStatSAsuperRes.mat")
-            RecStatSA_matlab = mat_data["RecStatSAsuperRes"]
-            rec_test = np.allclose(RecStatSA_matlab, self.RecStatSA, atol=5e-3)
-            results["rec_test"] = rec_test
-            logger.info(f"\nReconstructor matrix test: {'PASSED' if rec_test else 'FAILED'}")
-        except Exception as e:
-            logger.error(f"Error testing reconstructor matrix: {e}")
-            results["rec_test"] = False
-
-        # Test with slopes generated with Matlab
-        try:
-            for i in range(2, 4):
-                mat_data = loadmat(f"{matlab_data_dir}/slopes_{i}.mat")
-                slopes = mat_data[f"slopes_{i}"]
-
-                # Load reconstructed wavefront from Matlab
-                mat_data = loadmat(f"{matlab_data_dir}/wavefront_{i}.mat")
-                wavefront = mat_data[f"wavefront_{i}"]
-
-                # Visualize the comparison
-                self.visualize_reconstruction(slopes, wavefront)
-                plt.show()
-
-        except Exception as e:
-            logger.error(f"Error testing with slopes: {e}")
-
-        return results
-
-
-# Example usage
-if __name__ == "__main__":
-    # The reference configurations ship with the package, so this resolves wherever
-    # pyTomoAO is installed from. Pass a path on the command line to use your own.
-    import sys
-
-    from pyTomoAO import example_config
-
-    config_path = sys.argv[1] if len(sys.argv) > 1 else example_config("kapa-single-channel")
-
-    # Create the reconstructor
-    reconstructor = tomographicReconstructor(config_path)
-
-    # Build the model based reconstructor. To build the IM based reconstructor,
-    # pass the IM matrix as an argument.
-    # R = reconstructor.build_reconstructor(IM, use_float32=True)
-    R = reconstructor.build_reconstructor(use_float32=True)
-    print(f"Reconstructor matrix shape: {R.shape}")
-
-    # This step is only required for the model based reconstructor.
-    # Assemble the reconstructor and fitting for single channel case
-    reconstructor.assemble_reconstructor_and_fitting(
-        nChannels=1, slopesOrder="simu", scalingFactor=1.5e7
-    )
-    # mask central actuator
-    reconstructor.mask_DM_actuators(174)
-    FR = reconstructor.FR
-
-    print(f"Reconstructor and fitting matrix shape: {FR.shape}")
-
-    # Visualize the reconstructor
-    fig = plt.figure(figsize=(10, 8))
-    im = plt.imshow(FR)
-    cbar = plt.colorbar(im, fraction=0.028, pad=0.02)
-    plt.title("Fitting * Reconstructor (Single Channel)")
-    plt.xlabel("Slopes")
-    plt.ylabel("Actuators")
-    plt.tight_layout()
-    plt.show()
-
-    # Build the IM based reconstructor
-    # IM = np.load('../sandbox/IM_sim.npy')
-    # R = reconstructor.build_reconstructor(IM, use_float32=True)
-    # print(f"Reconstructor matrix shape: {R.shape}")
-
-    # Test against MATLAB results if needed
-    # results = reconstructor._test_against_matlab('/Users/urielconod/tomographyDataTest')
-
-    # Example of wavefront reconstruction from slopes
-    # (assuming you have slopes data available)
-    # slopes = ...
-    # wavefront = reconstructor.reconstruct_wavefront(slopes)
-    # fig = reconstructor.visualize_reconstruction(slopes)
-    # plt.show()
