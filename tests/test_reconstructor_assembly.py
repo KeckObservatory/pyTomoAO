@@ -4,17 +4,16 @@ Covers the non-idempotent `assemble_reconstructor_and_fitting` (#93) and the zer
 grid points that were being turned into NaN (#94).
 """
 
-import importlib
 import logging
 
 import numpy as np
 import pytest
 
 from pyTomoAO import example_config
+from pyTomoAO import reconstructor as reconstructor_module
 
 logger = logging.getLogger(__name__)
 
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
 
 CONFIG = example_config("revolt")
 

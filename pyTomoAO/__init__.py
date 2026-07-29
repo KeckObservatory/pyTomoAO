@@ -2,11 +2,11 @@ import logging
 from importlib import resources
 
 from .atmosphereParametersClass import atmosphereParameters
+from .dm_fitting import fitting
 from .dmParametersClass import dmParameters
-from .fitting import fitting
 from .lgsAsterismParametersClass import lgsAsterismParameters
 from .lgsWfsParametersClass import lgsWfsParameters
-from .tomographicReconstructor import tomographicReconstructor
+from .reconstructor import tomographicReconstructor
 from .tomographyParametersClass import tomographyParameters
 
 __all__ = [

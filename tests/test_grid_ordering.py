@@ -11,17 +11,15 @@ under transposition, and a round trip through the same operator is self-consiste
 convention it uses. The tests here are deliberately orientation-sensitive.
 """
 
-import importlib
 import logging
 
 import numpy as np
 import pytest
 
+from pyTomoAO import reconstructor as reconstructor_module
 from pyTomoAO import tomographyUtilsCPU as cpu
 
 logger = logging.getLogger(__name__)
-
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
 
 
 def _asymmetric_lenslet_map(n=10):

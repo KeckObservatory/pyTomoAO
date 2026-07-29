@@ -502,7 +502,7 @@ def visualize_external_ring(grid, ring_positions=None, outside_value=None, title
     plt.show()
 # Example usage
 if __name__ == "__main__":
-    from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+    from pyTomoAO.reconstructor import tomographicReconstructor
     rec = tomographicReconstructor(example_config("revolt"))
     dmMask = rec.dmParams.validActuators
     wfsMask = rec.lgsWfsParams.validLLMap

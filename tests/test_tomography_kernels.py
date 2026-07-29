@@ -6,7 +6,6 @@ defects that no configuration in the repository exercised: every shipped config 
 point puts a mathematically-zero distance a few ULPs off zero.
 """
 
-import importlib
 import logging
 
 import numpy as np
@@ -14,11 +13,11 @@ import pytest
 from scipy.special import gamma as gamma_fn
 from scipy.special import kv
 
+from pyTomoAO import reconstructor as reconstructor_module
 from pyTomoAO import tomographyUtilsCPU as cpu
 
 logger = logging.getLogger(__name__)
 
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
 
 R0 = 0.15
 L0 = 25.0

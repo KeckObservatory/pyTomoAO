@@ -6,8 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pyTomoAO import example_config
 from matplotlib.gridspec import GridSpec
-from pyTomoAO.fitting import fitting
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.dm_fitting import fitting
+from pyTomoAO.reconstructor import tomographicReconstructor
 from scipy.linalg import block_diag
 
 

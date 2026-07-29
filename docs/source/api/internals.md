@@ -3,12 +3,12 @@
 :::{warning}
 These functions are private. They are documented for people working on pyTomoAO itself;
 their names and signatures may change in any release. Use
-{py:class}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor` in application code.
+{py:class}`~pyTomoAO.reconstructor.tomographicReconstructor` in application code.
 :::
 
 The two modules below are interchangeable implementations of the same set of kernels. The
 CPU version uses NumPy with Numba-compiled inner loops; the GPU version uses CuPy.
-{py:mod}`pyTomoAO.tomographicReconstructor` imports one or the other at module load, based
+{py:mod}`pyTomoAO.reconstructor` imports one or the other at module load, based
 on whether CuPy is importable.
 
 | Function                                | Role                                                       |

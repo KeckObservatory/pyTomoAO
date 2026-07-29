@@ -38,7 +38,7 @@ In practice pyTomoAO computes:
   WFS.
 
 The inversion is regularised by the `alpha` argument of
-{py:meth}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor.build_reconstructor`,
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.build_reconstructor`,
 which trades noise propagation against fitting the measurements closely.
 
 ## Laser guide stars and the cone effect
@@ -66,13 +66,13 @@ needing a good IM.
 
 | Object                                                                        | Role                                                       |
 | ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| {py:class}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor`        | Entry point; owns the configuration and builds matrices     |
+| {py:class}`~pyTomoAO.reconstructor.tomographicReconstructor`        | Entry point; owns the configuration and builds matrices     |
 | {py:class}`~pyTomoAO.atmosphereParametersClass.atmosphereParameters`           | Layered turbulence model, airmass-corrected                 |
 | {py:class}`~pyTomoAO.lgsAsterismParametersClass.lgsAsterismParameters`         | Guide star positions, wavelength and altitude               |
 | {py:class}`~pyTomoAO.lgsWfsParametersClass.lgsWfsParameters`                   | Lenslet array geometry and valid subaperture map            |
 | {py:class}`~pyTomoAO.dmParametersClass.dmParameters`                           | Actuator grid, pitch, cross-coupling and validity map       |
 | {py:class}`~pyTomoAO.tomographyParametersClass.tomographyParameters`           | Optimisation field of view and source sampling              |
-| {py:class}`~pyTomoAO.fitting.fitting`                                          | Influence functions and the phase-to-command projection     |
+| {py:class}`~pyTomoAO.dm_fitting.fitting`                                          | Influence functions and the phase-to-command projection     |
 
 Each parameter class validates its inputs on construction and raises `ValueError` or
 `TypeError` with a message naming the offending key, so a malformed configuration fails

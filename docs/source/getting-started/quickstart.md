@@ -12,13 +12,13 @@ pip install .
 
 ## 1. Create a reconstructor object
 
-Every workflow starts by pointing {py:class}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor`
+Every workflow starts by pointing {py:class}`~pyTomoAO.reconstructor.tomographicReconstructor`
 at a YAML configuration file. The file is parsed and validated immediately, so configuration
 errors surface here rather than halfway through a long computation.
 
 ```python
 from pyTomoAO import example_config
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.reconstructor import tomographicReconstructor
 
 reconstructor = tomographicReconstructor(example_config("kapa"))
 ```

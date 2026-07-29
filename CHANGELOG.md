@@ -14,6 +14,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Breaking
 
+- **Two modules were renamed so that no module shadows a class of the same name** (#115):
+
+  | before | after |
+  | --- | --- |
+  | `pyTomoAO.tomographicReconstructor` | `pyTomoAO.reconstructor` |
+  | `pyTomoAO.fitting` | `pyTomoAO.dm_fitting` |
+
+  `__init__.py` re-exports `tomographicReconstructor` and `fitting`, so those names bound to
+  the **classes** and the modules underneath became unreachable by attribute lookup:
+  `import pyTomoAO.fitting as m; m.fitting` raised `AttributeError`, and `unittest.mock`
+  string targets such as `"pyTomoAO.fitting.fitting"` silently resolved to the class —
+  working on Python 3.11+, which resolves modules first, and failing on 3.9 and 3.10, which
+  walk attributes. The tests carried `importlib.import_module` workarounds and a written
+  explanation for exactly this; both are now gone, along with the corresponding caveats in
+  the contributing and testing guides.
+
+  Class names are unchanged: `tomographicReconstructor`, `fitting` and the `*Parameters`
+  classes keep the naming the code-style guide deliberately preserves. Update imports of the
+  form `from pyTomoAO.fitting import fitting` to `from pyTomoAO.dm_fitting import fitting`;
+  `from pyTomoAO import fitting` is unaffected.
+
 - **Reconstruction grid points are now indexed consistently in C order, and
   `reconstruct_wavefront` no longer returns a transposed wavefront** (#104).
 
@@ -83,7 +104,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   serve its main purpose of side-stepping a misbehaving GPU. The backend is now resolved per
   instance by the new `pyTomoAO.backend` module and exposed as `rec.backend` (`"cpu"` or
   `"gpu"`); constructing one reconstructor with `force_cpu=True` no longer changes the
-  backend of any other. The module-level `pyTomoAO.tomographicReconstructor.CUDA` remains as
+  backend of any other. The module-level `pyTomoAO.reconstructor.CUDA` remains as
   a read-only "is CuPy importable" flag (#112).
 - The reconstructor now **solves** the regularised system instead of forming an explicit
   inverse and multiplying. `Γ·Cxx·Γᵀ + Cₙ` is symmetric positive definite, so a Cholesky

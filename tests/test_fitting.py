@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 # Import the class to be tested
-from pyTomoAO.fitting import fitting
+from pyTomoAO.dm_fitting import fitting
 
 # Configure logging
 logging.basicConfig(
@@ -58,7 +58,7 @@ class TestFitting:
             _ = fit_instance.non_existent_attribute
         logger.info("✅ getattr forwarding test passed")
 
-    # Patch the class object directly: "pyTomoAO.fitting" resolves to the fitting
+    # Patch the class object directly: "pyTomoAO.dm_fitting" resolves to the fitting
     # class rather than the module (see the note in pyTomoAO/__init__.py), which
     # breaks string patch targets on Python < 3.11.
     @patch.object(fitting, "__getattr__")

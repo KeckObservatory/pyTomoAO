@@ -29,7 +29,7 @@ Everything is driven by a single YAML configuration file:
 
 ```python
 from pyTomoAO import example_config
-from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+from pyTomoAO.reconstructor import tomographicReconstructor
 
 reconstructor = tomographicReconstructor(example_config("kapa"))
 reconstructor.build_reconstructor()

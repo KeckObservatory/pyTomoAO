@@ -1,6 +1,6 @@
 # Building reconstructors
 
-{py:meth}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor.build_reconstructor`
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.build_reconstructor`
 is the single entry point for both reconstruction modes. Which one you get depends on
 whether you pass an interaction matrix.
 
@@ -40,7 +40,7 @@ Because the output is a phase map, you need the fitting step to obtain DM comman
 
 ### Reconstructing a wavefront
 
-{py:meth}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor.reconstruct_wavefront`
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.reconstruct_wavefront`
 applies the reconstructor and reshapes the result onto the pupil grid, with `NaN` outside
 the mask so that it plots cleanly:
 

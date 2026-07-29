@@ -42,7 +42,7 @@ jobs:
           cd /tmp && /tmp/wheel-check/bin/python -c "
           import pyTomoAO
           print('installed pyTomoAO', pyTomoAO.__version__)
-          from pyTomoAO.tomographicReconstructor import tomographicReconstructor
+          from pyTomoAO.reconstructor import tomographicReconstructor
           "
 
       - name: Upload distributions

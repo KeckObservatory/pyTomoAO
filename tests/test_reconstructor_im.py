@@ -8,19 +8,16 @@ Run with::
     pytest tests/test_reconstructor_im.py -v
 """
 
-import importlib
 import logging
 
 import numpy as np
 import pytest
 
 from pyTomoAO import example_config
+from pyTomoAO import reconstructor as reconstructor_module
 
 logger = logging.getLogger(__name__)
 
-# See the note in tests/test_tomographicReconstructor.py: the dotted path
-# "pyTomoAO.tomographicReconstructor" resolves to the class, not the module.
-reconstructor_module = importlib.import_module("pyTomoAO.tomographicReconstructor")
 
 # The single-LGS REVOLT configuration keeps Cxx at 277x277, so the whole build runs in
 # well under a second on either backend.

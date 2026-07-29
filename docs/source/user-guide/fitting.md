@@ -1,9 +1,9 @@
 # DM fitting
 
 The model-based reconstructor produces a phase map on the pupil grid. Turning it into
-actuator commands is the job of {py:class}`~pyTomoAO.fitting.fitting`, which pyTomoAO drives
+actuator commands is the job of {py:class}`~pyTomoAO.dm_fitting.fitting`, which pyTomoAO drives
 for you through
-{py:meth}`~pyTomoAO.tomographicReconstructor.tomographicReconstructor.assemble_reconstructor_and_fitting`.
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.assemble_reconstructor_and_fitting`.
 
 ```python
 FR = reconstructor.assemble_reconstructor_and_fitting(
@@ -66,7 +66,7 @@ if you need to match a measured coupling value.
 To inspect the influence functions directly:
 
 ```python
-from pyTomoAO.fitting import fitting
+from pyTomoAO.dm_fitting import fitting
 
 fit = fitting(reconstructor.dmParams)
 modes = fit.set_influence_function(resolution=49, display=True)

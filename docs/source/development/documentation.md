@@ -56,7 +56,7 @@ git-ignored — never edit or commit those files.
 - **Markdown by default.** New pages are `.md` and parsed by MyST. Use `{eval-rst}` fenced
   blocks only where a directive has no MyST equivalent, as in the API pages.
 - **Cross-reference, do not repeat.** Link to API objects with
-  `` {py:class}`~pyTomoAO.fitting.fitting` `` and to pages with `` {doc}`../user-guide/gpu` ``.
+  `` {py:class}`~pyTomoAO.dm_fitting.fitting` `` and to pages with `` {doc}`../user-guide/gpu` ``.
   Both are checked at build time, so a rename that breaks a link fails CI.
 - **Document units.** Every physical quantity in
   {doc}`../user-guide/configuration` states its unit; keep that up.

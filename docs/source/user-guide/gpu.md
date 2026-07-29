@@ -7,7 +7,7 @@ of the covariance kernels alongside the Numba/NumPy CPU implementation.
 ## How the backend is selected
 
 The choice happens once, at import time of
-{py:mod}`pyTomoAO.tomographicReconstructor`:
+{py:mod}`pyTomoAO.reconstructor`:
 
 ```python
 try:
@@ -63,7 +63,7 @@ which one you got with `reconstructor.backend`, which returns `"cpu"` or `"gpu"`
 ```
 
 Mixing CPU-forced and GPU reconstructors in one process is fine — each keeps its own
-backend. `pyTomoAO.tomographicReconstructor.CUDA` reports whether CuPy is importable at all,
+backend. `pyTomoAO.reconstructor.CUDA` reports whether CuPy is importable at all,
 and is not affected by `force_cpu`.
 
 ## Precision
