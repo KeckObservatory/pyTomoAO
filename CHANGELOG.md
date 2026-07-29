@@ -14,6 +14,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Breaking
 
+- **`matplotlib` is no longer installed automatically**, and `_test_against_matlab` is
+  removed (#121).
+
+  matplotlib was imported at module scope in two files but used by only three things:
+  `visualize_reconstruction`, `visualize_commands` and the `display=True` branch of
+  `set_influence_function`. It is now imported on demand and lives in a `plot` extra, so
+  `import pyTomoAO` no longer drags in matplotlib and its dependency tree — which matters on
+  a real-time control machine that builds reconstructors and never plots. Install it with
+  `pip install "pyTomoAO[plot]"`; calling a visualisation method without it raises an
+  `ImportError` naming the extra.
+
+  Removed with it: `_test_against_matlab`, 101 lines that read `self.invCss` — a name never
+  assigned anywhere in the package — inside per-comparison `try/except Exception` blocks
+  that swallowed the resulting `AttributeError` and logged it as a failed check; the
+  module-level `scipy.io.loadmat` import it required; a 155-line `__main__` demo in
+  `dm_fitting` and a 54-line one in `reconstructor`, both superseded by `examples/` and the
+  tutorial; `sys.path.append("..")` executed at import time in `dm_fitting`; and a branch in
+  the `gridMask` property that returned `None` unconditionally when taken.
+
 - **The reconstructor no longer forwards arbitrary attributes to the parameter objects, and
   assigning an unknown name now raises `AttributeError`** (#117).
 

@@ -7,12 +7,10 @@ and fitting OPD maps.
 """
 
 import logging
-import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
 
-sys.path.append("..")
+from pyTomoAO._plotting import pyplot
 
 # Module logger; see the note in pyTomoAO/reconstructor.py.
 logger = logging.getLogger(__name__)
@@ -518,6 +516,7 @@ class fitting:
             modes[:, i] = IF.flatten()
 
             if display:
+                plt = pyplot()
                 plt.figure(1)
                 plt.clf()
                 plt.imshow(IF, interpolation="nearest")
@@ -534,160 +533,3 @@ class fitting:
         logger.debug("Influence function computed.")
         logger.info("\n-->> Influence function computed <<--")
         return modes
-
-
-# Main execution block
-if __name__ == "__main__":
-    from pyTomoAO import example_config
-    from pyTomoAO.dm_fitting import fitting
-    from pyTomoAO.reconstructor import tomographicReconstructor
-
-    # Load the reconstructor
-    reconstructor = tomographicReconstructor(example_config("revolt"))
-    reconstructor.build_reconstructor()
-    gridMask = reconstructor.gridMask
-
-    # Create a fitting instance
-    print("\nInitializing fitting object...")
-    fit = fitting(reconstructor.dmParams)
-
-    # Generate influence functions
-    print("\nGenerating influence functions...")
-    modes = fit.set_influence_function(
-        resolution=41, display=False, sigma1=0.5 * 2, sigma2=0.85 * 2, stretch_factor=1.08
-    )
-    print(f"Generated influence functions with shape: {modes.shape}")
-
-    # Display one influence function
-    plt.figure()
-    plt.imshow(modes[:, 0].reshape(41, 41), cmap="viridis")
-    plt.plot(
-        fit.actuator_coordinates[0][1] - 0.25,
-        fit.actuator_coordinates[0][0] - 0.5,
-        "x",
-        color="black",
-    )
-    plt.colorbar()
-    plt.title("Influence Function for First Actuator")
-    plt.show()
-
-    # Change the modes size with only valid elements of the gridMask
-    #    modes = modes[gridMask.flatten(), :]
-    #    fit.modes = modes
-    #    print(f"Modes shape after applying grid mask: {modes.shape}")
-
-    # Generate a fitting matrix (pseudo-inverse of the influence functions)
-    print("\nCalculating fitting matrix...")
-    fit.F = np.linalg.pinv(modes)
-    print(f"Fitting matrix shape: {fit.F.shape}")
-
-    # Test the aliases
-    assert np.array_equal(fit.F, fit.fitting_matrix), "F and fitting_matrix should be the same"
-    assert np.array_equal(fit.IF, fit.influence_functions), (
-        "IF and influence_functions should be the same"
-    )
-
-    # Function to apply grid mask and handle NaNs
-    def apply_mask(wavefront, mask):
-        masked = wavefront * mask
-        masked_for_display = masked.copy()
-        masked_for_display[masked == 0] = np.nan
-        return masked, masked_for_display
-
-    # Function to process and display a wavefront
-    def process_wavefront(wavefront_name, wavefront, fit, gridMask):
-        print(f"\nProcessing {wavefront_name} wavefront...")
-
-        # Apply mask
-        masked_wavefront, display_wavefront = apply_mask(wavefront, gridMask)
-
-        # masked_wavefront = masked_wavefront[reconstructor.gridMask]
-        # Plot the original wavefront
-        plt.figure()
-        plt.imshow(display_wavefront, cmap="RdBu")
-        for i in range(len(fit.actuator_coordinates)):
-            plt.plot(
-                fit.actuator_coordinates[i][0], fit.actuator_coordinates[i][1], "x", color="black"
-            )
-        plt.colorbar()
-        plt.title(f"Input Wavefront ({wavefront_name})")
-        plt.show()
-
-        # Perform the fitting
-        print(f"Performing fitting of the {wavefront_name} wavefront...")
-        commands = fit.fit(masked_wavefront)
-        print(f"Generated command vector with {len(commands)} values")
-
-        # Plot the commands
-        plt.figure()
-        plt.bar(range(len(commands)), commands)
-        plt.title(f"DM Actuator Commands for {wavefront_name}")
-        plt.xlabel("Actuator Index")
-        plt.ylabel("Command Value")
-        plt.show()
-
-        # Reconstruct the wavefront from the commands
-        print(f"Reconstructing {wavefront_name} wavefront from commands...")
-        reconstructed = np.dot(modes, commands).reshape(41, 41)
-        _, display_reconstructed = apply_mask(reconstructed, gridMask)
-
-        # Calculate fitting error
-        residual = display_wavefront - display_reconstructed
-        rms_error = np.sqrt(np.nanmean(residual**2))
-        print(f"RMS fitting error for {wavefront_name}: {rms_error:.6f}")
-
-        # Plot the results
-        _, axes = plt.subplots(1, 3, figsize=(18, 6))
-
-        # Original wavefront
-        im0 = axes[0].imshow(display_wavefront, cmap="RdBu")
-        axes[0].set_title(f"Original {wavefront_name} Wavefront")
-        plt.colorbar(im0, ax=axes[0])
-
-        # Reconstructed wavefront
-        im1 = axes[1].imshow(display_reconstructed, cmap="RdBu")
-        axes[1].set_title(f"Reconstructed {wavefront_name} Wavefront")
-        plt.colorbar(im1, ax=axes[1])
-
-        # Residual error
-        im2 = axes[2].imshow(residual, cmap="RdBu")
-        axes[2].set_title(f"Residual Error (RMS: {rms_error:.6f})")
-        plt.colorbar(im2, ax=axes[2])
-
-        plt.tight_layout()
-        plt.show()
-
-        return rms_error
-
-    # Create a simple wavefront (OPD) to fit
-    print("\nCreating sample wavefronts...")
-    x, y = np.meshgrid(np.linspace(-1, 1, 41), np.linspace(-1, 1, 41))
-
-    # Defocus wavefront
-    radius_squared = x**2 + y**2
-    defocus = radius_squared * 200  # Simple defocus wavefront
-
-    # Tilt wavefront (x-direction tilt)
-    tilt_x = x * 200  # Simple x-direction tilt
-
-    # Process each wavefront
-    tilt_error = process_wavefront("X-Tilt", tilt_x, fit, gridMask)
-    defocus_error = process_wavefront("Defocus", defocus, fit, gridMask)
-
-    # Compare results
-    print("\nComparison of fitting errors:")
-    print(f"X-Tilt RMS error: {tilt_error:.6f}")
-    print(f"Defocus RMS error: {defocus_error:.6f}")
-
-    print("\nExample completed successfully!")
-
-    print(f"\nModes shape before applying grid mask: {modes.shape}")
-    # Change the modes size with only valid elements of the gridMask
-    modes = modes[gridMask.flatten(), :]
-    fit.modes = modes
-    print(f"Modes shape after applying grid mask: {modes.shape}")
-
-    # Generate a fitting matrix (pseudo-inverse of the influence functions)
-    print("\nRecalculating fitting matrix...")
-    fit.F = np.linalg.pinv(modes)
-    print(f"Fitting matrix shape: {fit.F.shape}")
