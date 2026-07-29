@@ -1005,7 +1005,7 @@ class tomographicReconstructor:
         if reference_wavefront is None:
             # Single plot
             fig, ax = plt.subplots(figsize=(8, 6))
-            img = ax.imshow(reconstructed_wavefront.T, origin="lower")
+            img = ax.imshow(reconstructed_wavefront, origin="lower")
             fig.colorbar(img, ax=ax, fraction=0.046)
             ax.set_aspect("equal")
             mean_nm = np.nanmean(reconstructed_wavefront) * 1e9
@@ -1014,7 +1014,7 @@ class tomographicReconstructor:
             # Comparison plot
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
-            img1 = ax1.imshow(reconstructed_wavefront.T, origin="lower")
+            img1 = ax1.imshow(reconstructed_wavefront, origin="lower")
             fig.colorbar(img1, ax=ax1, fraction=0.047)
             ax1.set_aspect("equal")
             mean_nm = np.nanmean(reconstructed_wavefront) * 1e9
@@ -1027,7 +1027,7 @@ class tomographicReconstructor:
                 f"Reference OPD\nMean value: {np.nanmean(reference_wavefront) * 1e9:.2f} [nm]"
             )
 
-            diff = reference_wavefront - reconstructed_wavefront.T
+            diff = reference_wavefront - reconstructed_wavefront
             img3 = ax3.imshow(diff, origin="lower")
             fig.colorbar(img3, ax=ax3, fraction=0.047)
             ax3.set_aspect("equal")

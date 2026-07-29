@@ -12,6 +12,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking
+
+- **Reconstruction grid points are now indexed consistently in C order, and
+  `reconstruct_wavefront` no longer returns a transposed wavefront** (#104).
+
+  `_sparseGradientMatrixAmplitudeWeighted` indexed the grid in Fortran order — a MATLAB
+  port artefact, since MATLAB is column-major throughout — while masking it with a C-order
+  boolean, and the covariance kernels matched that. `reconstruct_wavefront` then scattered
+  the result in C order, so the map it returned was the transpose of the real wavefront.
+  Only `visualize_reconstruction` compensated, by displaying `reconstructed_wavefront.T`;
+  the plots looked right while the returned array did not.
+
+  Two consequences, both fixed:
+
+  - A pure x-gradient slope vector reconstructed to a ramp along **y**. Verified directly:
+    before, variation along x was 1.3e-22 against 1.6e-06 along y; after, the reverse.
+  - On a pupil that is **not symmetric under transpose**, the gradient operator was simply
+    wrong: a flat wavefront produced slopes of magnitude 1.0 (12 of 84 non-zero). On a
+    symmetric pupil the two conventions coincide and the error vanishes, which is why every
+    configuration shipped with the package — all of them symmetric — hid it.
+
+  The compensating transpose in `visualize_reconstruction` is removed with the fix, so
+  plots are unchanged. Anything consuming `reconstruct_wavefront` directly, or comparing
+  against a stored reference wavefront, will see the corrected orientation.
+
 ### Added
 
 - **The reference configurations now ship inside the package**, so `pip install pyTomoAO` is
