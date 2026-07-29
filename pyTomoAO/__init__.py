@@ -88,4 +88,4 @@ def example_config(name="kapa"):
 #     logging.basicConfig(level=logging.INFO)
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "1.0.1"
+__version__ = "2.0.0"

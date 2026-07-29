@@ -94,6 +94,7 @@ profiling and MCAO reconstructors are on the roadmap; see the
 
 getting-started/installation
 getting-started/quickstart
+getting-started/migrating-to-2.0
 ```
 
 ```{toctree}

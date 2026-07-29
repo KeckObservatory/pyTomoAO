@@ -27,7 +27,7 @@ jobs:
           cache: pip
 
       # Pinned so a new ruff release cannot fail an unrelated pull request.
-      # Keep in sync with the [dev] extra in setup.py.
+      # Keep in sync with the [dev] extra in pyproject.toml.
       - name: Install ruff
         run: python -m pip install ruff==0.15.5
 

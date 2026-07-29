@@ -12,6 +12,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-28
+
+See the [migration guide](https://keckobservatory.github.io/pyTomoAO/getting-started/migrating-to-2.0.html)
+for what an existing user needs to change. The short version: reconstructed wavefronts are
+no longer transposed, two
+modules were renamed, parameters are read from the object that owns them, the reference
+configurations ship inside the package, and `matplotlib` is now an optional extra.
+
 ### Breaking
 
 - **`matplotlib` is no longer installed automatically**, and `_test_against_matlab` is
