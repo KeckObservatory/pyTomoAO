@@ -78,6 +78,27 @@ Each parameter class validates its inputs on construction and raises `ValueError
 `TypeError` with a message naming the offending key, so a malformed configuration fails
 immediately rather than producing a silently wrong reconstructor.
 
+## Reaching the parameters
+
+Each parameter object hangs off the reconstructor under its own name, and that is where its
+values live:
+
+```python
+rec.atmParams.altitude          # layer altitudes, metres
+rec.lgsWfsParams.nValidSubap    # subapertures per sensor
+rec.dmParams.validActuators     # actuator map
+```
+
+Four names are also available directly on the reconstructor, because they are the ones
+routinely adjusted between builds: `nLGS`, `r0`, `r0_zenith` and `L0`. Setting `nLGS`
+updates every parameter object that tracks it.
+
+:::{note}
+Assigning a name the reconstructor does not recognise raises `AttributeError`. Before 2.0
+an unknown name was silently accepted, so a typo such as `rec.r0_zenit = 0.1` created a new
+attribute and the reconstructor went on to build with the previous `r0`.
+:::
+
 ## Coordinate and unit conventions
 
 - Altitudes are given in **kilometres** in the configuration and converted to metres
