@@ -107,6 +107,7 @@ user-guide/configuration
 user-guide/reconstruction
 user-guide/fitting
 user-guide/gpu
+user-guide/slodar
 ```
 
 ```{toctree}

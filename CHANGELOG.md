@@ -12,6 +12,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **SLODAR turbulence profiling** (`pyTomoAO.slodar`): `slodarProfiler` computes
+  normalised slope auto/cross-covariance maps of all WFS pairs and fits thin-layer von
+  Karman response functions (built from the reconstructor's own covariance kernel and
+  gradient stencil) by non-negative least squares. Supports LGS cone effect, tip-tilt
+  removal, noise and L0 estimation, longitudinal/transverse components, generalised
+  SLODAR, and returns a profile that converts back to an `atmosphere_parameters` section.
+  Validation scripts, including an end-to-end SPECULA LTAO run, are in `examples/slodar/`.
+
 ## [2.0.0] - 2026-07-28
 
 See the [migration guide](https://keckobservatory.github.io/pyTomoAO/getting-started/migrating-to-2.0.html)
