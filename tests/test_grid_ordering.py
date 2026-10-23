@@ -75,6 +75,19 @@ class TestGradientOperatorOrdering:
             )
 
 
+@pytest.fixture(scope="module")
+def rec(kapa_config):
+    """Built KAPA reconstructor shared by the orientation tests.
+
+    Module-level rather than a class-scoped fixture defined as an instance method, which
+    pytest deprecates (PytestRemovedIn10Warning): instance attributes set in such a fixture
+    are not visible to the tests.
+    """
+    r = reconstructor_module.tomographicReconstructor(kapa_config)
+    r.build_reconstructor()
+    return r
+
+
 class TestReconstructionOrientation:
     """reconstruct_wavefront must return the wavefront, not its transpose."""
 
@@ -91,12 +104,6 @@ class TestReconstructionOrientation:
         along_x = np.nanstd(np.nanmean(columns, axis=0))
         along_y = np.nanstd(np.nanmean(rows, axis=1))
         return along_x, along_y
-
-    @pytest.fixture(scope="class")
-    def rec(self, kapa_config):
-        r = reconstructor_module.tomographicReconstructor(kapa_config)
-        r.build_reconstructor()
-        return r
 
     def test_pure_x_gradient_reconstructs_a_ramp_along_x(self, rec):
         n = int(rec.lgsWfsParams.nValidSubap)
