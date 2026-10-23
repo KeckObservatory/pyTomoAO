@@ -15,6 +15,7 @@ start with {doc}`../user-guide/concepts` instead.
 | {py:class}`~pyTomoAO.dmParametersClass.dmParameters`                     | Deformable mirror actuator geometry                              |
 | {py:class}`~pyTomoAO.tomographyParametersClass.tomographyParameters`     | Optimisation field of view and source sampling                   |
 | {py:class}`~pyTomoAO.slodar.slodarProfiler`                              | SLODAR turbulence profiling from multi-WFS slopes                |
+| {py:func}`~pyTomoAO.slope_conversion.slope_conversion_matrix`            | Converts external slopes (e.g. SPECULA) to the reconstructor's convention |
 
 All these classes are re-exported at package level, so either import style works:
 
@@ -45,6 +46,17 @@ Each class gets its own page with every public method and property.
    pyTomoAO.tomographyParametersClass.tomographyParameters
    pyTomoAO.slodar.slodarProfiler
    pyTomoAO.slodar.slodarResult
+```
+
+## Functions
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   pyTomoAO.slope_conversion.slope_conversion_matrix
+   pyTomoAO.slope_conversion.specula_slope_scale
 ```
 
 ## Internal computation kernels

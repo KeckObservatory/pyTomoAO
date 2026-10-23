@@ -59,6 +59,46 @@ and raise `ValueError` otherwise. An IM-based reconstructor already outputs comm
 there is no phase to reconstruct.
 :::
 
+### Slopes from another simulator or instrument
+
+The model-based matrix `rec.RecStatSA` acts on slopes in the convention of the tomographic
+gradient operator:
+
+- **Units:** `d × angle of arrival` in metres, where `d` is the subaperture size. Fed with
+  slopes in these units, the reconstructor returns OPD in metres on the reconstruction grid.
+- **Order:** per sensor, all X slopes then all Y slopes, with the valid subapertures
+  enumerated column-major.
+- **Axes:** X is the derivative along the columns of `validLLMap`.
+
+{py:func}`~pyTomoAO.slope_conversion.slope_conversion_matrix` builds the sparse matrix `P`
+that converts other conventions. The reconstructor method of the same name fills in its own
+geometry:
+
+```python
+from pyTomoAO import specula_slope_scale
+
+# SPECULA Shack-Hartmann / IdealDerivativeSensor slopes: subapertures row-major, X then Y,
+# normalised to the sensor field of view (here fov = 4", 8 pupil pixels per subaperture)
+P = rec.slope_conversion_matrix(subapOrder="C", slopeScale=specula_slope_scale(4.0, 8))
+opd = rec.RecStatSA @ (P @ slopes)          # OPD [m] on the True points of rec.gridMask
+x, y = rec.grid_coordinates()               # where those points are in the pupil [m]
+```
+
+`slopesOrder` accepts `"simu"` (X then Y), `"inverted"` (Y then X) or `"keck"`
+(interleaved). `xSign` and `ySign` flip axes that point the other way.
+
+To compare `opd` with a phase map from elsewhere, use
+{py:meth}`~pyTomoAO.reconstructor.tomographicReconstructor.grid_coordinates`. The grid spans
+the padded lenslet support (`lgsWfsParams.DSupport`, 12 m for KAPA's 20×20 map on 10 m),
+not `D`.
+
+The conversion was validated end to end against SPECULA for a 6-LGS, 20×20 LTAO system:
+
+- **Open-loop reconstruction:** matches the true on-axis phase to within pyTomoAO's own
+  predicted MMSE error (126 nm measured vs 129 nm predicted).
+- **Closed loop:** with a DM and pseudo-open-loop control, the loop reached the expected
+  tomography, fitting and servo-lag budget.
+
 ## Interaction-matrix-based reconstruction
 
 If you have measured an interaction matrix for your system, pass it in:
@@ -92,6 +132,10 @@ R = reconstructor.build_reconstructor(alpha=10)     # default
 
 The useful range depends on the noise level and slope units of your system; scan it against
 a simulated or on-sky data set rather than assuming the default is optimal.
+
+For noiseless or high-SNR simulated slopes, the default is far too strong. In a noiseless
+SPECULA LTAO test (6 LGS, 20×20 subapertures), the open-loop error was flat for
+`alpha ≤ 1e-3`, at 126 nm rms, and reached about 300 nm at `alpha = 10`.
 
 ## Precision
 

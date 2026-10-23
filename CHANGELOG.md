@@ -21,6 +21,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   removal, noise and L0 estimation, longitudinal/transverse components, generalised
   SLODAR, and returns a profile that converts back to an `atmosphere_parameters` section.
   Validation scripts, including an end-to-end SPECULA LTAO run, are in `examples/slodar/`.
+- **Slope conversion** (`pyTomoAO.slope_conversion`): `slope_conversion_matrix` builds the sparse
+  matrix taking slopes in another convention (row- or column-major subapertures,
+  X/Y-blocked, inverted or interleaved, any unit scale and axis signs) to the gradient
+  operator's convention (`d × angle`, metres), so that `RecStatSA @ (P @ slopes)` is OPD in
+  metres. `specula_slope_scale` gives the radians per SPECULA slope unit. The reconstructor
+  gains `slope_conversion_matrix()` (filled in with its own geometry) and
+  `grid_coordinates()` (pupil positions of the grid points, which span the padded support
+  `DSupport`, not `D`).
 
 ## [2.0.0] - 2026-07-28
 

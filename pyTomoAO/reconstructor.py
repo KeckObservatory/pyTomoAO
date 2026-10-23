@@ -16,6 +16,7 @@ from pyTomoAO.dm_fitting import fitting
 from pyTomoAO.dmParametersClass import dmParameters
 from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
+from pyTomoAO.slope_conversion import slope_conversion_matrix as _slope_conversion_matrix
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 
 # Module logger. Handlers and levels are the application's business; the package
@@ -949,6 +950,55 @@ class tomographicReconstructor:
         out[valid] = wavefront
 
         return out
+
+    # External slope conventions
+    def slope_conversion_matrix(self, **kwargs):
+        """Sparse matrix taking external slopes to this reconstructor's slope convention.
+
+        Wraps :func:`pyTomoAO.slope_conversion.slope_conversion_matrix` with this
+        reconstructor's ``validLLMap``, diameter and number of LGS. With ``P`` from here,
+        ``rec.RecStatSA @ (P @ slopes)`` (model-based reconstructor) is the OPD [m] on the
+        points of :attr:`gridMask`, whose positions :meth:`grid_coordinates` returns.
+
+        Parameters
+        ----------
+        **kwargs
+            ``subapOrder``, ``slopesOrder``, ``slopeScale``, ``xSign``, ``ySign``; see
+            :func:`pyTomoAO.slope_conversion.slope_conversion_matrix`.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            ``(nLGS * 2 * nValidSubap, nLGS * 2 * nValidSubap)``.
+        """
+        return _slope_conversion_matrix(
+            self.lgsWfsParams.validLLMap,
+            self.lgsAsterismParams.nLGS,
+            self.lgsWfsParams.D,
+            **kwargs,
+        )
+
+    def grid_coordinates(self):
+        """Pupil-plane positions [m] of the reconstruction grid points.
+
+        The grid covers the *padded* lenslet support (``lgsWfsParams.DSupport``, which is
+        larger than ``D`` when ``validLLMapSupport`` pads the lenslet map), so its spacing is
+        ``DSupport / (sampling - 1)``, not ``D / (sampling - 1)``. Use these coordinates when
+        comparing a reconstruction with a phase map from elsewhere.
+
+        Returns
+        -------
+        x, y : numpy.ndarray
+            Coordinates of the ``True`` points of :attr:`gridMask`, in the order of the
+            reconstructed vector (row-major over the mask). ``x`` runs along the columns of
+            the mask and ``y`` along its rows, centred on the pupil.
+        """
+        mask = np.asarray(self.gridMask, dtype=bool)
+        half = self.lgsWfsParams.DSupport / 2
+        x, y = np.meshgrid(
+            np.linspace(-1, 1, mask.shape[1]) * half, np.linspace(-1, 1, mask.shape[0]) * half
+        )
+        return x[mask], y[mask]
 
     # Visualize Commands
     def visualize_commands(self, slopes):
