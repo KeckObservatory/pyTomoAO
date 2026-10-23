@@ -449,3 +449,144 @@ class TestNNLSSafeguard:
         monkeypatch.setattr(slodar, "nnls", bad_nnls)
         x = slodar._nnls(A, b)
         np.testing.assert_allclose(x, ref, atol=1e-8)
+
+    def test_free_variable_gradient_is_checked(self, monkeypatch):
+        """A point on the right support but off the optimum (grad != 0 on free vars) is refined."""
+        import scipy.optimize
+
+        from pyTomoAO import slodar
+
+        A, b = self._problem()
+        ref = scipy.optimize.lsq_linear(A, b, bounds=(0, np.inf), method="bvls").x
+
+        def early_stop(A_, b_, **kwargs):
+            x, _ = scipy.optimize.nnls(A_, b_)
+            return 1.2 * x, 0.0  # same active set, every free variable 20% off
+
+        monkeypatch.setattr(slodar, "nnls", early_stop)
+        np.testing.assert_allclose(slodar._nnls(A, b), ref, atol=1e-8)
+
+
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def noisy():
+    """Own profiler (not the shared ``setup`` one, whose maps other tests overwrite)."""
+    valid = _annulus(10, inner=1.2)
+    gs = np.array([[-25, 0], [25, 0], [0, 40]]) * ARCSEC2RAD
+    p = slodarProfiler(valid, 5.0, gs, gsHeight=90e3, L0=25.0)
+    grid = p.default_altitudes(hMax=15e3)
+    alts, w = [grid[0], grid[4]], p.profile_to_r0m53(0.15, [0.5, 0.5])
+    sig = np.sqrt(np.mean(np.diag(p.slope_covariance(alts, w))))
+    s = p.draw_slopes(alts, w, 6000, noiseRms=0.7 * sig, rng=7)
+    p.compute_covariance_maps(s, removeTT=True)
+    return p, grid, (0.7 * sig) ** 2
+
+
+class TestNoiseEstimates:
+    """Review of #126: no silent-zero noise, and the temporal estimator."""
+
+    @pytest.mark.parametrize("components", [("ll", "tt"), ("xy",), ("xx", "yy"), ("xx",)])
+    def test_noise_fitted_whatever_the_components(self, noisy, components):
+        p, grid, var = noisy
+        res = p.fit_profile(altitudes=grid, components=components, fitNoise=True)
+        assert res.noiseVariance.shape == (p.nGS,)
+        np.testing.assert_allclose(res.noiseVariance, var, rtol=0.1)
+        assert res.r0 == pytest.approx(0.15, rel=0.05)
+
+    def test_no_noise_estimate_without_autos(self, noisy):
+        p, grid, _ = noisy
+        res = p.fit_profile(altitudes=grid, useAuto=False, fitNoise=True)
+        assert res.noiseVariance.size == 0
+        with pytest.raises(ValueError, match="No noise estimate"):
+            res.noise_covariance(d=0.5, nValidSubap=p.nValidSubap)
+
+    @staticmethod
+    def _correlated_slopes(p, alts, w, nFrames, rho, noiseRms, rng):
+        """Turbulence slopes that evolve slowly (AR(1), correlation rho per frame) + white noise."""
+        rng = np.random.default_rng(rng)
+        z = p.draw_slopes(alts, w, nFrames, rng=rng)
+        turb = np.empty_like(z)
+        turb[0] = z[0]
+        for t in range(1, nFrames):
+            turb[t] = rho * turb[t - 1] + np.sqrt(1 - rho**2) * z[t]
+        return turb + noiseRms * rng.standard_normal(z.shape)
+
+    @pytest.mark.parametrize("removeTT", [False, True])
+    def test_temporal_noise_variance(self, setup, removeTT):
+        p, grid = setup
+        alts, w = [grid[0], grid[3]], p.profile_to_r0m53(0.15, [0.6, 0.4])
+        sig = np.sqrt(np.mean(np.diag(p.slope_covariance(alts, w))))
+        s = self._correlated_slopes(p, alts, w, 4000, rho=0.9995, noiseRms=0.3 * sig, rng=11)
+        v = p.temporal_noise_variance(s, removeTT=removeTT)
+        assert v.shape == (p.nGS,)
+        np.testing.assert_allclose(v, (0.3 * sig) ** 2, rtol=0.1)
+
+    def test_temporal_noise_variance_rejects_short_series(self, setup):
+        p, _ = setup
+        with pytest.raises(ValueError):
+            p.temporal_noise_variance(np.zeros((2, p.nGS * 2 * p.nValidSubap)), lag=1)
+
+
+class TestSlopeNoiseCovariance:
+    def test_from_reconstructor(self, revolt_config):
+        from pyTomoAO.reconstructor import tomographicReconstructor
+        from pyTomoAO.slodar import slope_noise_covariance
+
+        rec = tomographicReconstructor(revolt_config, force_cpu=True)
+        w = rec.lgsWfsParams
+        var = np.full(rec.lgsAsterismParams.nLGS, 1e-12)
+        got = slope_noise_covariance(var, reconstructor=rec)
+        d = w.D / w.nLenslet  # the physical subaperture, not DSupport / nLenslet
+        expected = (2 * np.pi * d / rec.atmParams.wavelength) ** 2 * 1e-12
+        assert got.shape == (2 * w.nValidSubap * rec.lgsAsterismParams.nLGS,)
+        np.testing.assert_allclose(got, expected)
+
+    def test_requires_geometry(self):
+        from pyTomoAO.slodar import slope_noise_covariance
+
+        with pytest.raises(ValueError, match="reconstructor"):
+            slope_noise_covariance([1.0], d=0.5)
+        with pytest.raises(ValueError, match="empty"):
+            slope_noise_covariance([], d=0.5, nValidSubap=3, wavelength=5e-7)
+
+
+class TestCachingAndChunks:
+    def test_response_cache_follows_geometry(self, setup):
+        p0, grid = setup
+        p = slodarProfiler(p0.validLLMap, p0.D, p0.gsDirections.copy(), gsHeight=90e3, L0=25.0)
+        before = p.response_maps(grid[3])[(0, 1)].copy()
+        p.gsDirections = p.gsDirections * 2  # wider asterism, same altitude
+        after = p.response_maps(grid[3])[(0, 1)]
+        assert np.max(np.abs(after - before)) > 0.1 * np.max(np.abs(before))
+
+    def test_auto_chunk_size_matches_explicit(self, setup):
+        p, grid = setup
+        s = p.draw_slopes([grid[0]], p.profile_to_r0m53(0.15, [1.0]), 300, rng=2)
+        a = {k: v.copy() for k, v in p.compute_covariance_maps(s).items()}
+        b = p.compute_covariance_maps(s, chunkSize=7)
+        for k, v in a.items():
+            np.testing.assert_allclose(b[k], v, rtol=0, atol=1e-9 * np.max(np.abs(v)))
+
+
+def test_pol_sign_self_check_documented_statistic():
+    """The docstring's sign check: the right sign has much smaller frame-to-frame increments."""
+    from pyTomoAO.slodar import pseudo_open_loop_slopes
+
+    rng = np.random.default_rng(0)
+    T, n, rho, g = 4000, 30, 0.99, 0.5
+    s_ol = np.empty((T, n))
+    x = rng.standard_normal(n)
+    for t in range(T):
+        x = rho * x + np.sqrt(1 - rho**2) * rng.standard_normal(n)
+        s_ol[t] = x
+    s, c, ci = np.empty((T, n)), np.empty((T, n)), np.zeros(n)
+    for t in range(T):  # the loop applies -c (sign=+1), M = I, one-frame delay, POLC
+        s[t] = s_ol[t] - ci
+        ci = ci + g * (s[t] + ci - ci)
+        c[t] = ci
+    M = np.eye(n)
+    right = pseudo_open_loop_slopes(s, c, M, sign=1)
+    wrong = pseudo_open_loop_slopes(s, c, M, sign=-1)
+    np.testing.assert_allclose(right, s_ol[1:])
+    assert right.var() == pytest.approx(wrong.var(), rel=0.1)  # variance cannot tell
+    assert np.var(np.diff(wrong, axis=0)) > 2 * np.var(np.diff(right, axis=0))

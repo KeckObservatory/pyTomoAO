@@ -9,8 +9,13 @@ the units and order of the tomographic gradient operator ``Gamma``
 - **Units.** ``Gamma`` applied to a phase map returns the trapezoid-weighted phase *difference*
   across each subaperture, i.e. ``d * slope`` with ``d`` the subaperture size. Feeding the
   reconstructor ``d * angle-of-arrival`` [m] therefore returns OPD in metres on the
-  reconstruction grid. The MMSE estimator is homogeneous (its regularisation is scaled to the
-  mean slope variance), so this holds whatever wavelength the turbulence model uses.
+  reconstruction grid, whatever wavelength the turbulence model uses: with the default
+  ``alpha`` regularisation, which is scaled to the mean slope variance, the estimator is
+  homogeneous in the slope units. With an explicit ``noiseCovariance`` the output is still in
+  metres, but the noise must be expressed in the units of the model's slope covariance (rad^2
+  of phase difference at the atmosphere wavelength, see
+  :func:`pyTomoAO.slodar.slope_noise_covariance`) for the signal and noise to be weighted
+  correctly.
 - **Order.** Per wavefront sensor, all X slopes then all Y slopes; valid subapertures are
   enumerated column-major (``"F"`` order over ``validLLMap``). X is the derivative along the
   columns of ``validLLMap`` and Y along its rows. Sensors follow the LGS order of

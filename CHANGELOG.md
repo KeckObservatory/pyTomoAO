@@ -17,9 +17,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Measured noise covariance for the model-based reconstructor**:
   `build_reconstructor(noiseCovariance=...)` takes the slope noise as a scalar, per-WFS or
   per-slope variances, or a full matrix (units of `Gamma Cxx Gamma^T`), in place of the
-  `alpha * mean(diag(Css)) * I` regularisation. `slodarResult.noise_covariance(d, nValid)`
-  converts SLODAR's fitted per-WFS noise to that form, and
-  `pyTomoAO.slodar.pseudo_open_loop_slopes` builds POL slopes from closed-loop telemetry.
+  `alpha * mean(diag(Css)) * I` regularisation.
+  - `slodarProfiler.temporal_noise_variance` estimates the per-WFS noise from telemetry
+    (`C(0) - C(lag)` of the slopes).
+  - `pyTomoAO.slodar.slope_noise_covariance` converts it to that form, taking the geometry
+    from the reconstructor.
+  - `slodarResult.noise_covariance` does the same for SLODAR's zero-offset noise fit, which
+    is documented as less reliable on physical Shack-Hartmann sensors.
+  - `pyTomoAO.slodar.pseudo_open_loop_slopes` builds POL slopes from closed-loop telemetry,
+    with both sign conventions documented.
 - **SLODAR turbulence profiling** (`pyTomoAO.slodar`): `slodarProfiler` computes
   normalised slope auto/cross-covariance maps of all WFS pairs and fits thin-layer von
   Karman response functions (built from the reconstructor's own covariance kernel and
@@ -27,6 +33,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   removal, noise and L0 estimation, longitudinal/transverse components, generalised
   SLODAR, and returns a profile that converts back to an `atmosphere_parameters` section.
   Validation scripts, including an end-to-end SPECULA LTAO run, are in `examples/slodar/`.
+  - The NNLS fit checks the full KKT conditions and falls back to BVLS, since
+    `scipy.optimize.nnls` can return non-optimal points on SciPy 1.13.
+  - Auto-covariance maps always contribute xx/yy, so the noise is fitted whichever cross
+    components are selected.
+  - The response-map cache is keyed on the geometry.
+  - FFT batches are sized to bound memory.
 - **Slope conversion** (`pyTomoAO.slope_conversion`): `slope_conversion_matrix` builds the sparse
   matrix taking slopes in another convention (row- or column-major subapertures,
   X/Y-blocked, inverted or interleaved, any unit scale and axis signs) to the gradient
@@ -35,6 +47,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gains `slope_conversion_matrix()` (filled in with its own geometry) and
   `grid_coordinates()` (pupil positions of the grid points, which span the padded support
   `DSupport`, not `D`).
+- **Tutorial: pyTomoAO in a SPECULA closed loop**
+  (`docs/source/tutorials/specula-closed-loop.md`), with the runnable
+  `examples/specula_ltao/`.
 
 ## [2.0.0] - 2026-07-28
 

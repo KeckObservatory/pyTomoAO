@@ -627,9 +627,12 @@ class tomographicReconstructor:
             variances, one variance per slope, or a full matrix. Units are those of ``Css``:
             rad^2 of phase difference across a subaperture at the atmosphere wavelength,
             i.e. ``(2 pi d sigma_angle / wavelength)**2`` for an angle-of-arrival noise rms
-            ``sigma_angle`` [rad] (see
-            :meth:`pyTomoAO.slodar.slodarResult.noise_covariance`). With measured noise this
-            gives the MMSE estimator instead of an ad hoc regularisation.
+            ``sigma_angle`` [rad]. With measured noise this gives the MMSE estimator instead
+            of an ad hoc regularisation. From telemetry, use
+            :meth:`pyTomoAO.slodar.slodarProfiler.temporal_noise_variance` on
+            pseudo-open-loop slopes and convert with
+            :func:`pyTomoAO.slodar.slope_noise_covariance` (``reconstructor=self``);
+            SLODAR's zero-offset noise fit can overestimate the noise on real sensors.
 
         Returns
         -------

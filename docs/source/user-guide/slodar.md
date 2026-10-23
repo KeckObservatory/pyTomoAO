@@ -68,20 +68,50 @@ the gradient operator) or row-major (`subapOrder="C"`). X runs along the columns
 
 On sky the loop is closed, so SLODAR runs on pseudo-open-loop slopes
 $s_{\rm pol}(t) = s(t) + M_{\rm int}\,c(t-1)$
-({py:func}`~pyTomoAO.slodar.pseudo_open_loop_slopes`; check the delay on the telemetry).
-WFS noise is white and only biases the zero-offset auto-covariance, which `fitNoise=True`
-absorbs into per-WFS noise variances. Those variances can regularise the reconstructor
-directly, giving the MMSE estimator for the measured noise:
+({py:func}`~pyTomoAO.slodar.pseudo_open_loop_slopes`).
+
+Two settings need checking on the telemetry:
+
+- **Delay.** The number of frames between computing a command and the slopes it affects.
+- **Sign.** `sign=+1` when the loop applies the opposite of the recorded command
+  ($s = s_{\rm ol} - M c$, e.g. SPECULA); `sign=-1` when it applies the recorded command and
+  $M$ was poked with it ($s = s_{\rm ol} + M c$). In a well-corrected loop the wrong sign
+  barely changes the slope variance, but its frame-to-frame increments are 2–4× larger.
+
+WFS noise is white, so it only biases the zero-offset auto-covariance, and `fitNoise=True`
+absorbs it into per-WFS noise variances. That keeps the *profile* unbiased. For the
+*reconstructor's* noise covariance, though, use the temporal estimate:
 
 ```python
-pol = pseudo_open_loop_slopes(slopes, commands, IM)          # same units as the slopes
-res = prof.profile(pol, removeTT=True, fitL0=True)
-rec.build_reconstructor(noiseCovariance=res.noise_covariance(d, rec.lgsWfsParams.nValidSubap))
+from pyTomoAO.slodar import pseudo_open_loop_slopes, slope_noise_covariance
+
+pol = pseudo_open_loop_slopes(slopes, commands, IM)        # same units as the slopes
+res = prof.profile(pol, removeTT=True, fitL0=True)         # profile, for the turbulence model
+var = prof.temporal_noise_variance(pol, removeTT=True)     # per-WFS noise [rad^2]: C(0) - C(1)
+rec.build_reconstructor(noiseCovariance=slope_noise_covariance(var, reconstructor=rec))
 ```
 
-`noise_covariance` converts the angle-of-arrival variances [rad²] to the units of the
-reconstructor's slope covariance, rad² of phase difference across a subaperture at the
-atmosphere wavelength.
+{py:meth}`~pyTomoAO.slodar.slodarProfiler.temporal_noise_variance` subtracts the slope
+covariance at a one-frame lag from the variance. White noise is uncorrelated from frame to
+frame, while the turbulence barely changes.
+{py:func}`~pyTomoAO.slodar.slope_noise_covariance` converts the angle-of-arrival variances
+to the reconstructor's units: rad² of phase difference across a subaperture at the
+atmosphere wavelength. It takes `d`, `nValidSubap` and the wavelength from the reconstructor.
+
+:::{caution}
+Two effects found in SPECULA closed-loop tests with a physical Shack–Hartmann (photon and
+read noise):
+
+- **The zero-offset noise fit is unreliable as a noise estimate.** It also absorbs the
+  mismatch between the real sensor and the geometric slope model at zero offset, and
+  overestimated the noise by up to 5× (`res.noise_covariance()` inherits this). The temporal
+  estimate was within 15%.
+- **Centroid gain at low flux.** A thresholded centre of gravity loses gain at low SNR (0.92
+  at 200 e⁻/subaperture/frame, 0.43 at 50 e⁻). Uncorrected, this biases the SLODAR r0 by up
+  to +56%, even from cross-covariances alone, and mismatches the interaction matrix.
+  Calibrate the centroid gain (e.g. dithering or modulation on sky) and rescale the slopes
+  before profiling.
+:::
 
 ## Validation
 

@@ -116,11 +116,27 @@ def pseudo_open_loop_slopes(slopes, commands, interactionMatrix, delay=1, sign=1
         command.
     delay : int, optional
         Frames between computing a command and the slopes it affects, ``tau`` (default 1:
-        the command computed at ``t - 1`` was on the mirror during frame ``t``). Check it on
-        telemetry: the wrong value leaves a large loop-filtered residual in ``s_pol``.
+        the command computed at ``t - 1`` was on the mirror during frame ``t``). Only whole
+        frames are supported; real loops often have a fractional delay (e.g. about 1.5
+        frames), which this approximates by the nearest integer.
     sign : float, optional
-        ``+1`` (default) when the interaction matrix was measured with the same sign
-        convention as the loop applies the commands (``s = s_ol - M c``); ``-1`` otherwise.
+        How the recorded commands act on the slopes. Write the closed-loop measurement as
+        ``s = s_ol + sigma_DM * M c`` with ``M`` the interaction matrix as measured and ``c``
+        the recorded command; then ``sign = -sigma_DM``:
+
+        - ``+1`` (default): the loop applies the *opposite* of the recorded command, so
+          ``s = s_ol - M c``. This is the usual case when ``M`` is measured by poking
+          ``+c`` but the DM is driven with ``-c``, as in SPECULA (``DM`` with its default
+          ``sign: -1`` and an IM calibrated with ``sign: 1``).
+        - ``-1``: the recorded command is applied as is and ``M`` was measured by poking
+          that same command, so ``s = s_ol + M c``.
+
+        Self-check: in a well-corrected loop the wrong sign gives ``s_pol`` close to
+        ``-s_ol``, with almost the same variance (and spatial covariance) as the right
+        one, so the variance does not tell them apart. The frame-to-frame increments do:
+        the right sign recovers the temporally smooth open-loop slopes, while the wrong one
+        keeps the servo-lag jitter. ``np.var(np.diff(s_pol, axis=0))`` is typically 2-4x
+        smaller for the right sign.
 
     Returns
     -------
@@ -143,14 +159,62 @@ def pseudo_open_loop_slopes(slopes, commands, interactionMatrix, delay=1, sign=1
     return s[delay:] + sign * (c[: s.shape[0] - delay] @ M.T)
 
 
+def slope_noise_covariance(
+    noiseVariance, reconstructor=None, d=None, nValidSubap=None, wavelength=None
+):
+    """Per-slope noise variances for ``build_reconstructor(noiseCovariance=...)``.
+
+    Converts per-WFS angle-of-arrival noise variances [rad^2] -- from
+    :meth:`slodarProfiler.temporal_noise_variance` (recommended) or a SLODAR fit -- to the
+    units of the reconstructor's slope covariance ``Gamma Cxx Gamma^T``: rad^2 of phase
+    difference across a subaperture at the atmosphere wavelength,
+    ``(2 pi d / wavelength)^2 * noiseVariance``.
+
+    Parameters
+    ----------
+    noiseVariance : array_like
+        ``(nGS,)`` per-sensor angle-of-arrival noise variances [rad^2].
+    reconstructor : tomographicReconstructor, optional
+        Takes ``d`` (the physical subaperture size ``D / nLenslet``, not the padded
+        ``DSupport``), ``nValidSubap`` and ``wavelength`` (the atmosphere model's) from it.
+        Explicit arguments override it.
+    d : float, optional
+        Subaperture size [m].
+    nValidSubap : int, optional
+        Valid subapertures per sensor (each sensor contributes ``2 * nValidSubap`` slopes).
+    wavelength : float, optional
+        Wavelength of the reconstructor's atmosphere model [m].
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(nGS * 2 * nValidSubap,)`` variances.
+    """
+    v = np.atleast_1d(np.asarray(noiseVariance, dtype=float))
+    if v.size == 0:
+        raise ValueError("No noise estimate (empty noiseVariance)")
+    if np.any(v < 0):
+        raise ValueError("noise variances must be non-negative")
+    if reconstructor is not None:
+        w = reconstructor.lgsWfsParams
+        d = w.D / w.nLenslet if d is None else d
+        nValidSubap = w.nValidSubap if nValidSubap is None else nValidSubap
+        wavelength = reconstructor.atmParams.wavelength if wavelength is None else wavelength
+    if d is None or nValidSubap is None or wavelength is None:
+        raise ValueError("Give a reconstructor, or d, nValidSubap and wavelength")
+    phase = (2 * np.pi * float(d) / float(wavelength)) ** 2 * v
+    return np.repeat(phase, 2 * int(nValidSubap))
+
+
 def _nnls(A, b):
     """Non-negative least squares ``min ||A x - b||, x >= 0`` with an optimality check.
 
     ``scipy.optimize.nnls`` can stop at a non-optimal point on some SciPy releases (seen with
     SciPy 1.13, the newest available for Python 3.9: a residual 10x the minimum and a biased
     SLODAR profile). The result is therefore checked against the Karush-Kuhn-Tucker
-    conditions -- the gradient ``A^T (A x - b)`` must be non-negative on the bound variables
-    -- and, if they fail, refined with a bounded-variable least-squares solve.
+    conditions -- the gradient ``A^T (A x - b)`` must vanish on the free variables and be
+    non-negative on the bound ones -- and, if they fail, refined with a bounded-variable
+    least-squares solve.
 
     Parameters
     ----------
@@ -167,7 +231,9 @@ def _nnls(A, b):
     x, _ = nnls(A, b, maxiter=50 * A.shape[1])
     grad = A.T @ (A @ x - b)
     scale = np.max(np.abs(A.T @ b))
-    if scale == 0 or np.all(grad[x <= 0] >= -1e-8 * scale):
+    tol = 1e-8 * scale
+    free = x > 0
+    if scale == 0 or (np.all(np.abs(grad[free]) <= tol) and np.all(grad[~free] >= -tol)):
         return x
     ref = lsq_linear(A, b, bounds=(0, np.inf), method="bvls", tol=1e-12).x
     ref = np.clip(ref, 0, None)
@@ -314,6 +380,12 @@ class slodarResult:
         dict
             Keys as documented for ``atmosphere_parameters``. Altitudes are zenith
             altitudes in km and ``r0`` is the zenith value, as the configuration expects.
+
+        Notes
+        -----
+        Dropping layers with ``minFraction`` renormalises the remaining fractions but keeps
+        the total ``r0``, so the strength of the dropped layers is shared out over the kept
+        ones in proportion to their own.
         """
         keep = self.fractionalCn2 > minFraction
         if not keep.any():
@@ -334,23 +406,25 @@ class slodarResult:
             "windSpeed": ws.tolist(),
         }
 
-    def noise_covariance(self, d, nValidSubap, wavelength=None):
-        """Per-slope noise variances for ``build_reconstructor(noiseCovariance=...)``.
+    def noise_covariance(self, d=None, nValidSubap=None, wavelength=None, reconstructor=None):
+        """Per-slope noise variances from this fit, for ``build_reconstructor``.
 
-        Converts the fitted per-WFS angle-of-arrival noise variances (rad^2) to the units of
-        the reconstructor's slope covariance: rad^2 of phase difference across a
-        subaperture, ``(2 pi d / wavelength)^2 * noiseVariance``.
+        See :func:`slope_noise_covariance`; ``wavelength`` defaults to the reconstructor's
+        atmosphere wavelength when ``reconstructor`` is given, else to the profile's.
+
+        .. caution::
+           On real Shack-Hartmann data the noise fitted here, from the zero-offset excess
+           of the auto-covariance, absorbs any mismatch between the sensor and the
+           geometric slope model at zero offset. In SPECULA simulations with a physical
+           Shack-Hartmann it overestimated the noise by up to 5x. For the reconstructor,
+           prefer :meth:`slodarProfiler.temporal_noise_variance` on the (pseudo-)open-loop
+           slopes. At low flux, also calibrate the centroid gain first (see the SLODAR user
+           guide).
 
         Parameters
         ----------
-        d : float
-            Subaperture size [m].
-        nValidSubap : int
-            Valid subapertures per sensor (each sensor contributes ``2 * nValidSubap``
-            slopes, X block then Y block, as the reconstructor expects).
-        wavelength : float, optional
-            Wavelength of the reconstructor's atmosphere model [m] (default: the profile's
-            ``wavelength``).
+        d, nValidSubap, wavelength, reconstructor
+            As in :func:`slope_noise_covariance`.
 
         Returns
         -------
@@ -359,9 +433,15 @@ class slodarResult:
         """
         if self.noiseVariance.size == 0:
             raise ValueError("No noise estimate: fit the profile with useAuto=True, fitNoise=True")
-        lam = self.wavelength if wavelength is None else float(wavelength)
-        phase = (2 * np.pi * d / lam) ** 2 * np.asarray(self.noiseVariance, float)
-        return np.repeat(phase, 2 * int(nValidSubap))
+        if wavelength is None and reconstructor is None:
+            wavelength = self.wavelength
+        return slope_noise_covariance(
+            self.noiseVariance,
+            reconstructor=reconstructor,
+            d=d,
+            nValidSubap=nValidSubap,
+            wavelength=wavelength,
+        )
 
     def __str__(self):
         lines = [
@@ -558,6 +638,9 @@ class slodarProfiler:
         args = {
             "validLLMap": lgsWfsParams.validLLMap,
             "D": lgsWfsParams.D,
+            # directionVectorLGS holds tan(zenith) * (cos az, sin az); arctan turns each
+            # component back into an angle. The reconstructor kernels use the tangents
+            # directly; the two differ by theta^2 / 3 relative, 3e-8 at 60 arcsec.
             "gsDirections": np.stack([np.arctan(dv[0]), np.arctan(dv[1])], axis=1),
             "gsHeight": lgsAsterismParams.LGSheight,
             "L0": atmParams.L0,
@@ -783,7 +866,7 @@ class slodarProfiler:
         """Valid subaperture pairs per offset, ``(2N-1, 2N-1)``; the map normalisation."""
         return self._counts
 
-    def compute_covariance_maps(self, slopes, removeTT=False, chunkSize=2000):
+    def compute_covariance_maps(self, slopes, removeTT=False, chunkSize=None):
         """Compute the slope auto- and cross-covariance maps of all sensor pairs.
 
         For sensors ``i, j`` and slope components ``a, b`` the map is
@@ -807,7 +890,10 @@ class slodarProfiler:
             correlating, as needed for LGS sensors whose tip-tilt is unreliable. The
             response maps then include the same projection (default False).
         chunkSize : int, optional
-            Frames processed per FFT batch (default 2000).
+            Frames processed per FFT batch. The batch's FFT buffer takes
+            ``chunkSize * nGS * 2 * 2N * (N + 1) * 16`` bytes (about 0.3 GB for 2000 frames of
+            six 20x20 sensors, but 3 GB for six 60x60 ones). By default it is sized to keep
+            that buffer near 256 MB.
 
         Returns
         -------
@@ -825,6 +911,12 @@ class slodarProfiler:
 
         N = self.nLenslet
         P = 2 * N  # padding avoids circular wrap-around for offsets up to N-1
+        if chunkSize is None:
+            bytesPerFrame = self.nGS * 2 * P * (P // 2 + 1) * 16
+            chunkSize = max(1, int(256e6 // bytesPerFrame))
+        chunkSize = int(chunkSize)
+        if chunkSize < 1:
+            raise ValueError("chunkSize must be at least 1")
         sums = {}
         for start in range(0, T, chunkSize):
             block = s[start : start + chunkSize]
@@ -849,6 +941,62 @@ class slodarProfiler:
         self.nFrames = T
         self.removeTT = bool(removeTT)
         return maps
+
+    def temporal_noise_variance(self, slopes, lag=1, removeTT=False):
+        """Per-WFS slope noise variance from the temporal covariance of the slopes.
+
+        White measurement noise is uncorrelated from frame to frame, while turbulence
+        evolves little over one frame at kHz-class rates. The noise variance is therefore
+        ``C(0) - C(lag)``: the slope variance minus the covariance at ``lag`` frames,
+        averaged over the subapertures and both axes of each sensor.
+
+        This is the recommended noise estimate for
+        ``build_reconstructor(noiseCovariance=...)``, through
+        :func:`slope_noise_covariance`. The spatial estimate of :meth:`fit_profile`
+        (zero-offset excess of the auto-covariance) also absorbs any mismatch between the
+        sensor and the geometric slope model and can be several times too large on a
+        physical Shack-Hartmann. In SPECULA tests this estimator was within 15% of the true
+        noise.
+
+        Parameters
+        ----------
+        slopes : numpy.ndarray
+            Time-ordered open-loop or pseudo-open-loop slopes, as for
+            :meth:`compute_covariance_maps`, at the loop frame rate (do not decimate).
+        lag : int, optional
+            Lag in frames (default 1). The estimate is biased high by the turbulence
+            decorrelation over ``lag`` frames, which grows with wind speed and frame time.
+        removeTT : bool, optional
+            Remove the per-frame tip-tilt of each sensor first. The result is corrected for
+            the ``1 - 1/nValid`` loss of white-noise variance this causes.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(nGS,)`` angle-of-arrival noise variances [rad^2], non-negative.
+
+        Notes
+        -----
+        With an exact interaction matrix, pseudo-open-loop slopes ``s + M c(t - 1)`` cancel
+        the applied correction exactly, so their noise stays white and the estimate is
+        unbiased. Interaction-matrix or centroid-gain errors leave a loop-filtered
+        residual, correlated over a few frames, that biases it. At low flux, calibrate the
+        centroid gain first: a thresholded centroid loses gain, which scales the noise and
+        the turbulence alike.
+        """
+        lag = int(lag)
+        s = self._reshape_slopes(slopes)
+        if lag < 1 or s.shape[0] <= lag + 1:
+            raise ValueError("Need lag >= 1 and more than lag + 1 frames")
+        s = s - s.mean(axis=0, keepdims=True)
+        if removeTT:
+            s = s - s.mean(axis=3, keepdims=True)
+        c0 = np.mean(s * s, axis=0)
+        c1 = np.mean(s[:-lag] * s[lag:], axis=0)
+        var = (c0 - c1).mean(axis=(1, 2))
+        if removeTT:
+            var = var / (1 - 1 / self.nValidSubap)
+        return np.clip(var, 0, None)
 
     # ------------------------------------------------------------------
     # Theoretical response
@@ -930,7 +1078,16 @@ class slodarProfiler:
         """
         L0 = self.L0 if L0 is None else float(L0)
         removeTT = self.removeTT if removeTT is None else bool(removeTT)
-        key = (round(float(h), 6), L0, removeTT)
+        # The key includes the geometry, so changing gsDirections, gsHeight or
+        # conjugationAltitude on an existing profiler cannot return stale maps.
+        key = (
+            round(float(h), 6),
+            L0,
+            removeTT,
+            self.gsDirections.tobytes(),
+            self.gsHeight,
+            self.conjugationAltitude,
+        )
         if key in self._responseCache:
             return self._responseCache[key]
         out = {}
@@ -974,12 +1131,17 @@ class slodarProfiler:
         """Flatten the selected parts of a map dictionary into one vector."""
         N = self.nLenslet
         parts = []
+        # Auto-covariances have no baseline, so "ll"/"tt" do not apply to them; they always
+        # contribute their xx and yy components (plus any other selected Cartesian ones),
+        # which is what carries the total turbulence and the noise.
+        autoIdx = sorted(set(comp_idx) | {0, 3})
         for key in keys:
             m = maps[key]
             sel = mask.copy()
-            if key[0] == key[1] and not autoZero:
+            isAuto = key[0] == key[1]
+            if isAuto and not autoZero:
                 sel[N - 1, N - 1] = False
-            for c in comp_idx:
+            for c in autoIdx if isAuto else comp_idx:
                 parts.append(m[c][sel])
             if longTrans and key[0] != key[1]:
                 b = self.gsDirections[key[1]] - self.gsDirections[key[0]]
@@ -1035,10 +1197,15 @@ class slodarProfiler:
             ``("xx", "yy")``.
         useAuto : bool, optional
             Also fit the auto-covariance maps (default True). They carry no altitude
-            information for NGS but constrain the total turbulence and the noise.
+            information for NGS but constrain the total turbulence and the noise. Their xx
+            and yy components are always used, whichever ``components`` are selected for
+            the cross maps (``"ll"``/``"tt"`` are not defined without a baseline).
         fitNoise : bool, optional
-            Fit per-WFS noise variances on the auto-covariance; otherwise the zero-offset
-            point of the auto-covariance, which noise biases, is excluded (default True).
+            Fit per-WFS noise variances on the zero-offset point of the auto-covariance
+            (requires ``useAuto``); otherwise that point, which noise biases, is excluded
+            (default True). See :meth:`slodarResult.noise_covariance` for why
+            :meth:`temporal_noise_variance` is the better noise estimate for the
+            reconstructor.
         L0 : float, optional
             Outer scale to use (default ``self.L0``); ignored if ``fitL0``.
         fitL0 : bool, optional
@@ -1072,6 +1239,11 @@ class slodarProfiler:
                 m = dict.fromkeys(keys, zero)
                 m[(g, g)] = np.stack([nr, 0 * nr, 0 * nr, nr])
                 noiseCols.append(self._project(m, keys, comp_idx, longTrans, mask, autoZero))
+            if any(not np.any(col) for col in noiseCols):
+                # Cannot happen with the auto maps always contributing xx/yy, but a silent
+                # all-zero noise column would report zero noise and build an unregularised
+                # reconstructor downstream, so fail loudly instead.
+                raise RuntimeError("Noise response is empty for the selected components")
 
         def solve(L0value):
             cols = []

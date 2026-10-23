@@ -1,7 +1,9 @@
 """Stage 3a: run the SPECULA LTAO open-loop simulation and export the slopes for SLODAR.
 
 Usage:
-    python run_specula.py WORKDIR [total_time_s] [time_step_s] [seed]
+    python run_specula.py WORKDIR [total_time_s] [time_step_s] [seed] [--gpu]
+
+``--gpu`` runs SPECULA on GPU 0 (needs CuPy); the default is the CPU.
 
 WORKDIR receives ``calib/`` (SubapData), ``output/<TN>/`` (SPECULA DataStore) and
 ``slopes_<TN>.npz`` with:
@@ -27,7 +29,7 @@ HERE = Path(__file__).resolve().parent
 RAD2ASEC = 180 * 3600 / np.pi
 
 
-def main(workdir, total_time=400.0, time_step=0.25, seed=11):
+def main(workdir, total_time=400.0, time_step=0.25, seed=11, gpu=False):
     workdir = Path(workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(HERE))
@@ -53,7 +55,7 @@ def main(workdir, total_time=400.0, time_step=0.25, seed=11):
 
     import specula
 
-    specula.init(-1, precision=0)
+    specula.init(0 if gpu else -1, precision=0)
     from astropy.io import fits
     from specula.simul import Simul
 
@@ -97,10 +99,12 @@ def main(workdir, total_time=400.0, time_step=0.25, seed=11):
 
 
 if __name__ == "__main__":
-    a = sys.argv[1:]
+    gpu = "--gpu" in sys.argv[1:]
+    a = [x for x in sys.argv[1:] if x != "--gpu"]
     main(
         a[0] if a else "./specula_run",
         float(a[1]) if len(a) > 1 else 400.0,
         float(a[2]) if len(a) > 2 else 0.25,
         int(a[3]) if len(a) > 3 else 11,
+        gpu=gpu,
     )

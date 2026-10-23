@@ -141,7 +141,7 @@ SPECULA LTAO test (6 LGS, 20×20 subapertures), the open-loop error was flat for
 
 The `alpha` term is `alpha * mean(diag(Css)) * I`, a white noise covariance scaled to the
 turbulent slope variance. When the slope noise is known (from a noise model, a dark/sky
-calibration, or SLODAR's noise fit), pass it directly instead:
+calibration, or the temporal estimate on telemetry), pass it directly instead:
 
 ```python
 R = reconstructor.build_reconstructor(noiseCovariance=sigma2)          # scalar: white
@@ -154,6 +154,21 @@ subaperture at the atmosphere wavelength, `(2π d σ_θ / λ)²` for an angle-of
 `σ_θ` [rad]. `alpha` is ignored when `noiseCovariance` is given, and the option applies to the
 model-based reconstructor only. A scalar `sigma2` is equivalent to
 `alpha = sigma2 / mean(diag(Css))`.
+
+From closed-loop telemetry, estimate the noise from the temporal covariance of the
+pseudo-open-loop slopes and convert it with the reconstructor's own geometry:
+
+```python
+from pyTomoAO.slodar import slodarProfiler, slope_noise_covariance
+
+var = slodarProfiler.from_reconstructor(reconstructor).temporal_noise_variance(pol_slopes)
+Cn = slope_noise_covariance(var, reconstructor=reconstructor)  # rad^2, Css units
+R = reconstructor.build_reconstructor(noiseCovariance=Cn)
+```
+
+SLODAR's zero-offset noise fit (`slodarResult.noise_covariance`) is not a good substitute:
+on a physical Shack–Hartmann it absorbs model mismatch and can overestimate the noise
+several times. See {doc}`slodar` for this and the low-flux centroid-gain caveat.
 
 ## Precision
 
