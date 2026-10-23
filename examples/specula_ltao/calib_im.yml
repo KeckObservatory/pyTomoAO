@@ -1,0 +1,69 @@
+---
+# Push-pull interaction matrix of the KAPA ground DM (349 actuators) seen by one LGS
+# Shack-Hartmann (ideal derivative sensor, KAPA 20x20 map). A ground DM is seen identically by
+# every LGS (no shift, no cone scaling at h = 0), so this IM is tiled over the six WFSs.
+
+main:
+  class:             'SimulParams'
+  root_dir:          './calib'
+  pixel_pupil:       160
+  pixel_pitch:       0.0625
+  total_time:        0.698          # 2 x 349 push-pull steps
+  time_step:         0.001
+  zenithAngleInDeg:  0.0
+
+lgs1:
+  class:             'Source'
+  polar_coordinates: [60.0, 0.0]
+  height:            90000
+  magnitude:         5.0
+  wavelengthInNm:    589
+
+pupilstop:
+  class:             'Pupilstop'
+  simul_params_ref:  'main'
+
+pushpull:
+  class:             'PushPullGenerator'
+  nmodes:            349
+  amp:               50.0
+  constant_amp:      True
+  outputs: ['output']
+
+dm:
+  class:             'DM'
+  simul_params_ref:  'main'
+  ifunc_object:      'kapa_dm349'
+  height:            0
+  sign:              1
+  inputs:
+    in_command:      'pushpull.output'
+  outputs: ['out_layer']
+
+prop:
+  class:             'AtmoPropagation'
+  simul_params_ref:  'main'
+  source_dict_ref:   ['lgs1']
+  inputs:
+    common_layer_list: ['pupilstop', 'dm.out_layer']
+  outputs: ['out_lgs1_ef']
+
+wfs1:
+  class:             'IdealDerivativeSensor'
+  simul_params_ref:  'main'
+  subapdata_object:  'kapa_n20_ideal'
+  fov:               4.0
+  inputs:
+    in_ef:           'prop.out_lgs1_ef'
+  outputs: ['out_slopes']
+
+im_calibrator:
+  class:             'ImCalibrator'
+  nmodes:            349
+  im_tag:            'kapa_dm349_lgs_im'
+  overwrite:         True
+  compute_single_im: False
+  inputs:
+    in_slopes:       'wfs1.out_slopes'
+    in_commands:     'pushpull.output'
+  outputs: ['out_intmat']

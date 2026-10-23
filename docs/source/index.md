@@ -116,6 +116,7 @@ user-guide/slodar
 
 tutorials/index
 tutorials/ltao-kapa
+tutorials/specula-closed-loop
 ```
 
 ```{toctree}
