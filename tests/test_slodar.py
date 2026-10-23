@@ -408,3 +408,44 @@ class TestPseudoOpenLoop:
             pseudo_open_loop_slopes(np.zeros((4, 3)), np.zeros((5, 2)), np.zeros((3, 2)))
         with pytest.raises(ValueError):
             pseudo_open_loop_slopes(np.zeros((4, 3)), np.zeros((4, 2)), np.zeros((3, 2)), delay=4)
+
+
+# ---------------------------------------------------------------------------
+class TestNNLSSafeguard:
+    """``_nnls`` must return the optimum even when scipy's nnls does not (SciPy 1.13)."""
+
+    @staticmethod
+    def _problem():
+        rng = np.random.default_rng(3)
+        A = rng.random((300, 12))
+        x0 = rng.random(12)
+        x0[::3] = 0.0
+        b = A @ x0 + 1e-3 * rng.standard_normal(300)
+        return A, b
+
+    def test_optimal_result_is_kept(self):
+        from pyTomoAO.slodar import _nnls
+
+        A, b = self._problem()
+        x = _nnls(A, b)
+        grad = A.T @ (A @ x - b)
+        assert np.all(x >= 0)
+        assert np.all(grad[x <= 0] >= -1e-8 * np.max(np.abs(A.T @ b)))
+
+    def test_non_optimal_nnls_is_refined(self, monkeypatch):
+        import scipy.optimize
+
+        from pyTomoAO import slodar
+
+        A, b = self._problem()
+        ref = scipy.optimize.lsq_linear(A, b, bounds=(0, np.inf), method="bvls").x
+
+        def bad_nnls(A_, b_, **kwargs):
+            x, _ = scipy.optimize.nnls(A_, b_)
+            x = x.copy()
+            x[np.argmax(x)] = 0.0  # a feasible but clearly non-optimal point
+            return x, np.linalg.norm(A_ @ x - b_)
+
+        monkeypatch.setattr(slodar, "nnls", bad_nnls)
+        x = slodar._nnls(A, b)
+        np.testing.assert_allclose(x, ref, atol=1e-8)

@@ -56,7 +56,7 @@ import logging
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.optimize import nnls
+from scipy.optimize import lsq_linear, nnls
 from scipy.special import gamma
 
 from pyTomoAO._plotting import pyplot
@@ -141,6 +141,40 @@ def pseudo_open_loop_slopes(slopes, commands, interactionMatrix, delay=1, sign=1
     if not 0 <= delay < s.shape[0]:
         raise ValueError("delay must be in [0, nFrames)")
     return s[delay:] + sign * (c[: s.shape[0] - delay] @ M.T)
+
+
+def _nnls(A, b):
+    """Non-negative least squares ``min ||A x - b||, x >= 0`` with an optimality check.
+
+    ``scipy.optimize.nnls`` can stop at a non-optimal point on some SciPy releases (seen with
+    SciPy 1.13, the newest available for Python 3.9: a residual 10x the minimum and a biased
+    SLODAR profile). The result is therefore checked against the Karush-Kuhn-Tucker
+    conditions -- the gradient ``A^T (A x - b)`` must be non-negative on the bound variables
+    -- and, if they fail, refined with a bounded-variable least-squares solve.
+
+    Parameters
+    ----------
+    A : numpy.ndarray
+        ``(m, n)`` design matrix.
+    b : numpy.ndarray
+        ``(m,)`` data.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(n,)`` non-negative solution.
+    """
+    x, _ = nnls(A, b, maxiter=50 * A.shape[1])
+    grad = A.T @ (A @ x - b)
+    scale = np.max(np.abs(A.T @ b))
+    if scale == 0 or np.all(grad[x <= 0] >= -1e-8 * scale):
+        return x
+    ref = lsq_linear(A, b, bounds=(0, np.inf), method="bvls", tol=1e-12).x
+    ref = np.clip(ref, 0, None)
+    if np.linalg.norm(A @ ref - b) < np.linalg.norm(A @ x - b):
+        logger.debug("nnls returned a non-optimal point; using the BVLS solution instead")
+        return ref
+    return x
 
 
 def _gradient_stencil(nEdgePoints=3):
@@ -1056,7 +1090,7 @@ class slodarProfiler:
                 R[:, :nL] = np.sqrt(regularization) * np.eye(nL)
                 An = np.vstack([An, R])
                 yw = np.concatenate([yw, np.zeros(nL)])
-            x, _ = nnls(An, yw, maxiter=50 * An.shape[1])
+            x = _nnls(An, yw)
             x = x / norm
             model = A @ x
             cost = np.linalg.norm((model - y) * wts) / np.linalg.norm(y * wts)
