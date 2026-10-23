@@ -802,7 +802,51 @@ def _solve_spd_from_right(B, A):
         return np.linalg.solve(A, B.T).T
 
 
-def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, alpha=1):
+def _noise_covariance_matrix(noiseCovariance, nSlopes, nGS):
+    """Slope noise covariance as a dense ``(nSlopes, nSlopes)`` matrix.
+
+    Parameters
+    ----------
+    noiseCovariance : float or array_like
+        A scalar variance (white, identical noise on every slope), a vector of ``nGS``
+        per-sensor variances, a vector of ``nSlopes`` per-slope variances, or a full
+        ``(nSlopes, nSlopes)`` covariance. Units are those of the slope covariance
+        ``Gamma Cxx Gamma^T``: rad^2 of phase difference across a subaperture at the
+        atmosphere wavelength.
+    nSlopes : int
+        Total number of slopes (all sensors).
+    nGS : int
+        Number of sensors; slopes are grouped per sensor in equal blocks.
+
+    Returns
+    -------
+    numpy.ndarray
+        Symmetric ``(nSlopes, nSlopes)`` matrix.
+    """
+    c = np.asarray(noiseCovariance, dtype=float)
+    if c.ndim == 0:
+        c = np.full(nSlopes, float(c))
+    if c.ndim == 1:
+        if c.size == nGS and nGS != nSlopes:
+            if nSlopes % nGS:
+                raise ValueError("nSlopes is not a multiple of the number of sensors")
+            c = np.repeat(c, nSlopes // nGS)
+        if c.size != nSlopes:
+            raise ValueError(
+                f"noiseCovariance has {c.size} entries; expected 1, {nGS} (per sensor) or "
+                f"{nSlopes} (per slope)"
+            )
+        if np.any(c < 0):
+            raise ValueError("noise variances must be non-negative")
+        return np.diag(c)
+    if c.shape != (nSlopes, nSlopes):
+        raise ValueError(f"noiseCovariance matrix must be ({nSlopes}, {nSlopes}), got {c.shape}")
+    return 0.5 * (c + c.T)
+
+
+def _build_reconstructor_model(
+    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, alpha=1, noiseCovariance=None
+):
     """
     Build the model-based tomographic reconstructor on the CPU.
 
@@ -811,7 +855,11 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
     tomoParams, lgsWfsParams, atmParams, lgsAsterismParams : object
         Configuration objects held by the reconstructor.
     alpha : float, optional
-        Regularization weight applied to the inversion (default is 1).
+        Regularization weight applied to the inversion (default is 1). Ignored when
+        ``noiseCovariance`` is given.
+    noiseCovariance : float or array_like, optional
+        Slope noise covariance used instead of ``alpha * mean(diag(Css)) * I``; see
+        :func:`_noise_covariance_matrix` for the accepted forms and units.
 
     Returns
     -------
@@ -847,7 +895,10 @@ def _build_reconstructor_model(tomoParams, lgsWfsParams, atmParams, lgsAsterismP
     Cox = CoxOut
 
     Css = Gamma @ Cxx @ Gamma.T
-    CnZ = np.eye(Gamma.shape[0]) * alpha * np.mean(np.diag(Css))
+    if noiseCovariance is None:
+        CnZ = np.eye(Gamma.shape[0]) * alpha * np.mean(np.diag(Css))
+    else:
+        CnZ = _noise_covariance_matrix(noiseCovariance, Gamma.shape[0], lgsAsterismParams.nLGS)
 
     RecStatSA = _solve_spd_from_right(Cox @ Gamma.T, Css + CnZ)
 

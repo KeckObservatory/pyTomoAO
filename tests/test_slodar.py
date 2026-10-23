@@ -378,3 +378,33 @@ class TestValidation:
         p = slodarProfiler(v, 3.0, [[0, 0], [0, 0]])
         with pytest.raises(ValueError, match="coincide"):
             p.native_altitudes(0, 1)
+
+
+class TestPseudoOpenLoop:
+    def test_recovers_open_loop_slopes(self):
+        from pyTomoAO.slodar import pseudo_open_loop_slopes
+
+        rng = np.random.default_rng(3)
+        T, nS, nA = 50, 12, 5
+        M = rng.normal(size=(nS, nA))
+        s_ol = rng.normal(size=(T, nS))
+        c = rng.normal(size=(T, nA))
+        s = s_ol.copy()
+        s[1:] -= c[:-1] @ M.T  # frame t sees the command computed at t-1
+        pol = pseudo_open_loop_slopes(s, c, M, delay=1)
+        assert pol.shape == (T - 1, nS)
+        assert np.allclose(pol, s_ol[1:])
+        # The wrong delay does not recover them.
+        assert not np.allclose(pseudo_open_loop_slopes(s, c, M, delay=2), s_ol[2:])
+        # Opposite IM sign convention.
+        assert np.allclose(pseudo_open_loop_slopes(s, c, -M, delay=1, sign=-1), s_ol[1:])
+
+    def test_shape_checks(self):
+        from pyTomoAO.slodar import pseudo_open_loop_slopes
+
+        with pytest.raises(ValueError):
+            pseudo_open_loop_slopes(np.zeros((4, 3)), np.zeros((4, 2)), np.zeros((2, 3)))
+        with pytest.raises(ValueError):
+            pseudo_open_loop_slopes(np.zeros((4, 3)), np.zeros((5, 2)), np.zeros((3, 2)))
+        with pytest.raises(ValueError):
+            pseudo_open_loop_slopes(np.zeros((4, 3)), np.zeros((4, 2)), np.zeros((3, 2)), delay=4)

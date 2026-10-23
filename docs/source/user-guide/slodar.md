@@ -64,6 +64,25 @@ they are ordered as elsewhere in pyTomoAO (`slopesOrder="simu"`, `"inverted"` or
 the gradient operator) or row-major (`subapOrder="C"`). X runs along the columns of
 `validLLMap`. Guide-star directions are Cartesian `[x, y]` offsets in radians.
 
+## Closed-loop telemetry and noise
+
+On sky the loop is closed, so SLODAR runs on pseudo-open-loop slopes
+$s_{\rm pol}(t) = s(t) + M_{\rm int}\,c(t-1)$
+({py:func}`~pyTomoAO.slodar.pseudo_open_loop_slopes`; check the delay on the telemetry).
+WFS noise is white and only biases the zero-offset auto-covariance, which `fitNoise=True`
+absorbs into per-WFS noise variances. Those variances can regularise the reconstructor
+directly, giving the MMSE estimator for the measured noise:
+
+```python
+pol = pseudo_open_loop_slopes(slopes, commands, IM)          # same units as the slopes
+res = prof.profile(pol, removeTT=True, fitL0=True)
+rec.build_reconstructor(noiseCovariance=res.noise_covariance(d, rec.lgsWfsParams.nValidSubap))
+```
+
+`noise_covariance` converts the angle-of-arrival variances [rad²] to the units of the
+reconstructor's slope covariance, rad² of phase difference across a subaperture at the
+atmosphere wavelength.
+
 ## Validation
 
 `examples/slodar/` contains the validation scripts: synthetic slopes from the model and

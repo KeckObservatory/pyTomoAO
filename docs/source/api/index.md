@@ -57,6 +57,7 @@ Each class gets its own page with every public method and property.
 
    pyTomoAO.slope_conversion.slope_conversion_matrix
    pyTomoAO.slope_conversion.specula_slope_scale
+   pyTomoAO.slodar.pseudo_open_loop_slopes
 ```
 
 ## Internal computation kernels

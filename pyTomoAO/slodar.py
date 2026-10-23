@@ -91,6 +91,58 @@ _KOLMOGOROV_R0 = 2 * (24 / 5 * gamma(6 / 5)) ** (5 / 6)  # 6.8839
 _R0_CN2 = _KOLMOGOROV_CN2 / _KOLMOGOROV_R0  # 0.42336
 
 
+def pseudo_open_loop_slopes(slopes, commands, interactionMatrix, delay=1, sign=1.0):
+    """Pseudo-open-loop slopes from closed-loop telemetry.
+
+    In closed loop the sensors measure the turbulence minus the correction the deformable
+    mirror applied while the frame was integrated. Adding that correction back,
+
+    .. math::
+        s_{\\rm pol}(t) = s(t) + \\sigma\\, M_{\\rm int}\\, c(t - \\tau),
+
+    recovers (to the accuracy of the interaction matrix and the sensor linearity) the slopes
+    an open-loop sensor would have measured, which is what SLODAR and the MMSE
+    reconstructor's covariance model describe.
+
+    Parameters
+    ----------
+    slopes : array_like
+        ``(nFrames, nSlopes)`` closed-loop slopes, one row per loop step.
+    commands : array_like
+        ``(nFrames, nActuators)`` commands, row ``t`` being the command *computed* at step
+        ``t`` (the same time base as ``slopes``).
+    interactionMatrix : array_like
+        ``(nSlopes, nActuators)`` interaction matrix, in the units of ``slopes`` per unit
+        command.
+    delay : int, optional
+        Frames between computing a command and the slopes it affects, ``tau`` (default 1:
+        the command computed at ``t - 1`` was on the mirror during frame ``t``). Check it on
+        telemetry: the wrong value leaves a large loop-filtered residual in ``s_pol``.
+    sign : float, optional
+        ``+1`` (default) when the interaction matrix was measured with the same sign
+        convention as the loop applies the commands (``s = s_ol - M c``); ``-1`` otherwise.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(nFrames - delay, nSlopes)`` pseudo-open-loop slopes, aligned with
+        ``slopes[delay:]``.
+    """
+    s = np.asarray(slopes, dtype=float)
+    c = np.asarray(commands, dtype=float)
+    M = np.asarray(interactionMatrix, dtype=float)
+    if s.ndim != 2 or c.ndim != 2:
+        raise ValueError("slopes and commands must be 2D (nFrames, n)")
+    if s.shape[0] != c.shape[0]:
+        raise ValueError("slopes and commands must have the same number of frames")
+    if M.shape != (s.shape[1], c.shape[1]):
+        raise ValueError(f"interactionMatrix must be ({s.shape[1]}, {c.shape[1]}), got {M.shape}")
+    delay = int(delay)
+    if not 0 <= delay < s.shape[0]:
+        raise ValueError("delay must be in [0, nFrames)")
+    return s[delay:] + sign * (c[: s.shape[0] - delay] @ M.T)
+
+
 def _gradient_stencil(nEdgePoints=3):
     """Points and weights of the Fried-geometry Shack-Hartmann gradient.
 
@@ -247,6 +299,35 @@ class slodarResult:
             "windDirection": wd.tolist(),
             "windSpeed": ws.tolist(),
         }
+
+    def noise_covariance(self, d, nValidSubap, wavelength=None):
+        """Per-slope noise variances for ``build_reconstructor(noiseCovariance=...)``.
+
+        Converts the fitted per-WFS angle-of-arrival noise variances (rad^2) to the units of
+        the reconstructor's slope covariance: rad^2 of phase difference across a
+        subaperture, ``(2 pi d / wavelength)^2 * noiseVariance``.
+
+        Parameters
+        ----------
+        d : float
+            Subaperture size [m].
+        nValidSubap : int
+            Valid subapertures per sensor (each sensor contributes ``2 * nValidSubap``
+            slopes, X block then Y block, as the reconstructor expects).
+        wavelength : float, optional
+            Wavelength of the reconstructor's atmosphere model [m] (default: the profile's
+            ``wavelength``).
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(nGS * 2 * nValidSubap,)`` variances.
+        """
+        if self.noiseVariance.size == 0:
+            raise ValueError("No noise estimate: fit the profile with useAuto=True, fitNoise=True")
+        lam = self.wavelength if wavelength is None else float(wavelength)
+        phase = (2 * np.pi * d / lam) ** 2 * np.asarray(self.noiseVariance, float)
+        return np.repeat(phase, 2 * int(nValidSubap))
 
     def __str__(self):
         lines = [

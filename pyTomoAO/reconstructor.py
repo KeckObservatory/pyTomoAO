@@ -596,7 +596,13 @@ class tomographicReconstructor:
         return Cox
 
     # Build Reconstructor
-    def build_reconstructor(self, IM=None, use_float32=False, alpha=10):  # noqa: ARG002
+    def build_reconstructor(
+        self,
+        IM=None,
+        use_float32=False,  # noqa: ARG002
+        alpha=10,
+        noiseCovariance=None,
+    ):
         # NOTE: use_float32 is currently not forwarded. The GPU kernels are always
         # called with use_float32=True and the CPU kernels with their default. See
         # the "Precision" section of docs/source/user-guide/gpu.md.
@@ -612,7 +618,18 @@ class tomographicReconstructor:
             Whether to use float32 precision for computations to reduce memory usage
             (default is False, which uses float64)
         alpha : float, optional
-            Regularization parameter for the reconstructor (default is 10)
+            Regularization parameter for the reconstructor (default is 10). The model-based
+            noise term is ``alpha * mean(diag(Css)) * I`` with ``Css = Gamma Cxx Gamma^T``.
+            Ignored when ``noiseCovariance`` is given.
+        noiseCovariance : float or array_like, optional
+            Model-based reconstructor only: the slope noise covariance, used in place of the
+            ``alpha`` term. A scalar (same variance on every slope), ``nLGS`` per-sensor
+            variances, one variance per slope, or a full matrix. Units are those of ``Css``:
+            rad^2 of phase difference across a subaperture at the atmosphere wavelength,
+            i.e. ``(2 pi d sigma_angle / wavelength)**2`` for an angle-of-arrival noise rms
+            ``sigma_angle`` [rad] (see
+            :meth:`pyTomoAO.slodar.slodarResult.noise_covariance`). With measured noise this
+            gives the MMSE estimator instead of an ad hoc regularisation.
 
         Returns
         -------
@@ -639,6 +656,7 @@ class tomographicReconstructor:
                     self.atmParams,
                     self.lgsAsterismParams,
                     alpha=alpha,
+                    noiseCovariance=noiseCovariance,
                     **precision,
                 )
             )
@@ -653,6 +671,10 @@ class tomographicReconstructor:
             logger.info("\n-->> Model based reconstructor computed <<--")
         else:
             # IM based reconstructor
+            if noiseCovariance is not None:
+                raise ValueError(
+                    "noiseCovariance is only supported by the model-based reconstructor"
+                )
             logger.info("\n-->> Computing IM based reconstructor <<--")
             # load IM
             self.IM = IM

@@ -137,6 +137,24 @@ For noiseless or high-SNR simulated slopes, the default is far too strong. In a 
 SPECULA LTAO test (6 LGS, 20×20 subapertures), the open-loop error was flat for
 `alpha ≤ 1e-3`, at 126 nm rms, and reached about 300 nm at `alpha = 10`.
 
+### Measured noise covariance
+
+The `alpha` term is `alpha * mean(diag(Css)) * I`, a white noise covariance scaled to the
+turbulent slope variance. When the slope noise is known (from a noise model, a dark/sky
+calibration, or SLODAR's noise fit), pass it directly instead:
+
+```python
+R = reconstructor.build_reconstructor(noiseCovariance=sigma2)          # scalar: white
+R = reconstructor.build_reconstructor(noiseCovariance=[s1, s2, s3, s4])  # one per LGS WFS
+R = reconstructor.build_reconstructor(noiseCovariance=per_slope_vector)  # or a full matrix
+```
+
+The units are those of `Css = Gamma Cxx Gamma^T`: rad² of phase difference across a
+subaperture at the atmosphere wavelength, `(2π d σ_θ / λ)²` for an angle-of-arrival noise rms
+`σ_θ` [rad]. `alpha` is ignored when `noiseCovariance` is given, and the option applies to the
+model-based reconstructor only. A scalar `sigma2` is equivalent to
+`alpha = sigma2 / mean(diag(Css))`.
+
 ## Precision
 
 `use_float32=True` halves memory use and is typically faster on GPUs whose double-precision

@@ -14,6 +14,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Measured noise covariance for the model-based reconstructor**:
+  `build_reconstructor(noiseCovariance=...)` takes the slope noise as a scalar, per-WFS or
+  per-slope variances, or a full matrix (units of `Gamma Cxx Gamma^T`), in place of the
+  `alpha * mean(diag(Css)) * I` regularisation. `slodarResult.noise_covariance(d, nValid)`
+  converts SLODAR's fitted per-WFS noise to that form, and
+  `pyTomoAO.slodar.pseudo_open_loop_slopes` builds POL slopes from closed-loop telemetry.
 - **SLODAR turbulence profiling** (`pyTomoAO.slodar`): `slodarProfiler` computes
   normalised slope auto/cross-covariance maps of all WFS pairs and fits thin-layer von
   Karman response functions (built from the reconstructor's own covariance kernel and
