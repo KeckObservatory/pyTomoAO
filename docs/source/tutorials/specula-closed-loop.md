@@ -202,6 +202,10 @@ every fifth step.
 python specula_ltao.py analyse
 ```
 
+It prints the residual and Strehl, and writes `closed_loop.png` to the work directory: the
+residual against time, a residual map, the residual rms map and the long-exposure PSF. The
+numbers also go to `closed_loop.json`.
+
 The residual is evaluated with piston and tip-tilt removed, assuming an NGS controls
 tip-tilt, and only over the part of the pupil the WFSs sense. KAPA's lenslet map has a
 central gap (12 missing subapertures) that no reconstructor can correct. With a full-disc

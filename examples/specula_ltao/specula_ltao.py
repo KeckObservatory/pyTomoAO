@@ -246,7 +246,13 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0):
 
 # ---- Step 5: analysis ----------------------------------------------------------------------
 def analyse(workdir, settle=0.1, wavelength_nm=1650.0):
-    """Residual WFE (piston and tip-tilt removed) and long-exposure Strehl on axis."""
+    """Residual WFE (piston and tip-tilt removed) and long-exposure Strehl on axis.
+
+    Prints the numbers and writes ``closed_loop.png`` (residual vs time, residual maps and
+    the long-exposure PSF) and ``closed_loop.json`` to the work directory.
+    """
+    import json
+
     z = np.load(workdir / "closed_loop.npz")
     valid = np.array(_kapa_config()["lgs_wfs_parameters"]["validLLMap"], dtype=bool)
     npx = PIXEL_PUPIL // N_LENSLET
@@ -255,8 +261,12 @@ def analyse(workdir, settle=0.1, wavelength_nm=1650.0):
     m = z["pupil"] & np.kron(valid, np.ones((npx, npx), bool))
     x, y = _pupil_grid(m)
     B = np.stack([np.ones(m.sum()), x[m], y[m]], axis=1)
-    ph = z["resPhaseNm"][z["t"] >= settle][:, m]
-    res = ph - (B @ np.linalg.lstsq(B, ph.T, rcond=None)[0]).T
+    t = z["t"]
+    ph_all = z["resPhaseNm"][:, m]
+    res_all = ph_all - (B @ np.linalg.lstsq(B, ph_all.T, rcond=None)[0]).T
+    rms_t = np.sqrt(np.mean(res_all**2, axis=1))  # per sample, TT removed
+    keep = t >= settle
+    res = res_all[keep]
     wfe = float(np.sqrt(np.mean(res**2)))
 
     n = m.shape[0]
@@ -268,11 +278,75 @@ def analyse(workdir, settle=0.1, wavelength_nm=1650.0):
         e = np.zeros((pad, pad), complex)
         e[:n, :n][m] = np.exp(2j * np.pi * r / wavelength_nm)
         psf += np.abs(np.fft.fft2(e)) ** 2
-    strehl = psf.max() / len(res) / (np.abs(np.fft.fft2(amp)) ** 2).max()
+    peak_dl = (np.abs(np.fft.fft2(amp)) ** 2).max()
+    strehl = psf.max() / len(res) / peak_dl
     print(
         f"analyse: {len(res)} samples, residual {wfe:.1f} nm rms (TT removed), "
         f"Strehl at {wavelength_nm / 1000:.2f} um = {strehl:.3f}"
     )
+    summary = {
+        "residual_nm_rms_tt_removed": wfe,
+        "strehl": float(strehl),
+        "wavelength_nm": wavelength_nm,
+        "n_samples": len(res),
+        "settle_s": settle,
+        "input_nm_rms_tt_removed_first_sample": float(rms_t[0]),
+    }
+    (workdir / "closed_loop.json").write_text(json.dumps(summary, indent=1))
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("analyse: matplotlib not installed, no figure (pip install matplotlib)")
+        return wfe, strehl
+
+    def as_map(v):
+        img = np.full(m.shape, np.nan)
+        img[m] = v
+        return img
+
+    fig, ax = plt.subplots(1, 4, figsize=(17, 4))
+    ax[0].semilogy(t, rms_t, lw=1)
+    ax[0].axvline(settle, color="0.6", ls=":", label=f"settling ({settle:g} s, excluded)")
+    ax[0].axhline(wfe, color="C1", ls="--", label=f"mean {wfe:.0f} nm")
+    ax[0].set_xlabel("time [s]")
+    ax[0].set_ylabel("residual, TT removed [nm rms]")
+    ax[0].set_title("Closed-loop residual")
+    ax[0].legend(fontsize=8)
+    ax[0].grid(alpha=0.3, which="both")
+
+    last = res[-1]
+    lim = 3 * np.std(last)
+    im = ax[1].imshow(as_map(last), cmap="RdBu_r", vmin=-lim, vmax=lim, origin="lower")
+    ax[1].set_title(f"Residual, last sample ({np.sqrt(np.mean(last**2)):.0f} nm rms)")
+    plt.colorbar(im, ax=ax[1], fraction=0.046, label="nm")
+
+    im = ax[2].imshow(as_map(np.sqrt(np.mean(res**2, axis=0))), cmap="viridis", origin="lower")
+    ax[2].set_title("Residual rms over time")
+    plt.colorbar(im, ax=ax[2], fraction=0.046, label="nm")
+    for a_ in ax[1:3]:
+        a_.set_xticks([])
+        a_.set_yticks([])
+
+    h = 40  # half-width of the PSF crop, in pixels of the 4x-padded FFT (lambda/4D)
+    c = pad // 2
+    img = np.fft.fftshift(psf / len(res) / peak_dl)[c - h : c + h, c - h : c + h]
+    lamD = wavelength_nm * 1e-9 / D * 206265e3  # mas
+    ext = np.array([-h, h, -h, h]) * lamD / 4
+    im = ax[3].imshow(
+        np.log10(img + 1e-6), vmin=-4, vmax=0, cmap="inferno", origin="lower", extent=ext
+    )
+    ax[3].set_title(f"Long-exposure PSF, {wavelength_nm / 1000:.2f} um, SR {strehl:.2f}")
+    ax[3].set_xlabel("mas")
+    plt.colorbar(im, ax=ax[3], fraction=0.046, label="log10 (peak = Strehl)")
+    fig.tight_layout()
+    out = workdir / "closed_loop.png"
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    print(f"analyse: wrote {out} and closed_loop.json")
     return wfe, strehl
 
 
