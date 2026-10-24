@@ -229,15 +229,71 @@ For context:
   about 0.08 in Strehl. {doc}`../user-guide/slodar` measures the profile and L0 from the
   same wavefront sensors.
 
+## Step 6 — Measure the profile from the closed loop
+
+On sky the true profile is unknown. The reconstructor has to be built on a profile measured
+from the same wavefront sensors, while the loop runs. The example reproduces that cycle:
+
+```bash
+python specula_ltao.py run --time 20 --record     # closed loop + slopes and commands
+python specula_ltao.py slodar                     # SLODAR on pseudo-open-loop slopes
+python specula_ltao.py build --profile slodar     # reconstructor on the measured profile
+python specula_ltao.py run --time 2
+python specula_ltao.py analyse
+```
+
+`run --record` saves the six WFSs' slopes and the DM commands at every loop step. `slodar`
+then does three things:
+
+1. **Rebuilds the open-loop slopes:**
+
+   ```python
+   pol = pseudo_open_loop_slopes(slopes, commands, IM, delay=1, sign=1)
+   ```
+
+   SPECULA's DM applies the *opposite* of the command, while the IM was poked with `+c`, so
+   `s = s_ol − M c(t−1)` and `sign=+1`. The step prints a check: the frame-to-frame increments
+   of `pol` are about 2.3× smaller with the right sign than with the wrong one.
+2. **Fits the profile** with `slodarProfiler` (L0 fitted, or fixed with `--L0`) and estimates
+   the slope noise with `temporal_noise_variance`.
+3. **Writes** `slodar_profile.png` and a pyTomoAO configuration on the measured profile.
+
+With 20 s of telemetry (10 000 frames at 500 Hz):
+
+| Reconstructor profile | Residual | Strehl (1.65 µm) |
+|---|---|---|
+| Simulated (true) profile | 144 nm rms | 0.74 |
+| SLODAR from closed-loop telemetry, L0 fitted (19 m) | 147 nm rms | 0.73 |
+| SLODAR from closed-loop telemetry, L0 fixed at 25 m | 146 nm rms | 0.74 |
+
+**How much telemetry.** With only 6 s, the same pipeline gave r0 17% high and L0 = 52 m,
+and it placed the 16 km layer at 13.8 km. The reconstructor built on it reached only 165 nm.
+Fitting the two halves of the 6 s separately showed this is sample variance: the halves
+disagreed with each other by more than with the truth. Two parts of the profile need the
+most data:
+
+- **The outer scale.** From a few seconds, its fit scatters by a factor of two.
+- **The highest layer.** It is seen only on the longest baselines, with the fewest
+  overlapping subapertures, and its altitude matters most for on-axis tomography.
+
+Record at least 20–30 s. If an independent L0 estimate is available, fix it with
+`slodar --L0`.
+
+The evaluation run reuses the recording's atmosphere seed. For a stricter test, add
+`--seed 312` to the second `run`.
+
 ## Going further
 
-- **Noise.** Swap `IdealDerivativeSensor` for SPECULA's Shack–Hartmann and CCD, then set the
-  reconstructor's noise term from the measured slope noise with
-  `build_reconstructor(noiseCovariance=...)` rather than `alpha`. At low flux, also
-  calibrate the centroid gain: thresholded centroids lose gain, and the IM and the
-  reconstructor then disagree with the sensor.
-- **Profile from telemetry.** Record `rec.out_pseudo_ol_modes`, or rebuild pseudo-open-loop
-  slopes with `pyTomoAO.slodar.pseudo_open_loop_slopes`. Run SLODAR on them and rebuild the
-  reconstructor from the measured profile.
+- **Noise.** Swap `IdealDerivativeSensor` for SPECULA's Shack–Hartmann and CCD. Then set
+  the reconstructor's noise term from the slope noise measured on the pseudo-open-loop
+  slopes, rather than with `alpha`:
+
+  ```python
+  var = prof.temporal_noise_variance(pol, removeTT=True)
+  rec.build_reconstructor(noiseCovariance=slope_noise_covariance(var, reconstructor=rec))
+  ```
+
+  At low flux, also calibrate the centroid gain: thresholded centroids lose gain, and the IM
+  and the reconstructor then disagree with the sensor.
 - **Gain.** At these noise levels, 0.5–0.7 is about optimal at 500 Hz. Lower it as noise
   increases.
