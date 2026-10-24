@@ -9,9 +9,10 @@ products to WORKDIR (default ``./specula_ltao_run``), so the steps can be rerun 
     python specula_ltao.py run --time 2 --gpu    # closed loop (500 Hz)
     python specula_ltao.py analyse               # residual WFE and H-band Strehl
 
-Add ``--workdir DIR`` to any step. ``build --profile kapa`` builds the reconstructor on the
-generic profile of pyTomoAO's KAPA example configuration instead of the simulated one, to
-see what a profile mismatch costs.
+Add ``--workdir DIR`` to any step. ``setup --atmosphere atmosphere_5layer.yml`` simulates
+another turbulence profile (default: the KAON 503 Maunakea median); later steps use it.
+``build --profile kapa`` builds the reconstructor on the generic profile of pyTomoAO's KAPA
+example configuration instead of the simulated one, to see what a profile mismatch costs.
 
 Turbulence profiling from the closed loop (the on-sky cycle)::
 
@@ -46,14 +47,40 @@ LGS_HEIGHT = 90e3  # [m]
 WFS_FOV = 4.0  # SPECULA sensor fov [arcsec]; sets its slope unit
 DM_PITCH = 0.5  # [m]
 DM_COUPLING = 0.15  # influence function value at the neighbouring actuator
-# Atmosphere simulated by SPECULA: Maunakea Ridge median (KAON 503), r0 at 500 nm, L0 = 25 m.
-ATM = {
+# Default atmosphere: Maunakea Ridge median (KAON 503), r0 at 500 nm, L0 = 25 m. Pass another
+# with ``setup --atmosphere FILE`` (same keys, see atmosphere_5layer.yml); it is copied to the
+# work directory and every later step reads it from there.
+DEFAULT_ATM = {
+    "name": "Maunakea Ridge median, 7 layers (KAON 503)",
     "altitude_m": [0.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0],
     "cn2": [0.517, 0.119, 0.063, 0.061, 0.105, 0.081, 0.054],
     "seeing_arcsec": 0.6288,
     "L0": 25.0,
+    "wind_speed": [6.8, 6.9, 7.1, 7.5, 10.0, 26.9, 18.5],
+    "wind_direction": [0.0, 60.0, 135.0, 200.0, 260.0, 320.0, 30.0],
 }
-R0 = 0.9759 * 0.5e-6 / (ATM["seeing_arcsec"] / 206264.806)
+ATM_FILE = "atmosphere.yml"
+
+
+def _r0(atm):
+    """Fried parameter at 500 nm [m] from the seeing FWHM [arcsec]."""
+    return 0.9759 * 0.5e-6 / (atm["seeing_arcsec"] / 206264.806)
+
+
+def _load_atmosphere(path):
+    atm = dict(yaml.safe_load(Path(path).read_text()))
+    n = len(atm["altitude_m"])
+    for key in ("cn2", "wind_speed", "wind_direction"):
+        if len(atm[key]) != n:
+            raise ValueError(f"{path}: '{key}' has {len(atm[key])} entries for {n} layers")
+    return atm
+
+
+def _atmosphere(workdir):
+    """The atmosphere of this work directory (written by setup)."""
+    f = workdir / ATM_FILE
+    return _load_atmosphere(f) if f.exists() else dict(DEFAULT_ATM)
+
 
 SUBAP_TAG = "kapa_n20_ideal"
 IFUNC_TAG = "kapa_dm349"
@@ -101,8 +128,10 @@ def _pupil_grid(pupil):
 
 
 # ---- Step 1: setup -------------------------------------------------------------------------
-def setup(workdir):
+def setup(workdir, atmosphere=None):
     """SPECULA subaperture data and DM influence functions, plus the pyTomoAO config."""
+    atm = dict(DEFAULT_ATM) if atmosphere is None else _load_atmosphere(atmosphere)
+    (workdir / ATM_FILE).write_text(yaml.safe_dump(atm, sort_keys=False))
     _init_specula()
     from specula.data_objects.ifunc import IFunc
     from specula.data_objects.pupilstop import Pupilstop
@@ -136,15 +165,15 @@ def setup(workdir):
     )
 
     # pyTomoAO configuration matching the SPECULA system.
-    n = len(ATM["altitude_m"])
-    cn2 = np.array(ATM["cn2"])
+    n = len(atm["altitude_m"])
+    cn2 = np.array(atm["cn2"])
     cfg["atmosphere_parameters"].update(
         nLayer=n,
         zenithAngleInDeg=0.0,
-        altitude=[a / 1000 for a in ATM["altitude_m"]],  # km
+        altitude=[a / 1000 for a in atm["altitude_m"]],  # km
         fractionnalR0=(cn2 / cn2.sum()).tolist(),
-        r0=float(R0),
-        L0=ATM["L0"],
+        r0=float(_r0(atm)),
+        L0=float(atm["L0"]),
         wavelength=5e-7,
         windSpeed=[10.0] * n,
         windDirection=[0.0] * n,
@@ -155,7 +184,11 @@ def setup(workdir):
     cfg["tomography_parameters"] = {"fovOptimization": 0, "nFitSrc": 1}  # on-axis
     with open(workdir / "pytomoao_config.yaml", "w") as f:
         yaml.safe_dump(cfg, f)
-    print(f"setup: {len(idx)} subapertures, {ifunc.shape[0]} actuators, config written")
+    print(
+        f"setup: {len(idx)} subapertures, {ifunc.shape[0]} actuators, config written; "
+        f"atmosphere: {atm.get('name', 'custom')}, {n} layers, r0 {_r0(atm):.3f} m, "
+        f"L0 {atm['L0']:g} m"
+    )
 
 
 # ---- Step 2: interaction matrix ------------------------------------------------------------
@@ -231,6 +264,7 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, rec
     from astropy.io import fits
     from specula.simul import Simul
 
+    atm = _atmosphere(workdir)
     shutil.copy(HERE / "params_ltao.yml", workdir / "params_ltao.yml")
     step = yaml.safe_load((HERE / "params_ltao.yml").read_text())["main"]["time_step"]
     # Science phase is 0.4 MB per sample: keep about 200 of them whatever the run length.
@@ -240,7 +274,15 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, rec
         inputs += [f"s{k}-wfs{k}.out_slopes" for k in range(1, N_LGS + 1)]
     override = {
         "main_override": {"total_time": float(total_time)},
-        "atmo_override": {"seed": int(seed)},
+        "atmo_override": {
+            "seed": int(seed),
+            "heights": [float(h) for h in atm["altitude_m"]],
+            "Cn2": [float(c) for c in atm["cn2"]],
+            "L0": [float(atm["L0"])] * len(atm["altitude_m"]),
+        },
+        "seeing_override": {"constant": float(atm["seeing_arcsec"])},
+        "wind_speed_override": {"constant": [float(v) for v in atm["wind_speed"]]},
+        "wind_direction_override": {"constant": [float(v) for v in atm["wind_direction"]]},
         "control_override": {"int_gain": [float(gain)]},
         "data_store_override": {
             "downsample_factor": 1,
@@ -326,14 +368,16 @@ def slodar(workdir, settle=0.1, L0=None):
     noise = prof.temporal_noise_variance(pol, removeTT=True)  # rad^2 per WFS
 
     # Input profile binned onto the SLODAR grid (nearest bin), for comparison
-    cn2 = np.array(ATM["cn2"]) / np.sum(ATM["cn2"])
+    atm = _atmosphere(workdir)
+    R0 = _r0(atm)
+    cn2 = np.array(atm["cn2"]) / np.sum(atm["cn2"])
     truth = np.zeros(grid.size)
-    for h, f in zip(ATM["altitude_m"], cn2):
+    for h, f in zip(atm["altitude_m"], cn2):
         truth[np.argmin(np.abs(grid - h))] += f
     tvd = 0.5 * np.abs(res.fractionalCn2 - truth).sum()
     print(res)
     print(
-        f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {ATM['L0']:g}), "
+        f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {atm['L0']:g}), "
         f"profile TVD {tvd:.3f}, temporal noise "
         f"{np.sqrt(noise.mean()) * 206264.8:.4f} arcsec rms"
     )
@@ -348,7 +392,7 @@ def slodar(workdir, settle=0.1, L0=None):
                 "r0": res.r0,
                 "r0_input": R0,
                 "L0": res.L0,
-                "L0_input": ATM["L0"],
+                "L0_input": atm["L0"],
                 "tvd": float(tvd),
                 "sign_check_increment_ratio": float(incr),
                 "altitude_m": grid.tolist(),
@@ -373,7 +417,7 @@ def slodar(workdir, settle=0.1, L0=None):
     w = 0.35 * np.min(np.diff(hk)) if hk.size > 1 else 0.3
     ax.barh(hk - w / 2, truth, height=w, color="0.6", label="input, binned to the SLODAR grid")
     ax.barh(hk + w / 2, res.fractionalCn2, height=w, color="C0", label="SLODAR, closed-loop POL")
-    ax.plot(cn2, np.array(ATM["altitude_m"]) / 1e3, "rx", ms=8, label="input layers")
+    ax.plot(cn2, np.array(atm["altitude_m"]) / 1e3, "rx", ms=8, label="input layers")
     ax.set_xlabel("fractional $C_n^2$")
     ax.set_ylabel("altitude [km]")
     ax.set_title(
@@ -497,6 +541,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("step", choices=["setup", "calibrate", "build", "run", "slodar", "analyse"])
     ap.add_argument("--workdir", default="specula_ltao_run")
+    ap.add_argument(
+        "--atmosphere", default=None, help="setup: atmosphere YAML (default: KAON 503 median)"
+    )
     ap.add_argument("--gpu", action="store_true", help="run SPECULA on GPU 0 (needs CuPy)")
     ap.add_argument("--alpha", type=float, default=1e-4, help="build: regularisation")
     ap.add_argument("--profile", choices=["true", "kapa", "slodar"], default="true", help="build")
@@ -512,7 +559,7 @@ def main():
     wd = Path(a.workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
     if a.step == "setup":
-        setup(wd)
+        setup(wd, a.atmosphere)
     elif a.step == "calibrate":
         calibrate(wd, a.gpu)
     elif a.step == "build":
