@@ -113,6 +113,39 @@ read noise):
   before profiling.
 :::
 
+## Record length and uncertainty
+
+With frozen flow, a record of length $T$ samples only a strip of each layer about
+$v\,T$ long. The covariance maps of a short record therefore carry the shape of one
+turbulence realisation, not the ensemble average the response maps describe. The fit
+absorbs that mismatch partly in the wrong altitude bins. This is sampling physics, not an
+estimator bias: on SPECULA simulations, averaged over independent atmosphere seeds, SLODAR
+is unbiased.
+
+Typical realisation scatter (1σ), from SPECULA and an independent frozen-flow simulation,
+with 6 LGS on a 60″ ring, 20×20 subapertures and a 5 m/s ground layer:
+
+| Case | Record | Scatter |
+|---|---|---|
+| Strong high layer (40% at 15 km) | 4 s | ±1.6% in altitude (±0.24 km) |
+| Weak high layer (5% at 15 km) | 8 s | ±2 km |
+| Total r0 | 4–8 s | biased high by 5–7% |
+
+The r0 bias comes from subtracting the record's temporal mean, which removes static
+large-scale power.
+
+Consequences:
+
+- **Use long records.** Precision improves with the number of independent realisations,
+  roughly $T\,v_{\rm ground}/D$. Weak high layers and the outer scale need the most data;
+  20–30 s or more, or several records averaged.
+- **Quote the scatter between independent records**, or blocks at least $D/v_{\rm ground}$
+  long, not the scatter between 1 s chunks of one record. In the tests above, chunk scatter
+  understated the true uncertainty by about 2×.
+- **Validate on several realisations.** In simulation, use 8 or more atmosphere seeds;
+  conclusions drawn from one seed, even across many configurations, describe that one
+  realisation.
+
 ## Validation
 
 `examples/slodar/` contains the validation scripts: synthetic slopes from the model and

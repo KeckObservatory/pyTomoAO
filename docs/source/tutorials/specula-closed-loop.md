@@ -280,7 +280,10 @@ Record at least 20–30 s. If an independent L0 estimate is available, fix it wi
 `slodar --L0`.
 
 The evaluation run reuses the recording's atmosphere seed. For a stricter test, add
-`--seed 312` to the second `run`.
+`--seed 312` to the second `run`. All the numbers above come from a single atmosphere seed.
+SLODAR's realisation scatter (see {doc}`../user-guide/slodar`, *Record length and
+uncertainty*) is large enough that conclusions about the measured profile should be checked
+over several seeds (`run --seed N`).
 
 ## Going further
 
