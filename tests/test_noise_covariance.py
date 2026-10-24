@@ -40,8 +40,8 @@ class TestNoiseCovarianceMatrix:
 
 @pytest.fixture(scope="module")
 def alpha_reference():
-    """Single-LGS reconstructor built with the default alpha regularisation."""
-    rec = reconstructor_module.tomographicReconstructor(CONFIG)
+    """Single-LGS CPU reconstructor built with the default alpha regularisation."""
+    rec = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
     rec.build_reconstructor(alpha=0.1)
     css = rec.Gamma @ rec.Cxx @ rec.Gamma.T
     return rec, float(np.mean(np.diag(css)))
@@ -51,7 +51,7 @@ class TestBuildWithNoiseCovariance:
     def test_scalar_matches_alpha(self, alpha_reference):
         """sigma^2 = alpha * mean(diag Css) must give the alpha reconstructor exactly."""
         ref, mean_css = alpha_reference
-        rec = reconstructor_module.tomographicReconstructor(CONFIG)
+        rec = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
         rec.build_reconstructor(noiseCovariance=0.1 * mean_css)
         assert np.allclose(rec.CnZ, ref.CnZ)
         assert np.allclose(rec.RecStatSA, ref.RecStatSA, rtol=1e-8, atol=1e-12)
@@ -62,14 +62,14 @@ class TestBuildWithNoiseCovariance:
         n = ref.Gamma.shape[0]
         var = np.full(n, 0.1 * mean_css)
         var[: n // 2] *= 100.0  # X slopes much noisier
-        rec = reconstructor_module.tomographicReconstructor(CONFIG)
+        rec = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
         rec.build_reconstructor(noiseCovariance=var)
         x = np.linalg.norm(rec.RecStatSA[:, : n // 2]) / np.linalg.norm(ref.RecStatSA[:, : n // 2])
         y = np.linalg.norm(rec.RecStatSA[:, n // 2 :]) / np.linalg.norm(ref.RecStatSA[:, n // 2 :])
         assert x < 0.5 < y
 
     def test_im_based_rejects_noise_covariance(self):
-        rec = reconstructor_module.tomographicReconstructor(CONFIG)
+        rec = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
         with pytest.raises(ValueError, match="model-based"):
             rec.build_reconstructor(IM=np.eye(4), noiseCovariance=1.0)
 
@@ -133,9 +133,20 @@ class TestBuildWithNoiseCovarianceGPU:
         )
 
     def test_gpu_matches_cpu(self, alpha_reference):
-        cpu_ref, mean_css = alpha_reference
+        _, mean_css = alpha_reference
+        # The shared fixture uses the default backend (the GPU on a CUDA machine), so the
+        # CPU reference is built explicitly.
+        cpu_ref = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
+        cpu_ref.build_reconstructor(noiseCovariance=0.1 * mean_css)
         rec = reconstructor_module.tomographicReconstructor(CONFIG)
         rec.build_reconstructor(noiseCovariance=0.1 * mean_css)
-        got = rec.RecStatSA.get() if hasattr(rec.RecStatSA, "get") else np.asarray(rec.RecStatSA)
-        want = np.asarray(cpu_ref.RecStatSA)
-        np.testing.assert_allclose(got, want, rtol=0, atol=1e-3 * np.abs(want).max())
+        assert cpu_ref.backend == "cpu"
+        assert rec.backend != "cpu"
+
+        def host(a):
+            return a.get() if hasattr(a, "get") else np.asarray(a)
+
+        want = host(cpu_ref.RecStatSA)
+        np.testing.assert_allclose(
+            host(rec.RecStatSA), want, rtol=0, atol=1e-3 * np.abs(want).max()
+        )
