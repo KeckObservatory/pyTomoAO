@@ -47,6 +47,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gains `slope_conversion_matrix()` (filled in with its own geometry) and
   `grid_coordinates()` (pupil positions of the grid points, which span the padded support
   `DSupport`, not `D`).
+- **`slodarResult.L0AtGridEdge`** (and a logged warning): flags an L0 fit that landed on an
+  edge of `L0Grid`, i.e. one not constrained by the data.
 - **Tutorial: pyTomoAO in a SPECULA closed loop**
   (`docs/source/tutorials/specula-closed-loop.md`), with the runnable
   `examples/specula_ltao/`.

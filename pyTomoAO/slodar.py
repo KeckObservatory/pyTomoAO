@@ -338,6 +338,7 @@ class slodarResult:
         Weighted RMS of the fit residual, relative to the weighted RMS of the data.
     L0Grid, L0Cost : numpy.ndarray
         Outer scales tried and their fit cost when ``fitL0`` was requested (else empty).
+        See :attr:`L0AtGridEdge`.
     measured, model : numpy.ndarray
         The fitted data vector and the best-fit model, for diagnostics.
     """
@@ -358,6 +359,18 @@ class slodarResult:
     L0Cost: np.ndarray = field(default_factory=lambda: np.zeros(0))
     measured: np.ndarray = field(default_factory=lambda: np.zeros(0), repr=False)
     model: np.ndarray = field(default_factory=lambda: np.zeros(0), repr=False)
+
+    @property
+    def L0AtGridEdge(self):
+        """True when ``L0`` was fitted and the best value is at an end of ``L0Grid``.
+
+        The fit minimum then lies outside the grid, so L0 is not constrained by the data.
+        This is typical of short telemetry records, where it can ruin the profile.
+        """
+        if self.L0Grid.size == 0:
+            return False
+        lo, hi = self.L0Grid.min(), self.L0Grid.max()
+        return bool(np.isclose(self.L0, lo) or np.isclose(self.L0, hi))
 
     def to_atmosphere_config(self, windSpeed=None, windDirection=None, minFraction=0.0):
         """Express the profile as an ``atmosphere_parameters`` configuration section.
@@ -1278,6 +1291,17 @@ class slodarProfiler:
             L0used = float(L0g[best])
             x, model, cost = fits[best]
             logger.info("SLODAR L0 grid search: best L0 = %.1f m", L0used)
+            if best in (0, len(L0g) - 1):
+                # The minimum is on the edge of the grid, so L0 is not constrained by these
+                # data (typical of short records); the profile built on it can be poor.
+                logger.warning(
+                    "SLODAR L0 fit is at the edge of L0Grid (%.1f m, grid %.1f-%.1f m): "
+                    "L0 is not constrained by these data; use longer telemetry or widen "
+                    "L0Grid, and treat this profile with caution",
+                    L0used,
+                    L0g.min(),
+                    L0g.max(),
+                )
         else:
             L0used = self.L0 if L0 is None else float(L0)
             x, model, cost = solve(L0used)

@@ -9,6 +9,13 @@ Closes an LTAO loop in the SPECULA simulator with pyTomoAO's MMSE reconstructor:
 - **Control:** pseudo-open-loop control at 500 Hz.
 
 Walkthrough in the [SPECULA closed-loop tutorial](https://keckobservatory.github.io/pyTomoAO/tutorials/specula-closed-loop.html).
+Further options:
+
+- **Profiling from telemetry:** `run --record` followed by `slodar` measures the turbulence
+  profile from closed-loop telemetry, and `build --profile slodar` rebuilds the
+  reconstructor on it.
+- **Other atmospheres:** `setup --atmosphere atmosphere_5layer.yml` (or your own file)
+  simulates a different profile.
 Needs `pip install specula`. Add `--gpu` to `calibrate` and `run` if CuPy is installed.
 
 ```sh

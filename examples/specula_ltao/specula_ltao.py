@@ -376,6 +376,12 @@ def slodar(workdir, settle=0.1, L0=None):
         truth[np.argmin(np.abs(grid - h))] += f
     tvd = 0.5 * np.abs(res.fractionalCn2 - truth).sum()
     print(res)
+    if res.L0AtGridEdge:
+        print(
+            f"slodar: WARNING - fitted L0 = {res.L0:g} m is at the edge of the search grid, so "
+            "L0 is not constrained by this telemetry. Record longer (or several runs) before "
+            "trusting this profile."
+        )
     print(
         f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {atm['L0']:g}), "
         f"profile TVD {tvd:.3f}, temporal noise "

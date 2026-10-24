@@ -276,14 +276,63 @@ most data:
 - **The highest layer.** It is seen only on the longest baselines, with the fewest
   overlapping subapertures, and its altitude matters most for on-axis tomography.
 
-Record at least 20–30 s. If an independent L0 estimate is available, fix it with
-`slodar --L0`.
+Record at least 20–30 s. Fitting L0 is generally better than fixing it, even at its true
+value: on a finite record, the fitted L0 absorbs part of that realisation's large-scale
+power, while a fixed one pushes the mismatch into r0 and the profile (see Step 7). If the
+fitted L0 lands on an edge of the search grid, `slodar` warns (`slodarResult.L0AtGridEdge`).
+L0 is then not constrained by the data, so record longer before trusting the profile.
 
 The evaluation run reuses the recording's atmosphere seed. For a stricter test, add
 `--seed 312` to the second `run`. All the numbers above come from a single atmosphere seed.
 SLODAR's realisation scatter (see {doc}`../user-guide/slodar`, *Record length and
 uncertainty*) is large enough that conclusions about the measured profile should be checked
 over several seeds (`run --seed N`).
+
+## Step 7 — Another atmosphere
+
+`setup --atmosphere FILE` simulates a different turbulence profile. Later steps read it from
+the work directory, so the rest of the workflow is unchanged. `atmosphere_5layer.yml` is a
+second test case:
+
+- **Layers:** 0, 1.5, 5, 10 and 15 km, with 70% of the turbulence at the ground.
+- **Conditions:** seeing 0.75″ (r0 = 0.134 m) and L0 = 30 m.
+- **Winds:** different speeds and directions from the default case.
+
+```bash
+python specula_ltao.py setup --workdir atm5 --atmosphere atmosphere_5layer.yml
+python specula_ltao.py calibrate --workdir atm5
+python specula_ltao.py build --workdir atm5
+python specula_ltao.py run --workdir atm5 --time 2
+python specula_ltao.py analyse --workdir atm5
+```
+
+The file format is self-explanatory: altitudes, Cn² fractions, seeing, L0 and per-layer
+winds.
+
+We repeated the cycle from Step 6 over five atmosphere seeds (312–316):
+
+1. Record 20 s of closed-loop telemetry with the true-profile reconstructor.
+2. Run SLODAR on it and rebuild the reconstructor on the measured profile.
+3. Score each reconstructor on a 2 s closed loop with an *unseen* atmosphere seed.
+
+| Reconstructor profile | Residual, mean (range) | Strehl (1.65 µm) |
+|---|---|---|
+| Simulated (true) profile | 174 nm (170–179) | 0.65 |
+| SLODAR from closed-loop telemetry, L0 fitted | 184 nm (170–209) | 0.62 |
+| Generic KAPA config profile (`--profile kapa`) | 246 nm (240–250) | 0.42 |
+
+- **The generic profile:** unlike the default atmosphere, where it was nearly as good as the
+  true one, it fits this atmosphere badly. This is the case where measuring the profile pays
+  off.
+- **SLODAR:** it recovers about 85% of that loss. On four seeds it is within 0–9 nm of the
+  true profile. On the fifth, the L0 fit ran to the 200 m edge of its grid (input 30 m) and
+  cost 33 nm; that is the case the edge warning flags.
+- **Fixing L0 at its true value:** this made things worse on the two seeds tried (+10 and
+  +15 nm), for the reason given in Step 6.
+
+These are 20 s records. Expect the high-layer altitudes and L0 to scatter from one record to
+the next by the amounts given in {doc}`../user-guide/slodar` (*Record length and
+uncertainty*).
 
 ## Going further
 
