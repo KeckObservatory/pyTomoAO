@@ -106,47 +106,50 @@ class TestSlodarNoiseCovariance:
             _result([]).noise_covariance(0.5, 3)
 
 
+def _host(a):
+    return a.get() if hasattr(a, "get") else np.asarray(a)
+
+
+def _rel(a, b):
+    """Matrix-level relative difference ``||a - b|| / ||b||`` (Frobenius)."""
+    a, b = _host(a), _host(b)
+    return float(np.linalg.norm(a - b) / np.linalg.norm(b))
+
+
 @pytest.mark.skipif(not reconstructor_module.CUDA, reason="requires CuPy and a CUDA device")
 class TestBuildWithNoiseCovarianceGPU:
-    """GPU twin of ``test_scalar_matches_alpha``: covers the CuPy ``noiseCovariance`` branch."""
+    """GPU twins of the noise-covariance tests: cover the CuPy ``noiseCovariance`` branch.
+
+    The GPU kernels run in float32, so results are compared with matrix-level relative errors
+    at float32-appropriate tolerances; element-wise relative checks are meaningless for the
+    near-zero entries of a reconstructor. Each test also checks that the result actually
+    responds to ``noiseCovariance``, so a loose tolerance cannot hide an ignored argument.
+    """
+
+    @staticmethod
+    def _gpu(**kwargs):
+        rec = reconstructor_module.tomographicReconstructor(CONFIG)
+        rec.build_reconstructor(**kwargs)
+        assert rec.backend != "cpu"
+        return rec
 
     def test_scalar_matches_alpha(self, alpha_reference):
         _, mean_css = alpha_reference
-        ref = reconstructor_module.tomographicReconstructor(CONFIG)  # GPU backend
-        ref.build_reconstructor(alpha=0.1)
-        rec = reconstructor_module.tomographicReconstructor(CONFIG)
-        rec.build_reconstructor(noiseCovariance=0.1 * mean_css)
-        assert rec.backend == ref.backend
-        assert rec.backend != "cpu"
-
-        def host(a):
-            return a.get() if hasattr(a, "get") else np.asarray(a)
-
-        # Same float32 kernels on both sides, so they should agree closely; the CnZ of the
-        # alpha path is built from the GPU's own (float32) Css, hence the loose tolerance.
-        np.testing.assert_allclose(host(rec.CnZ), host(ref.CnZ), rtol=1e-4)
-        np.testing.assert_allclose(
-            host(rec.RecStatSA),
-            host(ref.RecStatSA),
-            rtol=1e-3,
-            atol=1e-3 * np.abs(host(ref.RecStatSA)).max(),
-        )
+        ref = self._gpu(alpha=0.1)
+        rec = self._gpu(noiseCovariance=0.1 * mean_css)
+        # ref's mean(diag(Css)) is accumulated in float32 on the GPU, mean_css in float64.
+        np.testing.assert_allclose(_host(rec.CnZ), _host(ref.CnZ), rtol=1e-3)
+        assert _rel(rec.RecStatSA, ref.RecStatSA) < 1e-3
+        noisier = self._gpu(noiseCovariance=10 * 0.1 * mean_css)
+        assert _rel(noisier.RecStatSA, ref.RecStatSA) > 0.05
 
     def test_gpu_matches_cpu(self, alpha_reference):
         _, mean_css = alpha_reference
-        # The shared fixture uses the default backend (the GPU on a CUDA machine), so the
-        # CPU reference is built explicitly.
+        # The fixture is CPU; build the CPU reference for the noise path explicitly.
         cpu_ref = reconstructor_module.tomographicReconstructor(CONFIG, force_cpu=True)
         cpu_ref.build_reconstructor(noiseCovariance=0.1 * mean_css)
-        rec = reconstructor_module.tomographicReconstructor(CONFIG)
-        rec.build_reconstructor(noiseCovariance=0.1 * mean_css)
         assert cpu_ref.backend == "cpu"
-        assert rec.backend != "cpu"
-
-        def host(a):
-            return a.get() if hasattr(a, "get") else np.asarray(a)
-
-        want = host(cpu_ref.RecStatSA)
-        np.testing.assert_allclose(
-            host(rec.RecStatSA), want, rtol=0, atol=1e-3 * np.abs(want).max()
-        )
+        rec = self._gpu(noiseCovariance=0.1 * mean_css)
+        assert _rel(rec.RecStatSA, cpu_ref.RecStatSA) < 1e-2
+        noisier = self._gpu(noiseCovariance=10 * 0.1 * mean_css)
+        assert _rel(noisier.RecStatSA, cpu_ref.RecStatSA) > 0.05
