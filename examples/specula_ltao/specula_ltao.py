@@ -13,6 +13,12 @@ Add ``--workdir DIR`` to any step. ``build --profile kapa`` builds the reconstru
 generic profile of pyTomoAO's KAPA example configuration instead of the simulated one, to
 see what a profile mismatch costs.
 
+Turbulence profiling from the closed loop (the on-sky cycle)::
+
+    python specula_ltao.py run --time 20 --record --gpu  # also record slopes + commands
+    python specula_ltao.py slodar                # pseudo-open-loop slopes -> SLODAR profile
+    python specula_ltao.py build --profile slodar  # reconstructor on the measured profile
+
 Requires SPECULA (``pip install specula``); ``--gpu`` also needs CuPy.
 """
 
@@ -24,8 +30,9 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from pyTomoAO import example_config, specula_slope_scale
+from pyTomoAO import example_config, slodarProfiler, specula_slope_scale
 from pyTomoAO.reconstructor import tomographicReconstructor
+from pyTomoAO.slodar import pseudo_open_loop_slopes
 
 HERE = Path(__file__).resolve().parent
 
@@ -184,6 +191,10 @@ def build(workdir, alpha=1e-4, profile="true"):
         )
         config = workdir / "pytomoao_config_kapa_profile.yaml"
         config.write_text(yaml.safe_dump(cfg))
+    elif profile == "slodar":  # profile measured from closed-loop telemetry (slodar step)
+        config = workdir / "pytomoao_config_slodar.yaml"
+        if not config.exists():
+            raise FileNotFoundError(f"{config} not found: run the slodar step first")
 
     rec = tomographicReconstructor(str(config))
     rec.build_reconstructor(alpha=alpha)
@@ -210,17 +221,32 @@ def build(workdir, alpha=1e-4, profile="true"):
 
 
 # ---- Step 4: closed loop -------------------------------------------------------------------
-def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0):
-    """SPECULA closed loop; stores the on-axis residual phase every 5th step."""
+def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, record=False):
+    """SPECULA closed loop; stores the on-axis residual phase (about 200 samples).
+
+    With ``record``, also stores the six WFSs' slopes and the DM commands at every loop step,
+    as closed-loop telemetry for the ``slodar`` step.
+    """
     _init_specula(gpu, precision)
     from astropy.io import fits
     from specula.simul import Simul
 
     shutil.copy(HERE / "params_ltao.yml", workdir / "params_ltao.yml")
+    step = yaml.safe_load((HERE / "params_ltao.yml").read_text())["main"]["time_step"]
+    # Science phase is 0.4 MB per sample: keep about 200 of them whatever the run length.
+    sciEvery = max(5, round(total_time / step / 200))
+    inputs = ["sci-prop.out_sci_ef", "comm-control.out_comm"]
+    if record:
+        inputs += [f"s{k}-wfs{k}.out_slopes" for k in range(1, N_LGS + 1)]
     override = {
         "main_override": {"total_time": float(total_time)},
         "atmo_override": {"seed": int(seed)},
         "control_override": {"int_gain": [float(gain)]},
+        "data_store_override": {
+            "downsample_factor": 1,
+            "downsample_factor_by_input": {"sci": sciEvery, **({} if record else {"comm": 5})},
+            "inputs": {"input_list": inputs},
+        },
     }
     (workdir / "override.yml").write_text(yaml.safe_dump(override))
     out = workdir / "output"
@@ -234,14 +260,131 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0):
     tn = sorted(set(out.glob("2*")) - before)[-1]
     with fits.open(tn / "sci.fits") as h:
         ef = np.asarray(h[0].data, float)  # (nSamples, 2, N, N): amplitude, phase [nm]
-    dt = 5 * yaml.safe_load((HERE / "params_ltao.yml").read_text())["main"]["time_step"]
     np.savez_compressed(
         workdir / "closed_loop.npz",
         resPhaseNm=ef[:, 1],
         pupil=ef[0, 0] > 0.5,
-        t=np.arange(ef.shape[0]) * dt,
+        t=np.arange(ef.shape[0]) * sciEvery * step,
     )
-    print(f"run: {ef.shape[0]} samples saved from {tn.name}")
+    print(f"run: {ef.shape[0]} science samples saved from {tn.name}")
+    if record:
+        slopes = []
+        for k in range(1, N_LGS + 1):
+            with fits.open(tn / f"s{k}.fits") as h:
+                slopes.append(np.asarray(h[0].data, np.float32))
+        with fits.open(tn / "comm.fits") as h:
+            comm = np.asarray(h[0].data, np.float32)
+        slopes = np.concatenate(slopes, axis=1)  # SPECULA units, WFS blocks in LGS order
+        np.savez_compressed(
+            workdir / "telemetry.npz", slopes=slopes, commands=comm, time_step=step, gain=gain
+        )
+        print(f"run: telemetry {slopes.shape[0]} frames x {slopes.shape[1]} slopes saved")
+
+
+# ---- Optional: SLODAR from the closed-loop telemetry ---------------------------------------
+def slodar(workdir, settle=0.1, L0=None):
+    """Turbulence profile and slope noise from closed-loop telemetry, as on sky.
+
+    Rebuilds pseudo-open-loop slopes ``s(t) + M c(t - 1)`` from the recorded slopes and
+    commands, fits the SLODAR profile (L0 fitted), estimates the slope noise from their
+    temporal covariance, and writes a pyTomoAO configuration on the measured profile for
+    ``build --profile slodar``.
+
+    ``L0`` fixes the outer scale instead of fitting it. The L0 fit needs long telemetry: from
+    a few seconds it scatters by a factor of two, and a wrong L0 is the most damaging profile
+    error for the reconstructor.
+    """
+    import json
+
+    _init_specula()
+    from specula.data_objects.intmat import Intmat
+
+    tel = np.load(workdir / "telemetry.npz")
+    slopes, comm = tel["slopes"].astype(float), tel["commands"].astype(float)
+    M = _host(Intmat.restore(str(workdir / "calib" / "im" / f"{IM_TAG}.fits")).intmat)
+    # SPECULA's DM applies the opposite of the command (sign -1) while the IM was poked with
+    # +c, so s = s_ol - M c(t-1): sign=+1, delay 1 frame (the DM layer enters with :-1).
+    pol = pseudo_open_loop_slopes(slopes, comm, M, delay=1, sign=1)
+    wrong = pseudo_open_loop_slopes(slopes, comm, M, delay=1, sign=-1)
+    skip = round(settle / float(tel["time_step"]))
+    pol, wrong = pol[skip:], wrong[skip:]
+    incr = np.var(np.diff(wrong, axis=0)) / np.var(np.diff(pol, axis=0))
+    print(
+        f"slodar: {pol.shape[0]} pseudo-open-loop frames; sign check: wrong/right "
+        f"increment variance = {incr:.1f} (should be > 1)"
+    )
+
+    rec = tomographicReconstructor(str(workdir / "pytomoao_config.yaml"))
+    prof = slodarProfiler.from_reconstructor(
+        rec, subapOrder="C", slopeScale=specula_slope_scale(WFS_FOV, PIXEL_PUPIL // N_LENSLET)
+    )
+    grid = prof.default_altitudes(hMax=20e3)
+    if L0 is None:
+        res = prof.profile(pol, removeTT=True, fitL0=True, altitudes=grid)
+    else:
+        res = prof.profile(pol, removeTT=True, L0=float(L0), altitudes=grid)
+    noise = prof.temporal_noise_variance(pol, removeTT=True)  # rad^2 per WFS
+
+    # Input profile binned onto the SLODAR grid (nearest bin), for comparison
+    cn2 = np.array(ATM["cn2"]) / np.sum(ATM["cn2"])
+    truth = np.zeros(grid.size)
+    for h, f in zip(ATM["altitude_m"], cn2):
+        truth[np.argmin(np.abs(grid - h))] += f
+    tvd = 0.5 * np.abs(res.fractionalCn2 - truth).sum()
+    print(res)
+    print(
+        f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {ATM['L0']:g}), "
+        f"profile TVD {tvd:.3f}, temporal noise "
+        f"{np.sqrt(noise.mean()) * 206264.8:.4f} arcsec rms"
+    )
+
+    cfg = yaml.safe_load((workdir / "pytomoao_config.yaml").read_text())
+    cfg["atmosphere_parameters"] = res.to_atmosphere_config(minFraction=0.01)
+    (workdir / "pytomoao_config_slodar.yaml").write_text(yaml.safe_dump(cfg))
+    (workdir / "slodar.json").write_text(
+        json.dumps(
+            {
+                "frames": int(pol.shape[0]),
+                "r0": res.r0,
+                "r0_input": R0,
+                "L0": res.L0,
+                "L0_input": ATM["L0"],
+                "tvd": float(tvd),
+                "sign_check_increment_ratio": float(incr),
+                "altitude_m": grid.tolist(),
+                "fraction": res.fractionalCn2.tolist(),
+                "fraction_input_binned": truth.tolist(),
+                "noise_variance_rad2": noise.tolist(),
+            },
+            indent=1,
+        )
+    )
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("slodar: matplotlib not installed, no figure")
+        return res
+    fig, ax = plt.subplots(figsize=(6, 5))
+    hk = grid / 1e3
+    w = 0.35 * np.min(np.diff(hk)) if hk.size > 1 else 0.3
+    ax.barh(hk - w / 2, truth, height=w, color="0.6", label="input, binned to the SLODAR grid")
+    ax.barh(hk + w / 2, res.fractionalCn2, height=w, color="C0", label="SLODAR, closed-loop POL")
+    ax.plot(cn2, np.array(ATM["altitude_m"]) / 1e3, "rx", ms=8, label="input layers")
+    ax.set_xlabel("fractional $C_n^2$")
+    ax.set_ylabel("altitude [km]")
+    ax.set_title(
+        f"r0 {res.r0:.3f} m (input {R0:.3f}), L0 {res.L0:.0f} m, TVD {tvd:.2f}", fontsize=10
+    )
+    ax.legend(fontsize=8, loc="upper right")
+    fig.tight_layout()
+    fig.savefig(workdir / "slodar_profile.png", dpi=120)
+    plt.close(fig)
+    print("slodar: wrote slodar_profile.png, slodar.json and pytomoao_config_slodar.yaml")
+    return res
 
 
 # ---- Step 5: analysis ----------------------------------------------------------------------
@@ -352,11 +495,15 @@ def analyse(workdir, settle=0.1, wavelength_nm=1650.0):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("step", choices=["setup", "calibrate", "build", "run", "analyse"])
+    ap.add_argument("step", choices=["setup", "calibrate", "build", "run", "slodar", "analyse"])
     ap.add_argument("--workdir", default="specula_ltao_run")
     ap.add_argument("--gpu", action="store_true", help="run SPECULA on GPU 0 (needs CuPy)")
     ap.add_argument("--alpha", type=float, default=1e-4, help="build: regularisation")
-    ap.add_argument("--profile", choices=["true", "kapa"], default="true", help="build")
+    ap.add_argument("--profile", choices=["true", "kapa", "slodar"], default="true", help="build")
+    ap.add_argument(
+        "--record", action="store_true", help="run: also save slopes + commands for slodar"
+    )
+    ap.add_argument("--L0", type=float, default=None, help="slodar: fix L0 [m] (default: fit)")
     ap.add_argument("--time", type=float, default=2.0, help="run: simulated time [s]")
     ap.add_argument("--gain", type=float, default=0.5, help="run: integrator gain")
     ap.add_argument("--seed", type=int, default=311, help="run: atmosphere seed")
@@ -371,7 +518,9 @@ def main():
     elif a.step == "build":
         build(wd, a.alpha, a.profile)
     elif a.step == "run":
-        run(wd, a.time, a.gain, a.seed, a.gpu, a.precision)
+        run(wd, a.time, a.gain, a.seed, a.gpu, a.precision, a.record)
+    elif a.step == "slodar":
+        slodar(wd, L0=a.L0)
     else:
         analyse(wd)
 
