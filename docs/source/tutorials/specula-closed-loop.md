@@ -112,6 +112,7 @@ rec.build_reconstructor(alpha=1e-4)
 P = rec.slope_conversion_matrix(subapOrder="C", slopeScale=specula_slope_scale(4.0, 8))
 # 2. slopes -> on-axis OPD on the reconstruction grid
 R = rec.RecStatSA
+R = R.get() if hasattr(R, "get") else R     # CuPy array when pyTomoAO runs on the GPU
 # 3. OPD -> DM commands: least-squares fit of the influence functions on that grid
 gx, gy = rec.grid_coordinates()
 F = np.linalg.pinv(influence_functions(gx, gy), rcond=1e-6)

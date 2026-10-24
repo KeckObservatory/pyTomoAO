@@ -54,6 +54,11 @@ IM_TAG = "kapa_dm349_6lgs_im"
 REC_TAG = "pytomoao_rec"
 
 
+def _host(a):
+    """NumPy copy of an array that may live on the GPU (CuPy)."""
+    return a.get() if hasattr(a, "get") else np.asarray(a)
+
+
 def _init_specula(gpu=False, precision=0):
     import specula
 
@@ -114,9 +119,7 @@ def setup(workdir):
     ).save(str(calib / "subapdata" / f"{SUBAP_TAG}.fits"), overwrite=True)
 
     # DM influence functions on SPECULA's pupil (unit command = 1 nm at the actuator peak).
-    pupil = np.asarray(
-        Pupilstop(SimulParams(pixel_pupil=PIXEL_PUPIL, pixel_pitch=D / PIXEL_PUPIL)).A
-    )
+    pupil = _host(Pupilstop(SimulParams(pixel_pupil=PIXEL_PUPIL, pixel_pitch=D / PIXEL_PUPIL)).A)
     pupil = pupil > 0.5
     x, y = _pupil_grid(pupil)
     ifunc = _influence(x[pupil], y[pupil]).T  # (nAct, nPupilPixels)
@@ -163,7 +166,7 @@ def calibrate(workdir, gpu=False):
     finally:
         os.chdir(cwd)
     single = workdir / "calib" / "im" / "kapa_dm349_lgs_im.fits"
-    one = np.asarray(Intmat.restore(str(single)).intmat)
+    one = _host(Intmat.restore(str(single)).intmat)  # on the GPU when SPECULA runs there
     Intmat(np.vstack([one] * N_LGS)).save(
         str(workdir / "calib" / "im" / f"{IM_TAG}.fits"), overwrite=True
     )
@@ -189,8 +192,9 @@ def build(workdir, alpha=1e-4, profile="true"):
     P = rec.slope_conversion_matrix(
         subapOrder="C", slopeScale=specula_slope_scale(WFS_FOV, PIXEL_PUPIL // N_LENSLET)
     )
-    # 2. slopes -> on-axis OPD [m] on the reconstruction grid
-    R = rec.RecStatSA
+    # 2. slopes -> on-axis OPD [m] on the reconstruction grid (a CuPy array when pyTomoAO
+    #    uses the GPU backend, so copy it to the host)
+    R = _host(rec.RecStatSA)
     # 3. OPD -> DM commands: least-squares fit of the same influence functions on that grid
     #    (the grid spans DSupport, which grid_coordinates() accounts for)
     gx, gy = rec.grid_coordinates()
