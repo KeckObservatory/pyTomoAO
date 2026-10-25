@@ -23,6 +23,12 @@
 - Tools for **fitting reconstructed phase maps** onto deformable mirrors.
 - **GPU acceleration** through CuPy, selected automatically when it is available, with a
   NumPy/Numba CPU backend otherwise.
+- **SLODAR turbulence profiling** from the LGS wavefront sensors' own (pseudo-)open-loop
+  slopes, with the LGS cone effect, tip-tilt removal and noise and outer-scale estimation.
+  The measured profile feeds straight back into the reconstructor.
+- **Interoperability with simulators and telemetry**: conversion of external slope
+  conventions (e.g. SPECULA) and a measured slope-noise covariance in place of the default
+  regularisation.
 
 ## Performance
 
@@ -104,12 +110,53 @@ commands = FR @ slopes
 
 Full walkthrough: [quickstart](https://keckobservatory.github.io/pyTomoAO/getting-started/quickstart.html) and the [KAPA LTAO tutorial](https://keckobservatory.github.io/pyTomoAO/tutorials/ltao-kapa.html).
 
+## Turbulence profiling (SLODAR)
+
+The tomographic reconstructor is only as good as its turbulence model. `pyTomoAO.slodar`
+measures that model from the same LGS wavefront sensors: it computes the slope
+cross-covariance maps of every sensor pair and fits thin-layer von Kármán responses, built
+from the reconstructor's own covariance kernel and gradient operator, so the profile comes
+out in exactly the form the reconstructor uses.
+
+```python
+import yaml
+from pyTomoAO import example_config, slodarProfiler
+from pyTomoAO.reconstructor import tomographicReconstructor
+
+rec = tomographicReconstructor(example_config("kapa"))
+prof = slodarProfiler.from_reconstructor(rec)            # same geometry as the reconstructor
+result = prof.profile(slopes, removeTT=True, fitL0=True)  # slopes: (nFrames, nLGS*2*nValid) [rad]
+print(result)                                            # Cn2 per altitude bin, r0, L0, noise
+
+# Rebuild the reconstructor on the measured profile
+config = dict(rec.config, atmosphere_parameters=result.to_atmosphere_config(minFraction=0.01))
+with open("config_slodar.yaml", "w") as f:
+    yaml.safe_dump(config, f)
+rec = tomographicReconstructor("config_slodar.yaml")
+rec.build_reconstructor()
+```
+
+- **Inputs**: open-loop slopes, or pseudo-open-loop slopes rebuilt from closed-loop telemetry
+  with `slodar.pseudo_open_loop_slopes`.
+- **Other slope conventions**: slopes from other tools convert with
+  `rec.slope_conversion_matrix()` (see `specula_slope_scale` for SPECULA).
+- **Validation** against SPECULA LTAO simulations (6 LGS, 20×20 subapertures, 7-layer
+  Maunakea profile):
+  - SLODAR recovers r0 to within 0.4%, and reconstructors built from the measured profile
+    match the true-profile closed-loop Strehl.
+  - The outer scale is the parameter that matters most: fit it rather than assume it.
+
+See the [SLODAR user guide](https://keckobservatory.github.io/pyTomoAO/user-guide/slodar.html)
+for the method, options and caveats, and `examples/slodar/` for validation scripts,
+including an end-to-end SPECULA run.
+
 ## Roadmap
 
 - [x] Fundamental tomographic reconstruction algorithms.
 - [x] GPU acceleration.
 - [x] Deformable mirror fitting routines.
 - [x] Detailed documentation and examples.
+- [x] SLODAR turbulence profiling from the LGS wavefront sensors.
 - [ ] MOAO reconstructor (per-direction outputs).
 - [ ] MCAO reconstructor (multiple DM altitudes).
 

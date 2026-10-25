@@ -7,6 +7,8 @@ from .dmParametersClass import dmParameters
 from .lgsAsterismParametersClass import lgsAsterismParameters
 from .lgsWfsParametersClass import lgsWfsParameters
 from .reconstructor import tomographicReconstructor
+from .slodar import slodarProfiler, slodarResult
+from .slope_conversion import slope_conversion_matrix, specula_slope_scale
 from .tomographyParametersClass import tomographyParameters
 
 __all__ = [
@@ -17,6 +19,10 @@ __all__ = [
     "lgsAsterismParameters",
     "lgsWfsParameters",
     "list_example_configs",
+    "slodarProfiler",
+    "slodarResult",
+    "slope_conversion_matrix",
+    "specula_slope_scale",
     "tomographicReconstructor",
     "tomographyParameters",
 ]

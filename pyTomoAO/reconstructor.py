@@ -16,6 +16,7 @@ from pyTomoAO.dm_fitting import fitting
 from pyTomoAO.dmParametersClass import dmParameters
 from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
 from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
+from pyTomoAO.slope_conversion import slope_conversion_matrix as _slope_conversion_matrix
 from pyTomoAO.tomographyParametersClass import tomographyParameters
 
 # Module logger. Handlers and levels are the application's business; the package
@@ -595,7 +596,13 @@ class tomographicReconstructor:
         return Cox
 
     # Build Reconstructor
-    def build_reconstructor(self, IM=None, use_float32=False, alpha=10):  # noqa: ARG002
+    def build_reconstructor(
+        self,
+        IM=None,
+        use_float32=False,  # noqa: ARG002
+        alpha=10,
+        noiseCovariance=None,
+    ):
         # NOTE: use_float32 is currently not forwarded. The GPU kernels are always
         # called with use_float32=True and the CPU kernels with their default. See
         # the "Precision" section of docs/source/user-guide/gpu.md.
@@ -611,7 +618,21 @@ class tomographicReconstructor:
             Whether to use float32 precision for computations to reduce memory usage
             (default is False, which uses float64)
         alpha : float, optional
-            Regularization parameter for the reconstructor (default is 10)
+            Regularization parameter for the reconstructor (default is 10). The model-based
+            noise term is ``alpha * mean(diag(Css)) * I`` with ``Css = Gamma Cxx Gamma^T``.
+            Ignored when ``noiseCovariance`` is given.
+        noiseCovariance : float or array_like, optional
+            Model-based reconstructor only: the slope noise covariance, used in place of the
+            ``alpha`` term. A scalar (same variance on every slope), ``nLGS`` per-sensor
+            variances, one variance per slope, or a full matrix. Units are those of ``Css``:
+            rad^2 of phase difference across a subaperture at the atmosphere wavelength,
+            i.e. ``(2 pi d sigma_angle / wavelength)**2`` for an angle-of-arrival noise rms
+            ``sigma_angle`` [rad]. With measured noise this gives the MMSE estimator instead
+            of an ad hoc regularisation. From telemetry, use
+            :meth:`pyTomoAO.slodar.slodarProfiler.temporal_noise_variance` on
+            pseudo-open-loop slopes and convert with
+            :func:`pyTomoAO.slodar.slope_noise_covariance` (``reconstructor=self``);
+            SLODAR's zero-offset noise fit can overestimate the noise on real sensors.
 
         Returns
         -------
@@ -638,6 +659,7 @@ class tomographicReconstructor:
                     self.atmParams,
                     self.lgsAsterismParams,
                     alpha=alpha,
+                    noiseCovariance=noiseCovariance,
                     **precision,
                 )
             )
@@ -652,6 +674,10 @@ class tomographicReconstructor:
             logger.info("\n-->> Model based reconstructor computed <<--")
         else:
             # IM based reconstructor
+            if noiseCovariance is not None:
+                raise ValueError(
+                    "noiseCovariance is only supported by the model-based reconstructor"
+                )
             logger.info("\n-->> Computing IM based reconstructor <<--")
             # load IM
             self.IM = IM
@@ -949,6 +975,55 @@ class tomographicReconstructor:
         out[valid] = wavefront
 
         return out
+
+    # External slope conventions
+    def slope_conversion_matrix(self, **kwargs):
+        """Sparse matrix taking external slopes to this reconstructor's slope convention.
+
+        Wraps :func:`pyTomoAO.slope_conversion.slope_conversion_matrix` with this
+        reconstructor's ``validLLMap``, diameter and number of LGS. With ``P`` from here,
+        ``rec.RecStatSA @ (P @ slopes)`` (model-based reconstructor) is the OPD [m] on the
+        points of :attr:`gridMask`, whose positions :meth:`grid_coordinates` returns.
+
+        Parameters
+        ----------
+        **kwargs
+            ``subapOrder``, ``slopesOrder``, ``slopeScale``, ``xSign``, ``ySign``; see
+            :func:`pyTomoAO.slope_conversion.slope_conversion_matrix`.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            ``(nLGS * 2 * nValidSubap, nLGS * 2 * nValidSubap)``.
+        """
+        return _slope_conversion_matrix(
+            self.lgsWfsParams.validLLMap,
+            self.lgsAsterismParams.nLGS,
+            self.lgsWfsParams.D,
+            **kwargs,
+        )
+
+    def grid_coordinates(self):
+        """Pupil-plane positions [m] of the reconstruction grid points.
+
+        The grid covers the *padded* lenslet support (``lgsWfsParams.DSupport``, which is
+        larger than ``D`` when ``validLLMapSupport`` pads the lenslet map), so its spacing is
+        ``DSupport / (sampling - 1)``, not ``D / (sampling - 1)``. Use these coordinates when
+        comparing a reconstruction with a phase map from elsewhere.
+
+        Returns
+        -------
+        x, y : numpy.ndarray
+            Coordinates of the ``True`` points of :attr:`gridMask`, in the order of the
+            reconstructed vector (row-major over the mask). ``x`` runs along the columns of
+            the mask and ``y`` along its rows, centred on the pupil.
+        """
+        mask = np.asarray(self.gridMask, dtype=bool)
+        half = self.lgsWfsParams.DSupport / 2
+        x, y = np.meshgrid(
+            np.linspace(-1, 1, mask.shape[1]) * half, np.linspace(-1, 1, mask.shape[0]) * half
+        )
+        return x[mask], y[mask]
 
     # Visualize Commands
     def visualize_commands(self, slopes):

@@ -13,6 +13,14 @@ Build both a model-based and an IM-based reconstructor for the Keck All-sky Prec
 Adaptive optics system, visualise the results and produce DM commands.
 :::
 
+:::{grid-item-card} pyTomoAO in a SPECULA closed loop
+:link: specula-closed-loop
+:link-type: doc
+
+Drive a SPECULA LTAO simulation with pyTomoAO's MMSE reconstructor: slope conventions,
+DM fitting, pseudo-open-loop control and the closed-loop result.
+:::
+
 ::::
 
 Each tutorial assumes you have cloned the repository, since they reference configuration

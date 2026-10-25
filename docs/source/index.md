@@ -107,6 +107,7 @@ user-guide/configuration
 user-guide/reconstruction
 user-guide/fitting
 user-guide/gpu
+user-guide/slodar
 ```
 
 ```{toctree}
@@ -115,6 +116,7 @@ user-guide/gpu
 
 tutorials/index
 tutorials/ltao-kapa
+tutorials/specula-closed-loop
 ```
 
 ```{toctree}

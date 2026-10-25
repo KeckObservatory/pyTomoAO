@@ -1,0 +1,11 @@
+# A second test atmosphere for specula_ltao.py (``setup --atmosphere atmosphere_5layer.yml``):
+# five layers with a strong ground layer, worse seeing and a different altitude and wind
+# distribution from the default KAON 503 median, so that nothing in the pipeline is tuned to
+# one profile. Illustrative, not a measured site profile.
+name: "5 layers, strong ground layer (illustrative)"
+altitude_m: [0.0, 1500.0, 5000.0, 10000.0, 15000.0]  # above the telescope [m]
+cn2: [0.70, 0.08, 0.10, 0.07, 0.05]                  # fractions (normalised internally)
+seeing_arcsec: 0.75                                  # at 500 nm -> r0 = 0.135 m
+L0: 30.0                                             # outer scale [m], all layers
+wind_speed: [5.0, 10.0, 15.0, 30.0, 20.0]            # [m/s]
+wind_direction: [45.0, 120.0, 200.0, 280.0, 340.0]   # [deg]

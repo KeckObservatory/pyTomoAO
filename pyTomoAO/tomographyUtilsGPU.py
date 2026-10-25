@@ -864,7 +864,13 @@ def _sparseGradientMatrixAmplitudeWeighted(validLenslet, amplMask=None, overSamp
 
 
 def _build_reconstructor_model(
-    tomoParams, lgsWfsParams, atmParams, lgsAsterismParams, use_float32=False, alpha=1
+    tomoParams,
+    lgsWfsParams,
+    atmParams,
+    lgsAsterismParams,
+    use_float32=False,
+    alpha=1,
+    noiseCovariance=None,
 ):
     """
     Build the model-based tomographic reconstructor on the GPU.
@@ -876,7 +882,11 @@ def _build_reconstructor_model(
     use_float32 : bool, optional
         Compute in single precision (default is False).
     alpha : float, optional
-        Regularization weight applied to the inversion (default is 1).
+        Regularization weight applied to the inversion (default is 1). Ignored when
+        ``noiseCovariance`` is given.
+    noiseCovariance : float or array_like, optional
+        Slope noise covariance used instead of ``alpha * mean(diag(Css)) * I``; see the CPU
+        ``_noise_covariance_matrix`` for the accepted forms and units.
 
     Returns
     -------
@@ -937,7 +947,19 @@ def _build_reconstructor_model(
         Cox = CoxOut
 
         # Calculate noise covariance
-        CnZ = cp.eye(Gamma.shape[0], dtype=dtype) * alpha * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+        if noiseCovariance is None:
+            CnZ = (
+                cp.eye(Gamma.shape[0], dtype=dtype)
+                * alpha
+                * cp.mean(cp.diag(Gamma @ Cxx @ Gamma.T))
+            )
+        else:
+            from pyTomoAO.tomographyUtilsCPU import _noise_covariance_matrix
+
+            CnZ = cp.asarray(
+                _noise_covariance_matrix(noiseCovariance, Gamma.shape[0], lgsAsterismParams.nLGS),
+                dtype=dtype,
+            )
 
         # Keep calculations separate to match CPU version exactly
         GammaCxxGammaT = Gamma @ Cxx @ Gamma.T

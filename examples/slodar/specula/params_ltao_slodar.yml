@@ -1,0 +1,95 @@
+---
+# Keck-class LTAO open-loop slope recorder for SLODAR validation (pyTomoAO.slodar).
+#
+# - 10 m circular pupil (no central obstruction), 160 px, 0.0625 m/px.
+# - 6 sodium LGS at 90 km on a 60" radius ring.
+# - 20x20 Shack-Hartmann per LGS, KAPA valid-subaperture map (304 valid), d = 0.5 m,
+#   geometric (G-tilt) slopes from SPECULA's IdealDerivativeSensor: open loop, noiseless.
+# - 7-layer Maunakea Ridge median profile, Keck Adaptive Optics Note 503 (Dekany 2007, v1.1),
+#   r0 = 0.16 m at 500 nm (seeing 0.63"), L0 = 25 m (assumed; KAON 503 does not give L0),
+#   frozen flow on infinite phase screens with the KAON 503 wind speeds.
+# - Zenith pointing (airmass 1).
+
+main:
+  class:             'SimulParams'
+  root_dir:          './calib'
+  pixel_pupil:       160
+  pixel_pitch:       0.0625
+  total_time:        0.200          # overridden by run_specula.py
+  time_step:         0.020          # 20 ms sampling: ~0.14 m ground-layer shift per frame
+  zenithAngleInDeg:  0.0
+
+seeing:
+  class:             'WaveGenerator'
+  constant:          0.6288         # ["] -> r0 = 0.16 m at 500 nm
+  outputs: ['output']
+
+wind_speed:
+  class:             'WaveGenerator'
+  constant:          [6.8, 6.9, 7.1, 7.5, 10.0, 26.9, 18.5]
+  outputs: ['output']
+
+wind_direction:
+  class:             'WaveGenerator'
+  constant:          [0., 60., 135., 200., 260., 320., 30.]
+  outputs: ['output']
+
+lgs1: &LGS
+  class:             'Source'
+  polar_coordinates: [60.0, 0.0]
+  height:            90000
+  magnitude:         5.0
+  wavelengthInNm:    589
+lgs2: { <<: *LGS, polar_coordinates: [60.0, 60.0] }
+lgs3: { <<: *LGS, polar_coordinates: [60.0, 120.0] }
+lgs4: { <<: *LGS, polar_coordinates: [60.0, 180.0] }
+lgs5: { <<: *LGS, polar_coordinates: [60.0, 240.0] }
+lgs6: { <<: *LGS, polar_coordinates: [60.0, 300.0] }
+
+pupilstop:
+  class:             'Pupilstop'
+  simul_params_ref:  'main'
+
+atmo:
+  class:             'AtmoInfiniteEvolution'
+  simul_params_ref:  'main'
+  L0:                [25., 25., 25., 25., 25., 25., 25.]
+  heights:           [0., 500., 1000., 2000., 4000., 8000., 16000.]
+  Cn2:               [0.517, 0.119, 0.063, 0.061, 0.105, 0.081, 0.054]
+  fov:               121.0
+  seed:              11
+  inputs:
+    seeing:          'seeing.output'
+    wind_speed:      'wind_speed.output'
+    wind_direction:  'wind_direction.output'
+  outputs: ['layer_list']
+
+prop:
+  class:             'AtmoPropagation'
+  simul_params_ref:  'main'
+  source_dict_ref:   ['lgs1', 'lgs2', 'lgs3', 'lgs4', 'lgs5', 'lgs6']
+  inputs:
+    atmo_layer_list:   ['atmo.layer_list']
+    common_layer_list: ['pupilstop']
+  outputs: ['out_lgs1_ef', 'out_lgs2_ef', 'out_lgs3_ef', 'out_lgs4_ef', 'out_lgs5_ef', 'out_lgs6_ef']
+
+wfs1: &WFS
+  class:             'IdealDerivativeSensor'
+  simul_params_ref:  'main'
+  subapdata_object:  'kapa_n20_ideal'
+  fov:               4.0            # [arcsec]; sets the slope unit (see run_specula.py)
+  inputs:
+    in_ef:           'prop.out_lgs1_ef'
+  outputs: ['out_slopes']
+wfs2: { <<: *WFS, inputs: { in_ef: 'prop.out_lgs2_ef' } }
+wfs3: { <<: *WFS, inputs: { in_ef: 'prop.out_lgs3_ef' } }
+wfs4: { <<: *WFS, inputs: { in_ef: 'prop.out_lgs4_ef' } }
+wfs5: { <<: *WFS, inputs: { in_ef: 'prop.out_lgs5_ef' } }
+wfs6: { <<: *WFS, inputs: { in_ef: 'prop.out_lgs6_ef' } }
+
+data_store:
+  class:             'DataStore'
+  store_dir:         './output'
+  inputs:
+    input_list: ['s1-wfs1.out_slopes', 's2-wfs2.out_slopes', 's3-wfs3.out_slopes',
+                 's4-wfs4.out_slopes', 's5-wfs5.out_slopes', 's6-wfs6.out_slopes']

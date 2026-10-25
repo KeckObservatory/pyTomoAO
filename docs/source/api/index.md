@@ -14,8 +14,10 @@ start with {doc}`../user-guide/concepts` instead.
 | {py:class}`~pyTomoAO.lgsWfsParametersClass.lgsWfsParameters`             | Shack–Hartmann geometry and valid subaperture map                |
 | {py:class}`~pyTomoAO.dmParametersClass.dmParameters`                     | Deformable mirror actuator geometry                              |
 | {py:class}`~pyTomoAO.tomographyParametersClass.tomographyParameters`     | Optimisation field of view and source sampling                   |
+| {py:class}`~pyTomoAO.slodar.slodarProfiler`                              | SLODAR turbulence profiling from multi-WFS slopes                |
+| {py:func}`~pyTomoAO.slope_conversion.slope_conversion_matrix`            | Converts external slopes (e.g. SPECULA) to the reconstructor's convention |
 
-All seven classes are re-exported at package level, so either import style works:
+All these classes are re-exported at package level, so either import style works:
 
 ```python
 from pyTomoAO import tomographicReconstructor                # convenient
@@ -42,6 +44,21 @@ Each class gets its own page with every public method and property.
    pyTomoAO.lgsWfsParametersClass.lgsWfsParameters
    pyTomoAO.dmParametersClass.dmParameters
    pyTomoAO.tomographyParametersClass.tomographyParameters
+   pyTomoAO.slodar.slodarProfiler
+   pyTomoAO.slodar.slodarResult
+```
+
+## Functions
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   pyTomoAO.slope_conversion.slope_conversion_matrix
+   pyTomoAO.slope_conversion.specula_slope_scale
+   pyTomoAO.slodar.pseudo_open_loop_slopes
+   pyTomoAO.slodar.slope_noise_covariance
 ```
 
 ## Internal computation kernels
