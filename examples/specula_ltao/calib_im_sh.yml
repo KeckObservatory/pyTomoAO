@@ -1,0 +1,48 @@
+# Interaction matrix with the physical Shack-Hartmann of wfs_sh.yml, added on top of
+# calib_im.yml by ``specula_ltao.py calibrate`` for a ``setup --wfs sh`` work directory.
+# The detector is noiseless here: the IM is a calibration, measured with high SNR on sky too.
+
+remove: ['wfs1']
+
+launcher:
+  class:             'LaserLaunchTelescope'
+  spot_size:         1.0
+
+sh1:
+  class:             'SH'
+  wavelengthInNm:    589
+  subap_on_diameter: 20
+  subap_npx:         8
+  sensor_pxscale:    0.486
+  subap_wanted_fov:  3.888
+  laser_launch_tel_ref: 'launcher'
+  inputs:
+    in_ef:           'prop.out_lgs1_ef'
+  outputs: ['out_i']
+
+det1:
+  class:             'CCD'
+  simul_params_ref:  'main'
+  size:              [160, 160]
+  dt:                0.001          # calib_im.yml time step
+  bandw:             1.0
+  quantum_eff:       1.0
+  photon_noise:      False
+  readout_noise:     False
+  inputs:
+    in_i:            'sh1.out_i'
+  outputs: ['out_pixels']
+
+wfs1:
+  class:             'ShSlopec'
+  subapdata_object:  'kapa_n20_ideal'
+  thr_ratio_value:   0.2
+  inputs:
+    in_pixels:       'det1.out_pixels'
+  outputs: ['out_slopes', 'out_subapdata']
+
+im_calibrator_override:
+  im_tag:            'kapa_dm349_lgs_im_sh'
+  inputs:
+    in_slopes:       'wfs1.out_slopes'
+    in_commands:     'pushpull.output'

@@ -52,6 +52,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Tutorial: pyTomoAO in a SPECULA closed loop**
   (`docs/source/tutorials/specula-closed-loop.md`), with the runnable
   `examples/specula_ltao/`.
+  - Step 8 adds WFS noise: `setup --wfs sh --photons N` runs physical Shack–Hartmanns
+    with photon and read noise (`wfs_sh.yml`, `calib_im_sh.yml`). `calibrate` measures
+    their slope unit from the interaction matrix, and `build --noise measured` sets the
+    reconstructor's noise term from the noise that `slodar` measured on the telemetry.
 
 ## [2.0.0] - 2026-07-28
 

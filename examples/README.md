@@ -16,6 +16,11 @@ Further options:
   reconstructor on it.
 - **Other atmospheres:** `setup --atmosphere atmosphere_5layer.yml` (or your own file)
   simulates a different profile.
+- **WFS noise:** `setup --wfs sh --photons 200` swaps the noiseless ideal sensors for
+  physical Shack–Hartmanns with photon and read noise (`wfs_sh.yml`). `slodar` measures the
+  slope noise from recorded telemetry and `build --noise measured` uses it in the
+  reconstructor.
+
 Needs `pip install specula`. Add `--gpu` to `calibrate` and `run` if CuPy is installed.
 
 ```sh
