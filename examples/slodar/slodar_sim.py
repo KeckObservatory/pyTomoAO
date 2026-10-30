@@ -39,7 +39,7 @@ def ring_asterism(n, radius_arcsec, start_deg=0.0):
     return radius_arcsec * ARCSEC2RAD * np.stack([np.cos(az), np.sin(az)], axis=1)
 
 
-def ft_phase_screens(n, dx, r0, L0, rng, nSub=3):
+def ft_phase_screens(n, dx, r0, L0, rng, *, nSub=3):
     """Two independent von Karman phase screens [rad at the r0 wavelength].
 
     Parameters
@@ -91,7 +91,7 @@ def pupil_points(nLenslet, d, pix):
     return np.meshgrid(x, x)  # X along columns, Y along rows
 
 
-def gtilt_slopes(phase, nLenslet, pix, d, valid, wavelength, order="F"):
+def gtilt_slopes(phase, nLenslet, pix, d, valid, *, wavelength, order="F"):
     """Exact mean-gradient slopes [rad] from phase on the corner grid.
 
     Parameters
@@ -135,6 +135,7 @@ def simulate_slopes(
     gsDirections,
     altitudes,
     fractions,
+    *,
     r0,
     L0,
     nFrames,
@@ -210,7 +211,7 @@ def simulate_slopes(
                             prefilter=False,
                             mode="grid-wrap",
                         ).reshape(px.shape)
-                out[t] = gtilt_slopes(phase, N, pix, d, valid, wavelength)
+                out[t] = gtilt_slopes(phase, N, pix, d, valid, wavelength=wavelength)
                 t += 1
     if noiseRms > 0:
         out += noiseRms * rng.standard_normal(out.shape)
