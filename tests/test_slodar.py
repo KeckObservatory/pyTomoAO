@@ -599,17 +599,19 @@ class TestL0GridEdge:
         s = p.draw_slopes(alts, p.profile_to_r0m53(0.15, fr), 4000, L0=200.0, rng=5)
         p.compute_covariance_maps(s)
         with caplog.at_level("WARNING", logger="pyTomoAO.slodar"):
-            res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[5, 10, 20, 40])
+            res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[10, 40, 5, 20])
         assert res.L0 == 40
         assert res.L0AtGridEdge
         assert "edge of L0Grid" in caplog.text
 
-    def test_interior_L0_is_not_flagged(self, setup):
+    def test_interior_L0_is_not_flagged(self, setup, caplog):
         p, grid = setup
         alts, fr = [grid[0], grid[2]], [0.7, 0.3]
         s = p.draw_slopes(alts, p.profile_to_r0m53(0.15, fr), 8000, L0=10.0, rng=5)
         p.compute_covariance_maps(s)
-        res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[5, 10, 20, 40, 80])
+        with caplog.at_level("WARNING", logger="pyTomoAO.slodar"):
+            res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[10, 40, 5, 20])
         assert res.L0 == 10
         assert not res.L0AtGridEdge
+        assert "edge of L0Grid" not in caplog.text
         assert not p.fit_profile(altitudes=grid, L0=25.0).L0AtGridEdge  # L0 not fitted
