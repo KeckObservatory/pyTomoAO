@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 
 from pyTomoAO import backend
+from pyTomoAO._logging import resolve_logger
 from pyTomoAO._plotting import pyplot
 from pyTomoAO.atmosphereParametersClass import atmosphereParameters
 from pyTomoAO.dm_fitting import fitting
@@ -43,7 +44,10 @@ class tomographicReconstructor:
         Path to the YAML configuration file containing all necessary parameters for
         the tomographic reconstruction.
     logger : logging.Logger, optional
-        Logger object for logging messages (default is the module-level logger)
+        Deprecated, to be removed in 3.0. pyTomoAO logs through its module loggers; configure
+        the ``pyTomoAO`` logger with the :mod:`logging` module instead. A logger passed here
+        only receives the constructor's messages, and passing one emits a
+        ``DeprecationWarning``.
     force_cpu : bool, optional
         Force CPU usage even when CUDA is available (default is False)
 
@@ -112,7 +116,7 @@ class tomographicReconstructor:
     valid_constructor_type = (np.float32, np.float64)
 
     # Constructor
-    def __init__(self, config_file, logger=logger, force_cpu=False):
+    def __init__(self, config_file, logger=None, force_cpu=False):
         """
         Initialize the tomographicReconstructor with a configuration file.
 
@@ -121,10 +125,12 @@ class tomographicReconstructor:
         config_file : str
             Path to the YAML configuration file
         logger : logging.Logger, optional
-            Logger object for logging messages (default is the module-level logger)
+            Deprecated, see the class docstring.
         force_cpu : bool, optional
             Force CPU usage even when CUDA is available (default is False)
         """
+        # The deprecated argument shadows the module logger in this method only.
+        logger = resolve_logger(logger, logging.getLogger(__name__), "tomographicReconstructor")
         self._reconstructor = None
         self._gridMask = None
         self._wavefront2Meter = None
@@ -757,7 +763,7 @@ class tomographicReconstructor:
             )
         # test if fitting is already built
         if self.fit is None:
-            self.fit = fitting(self.dmParams, logger=logger)
+            self.fit = fitting(self.dmParams)
             logger.info("\n-->> Assembling Reconstructor and Fitting <<--")
 
         # Setup the influence functions and mask them to the grid

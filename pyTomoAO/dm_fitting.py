@@ -10,6 +10,7 @@ import logging
 
 import numpy as np
 
+from pyTomoAO._logging import resolve_logger
 from pyTomoAO._plotting import pyplot
 
 # Module logger; see the note in pyTomoAO/reconstructor.py.
@@ -31,7 +32,10 @@ class fitting:
     dmParams : object
         An instance of a class containing DM geometry parameters
     logger : logging.Logger, optional
-        Logger object for logging messages (default is the module-level logger)
+        Deprecated, to be removed in 3.0. pyTomoAO logs through its module loggers; configure
+        the ``pyTomoAO`` logger with the :mod:`logging` module instead. A logger passed here
+        only receives the constructor's messages, and passing one emits a
+        ``DeprecationWarning``.
 
     Returns
     -------
@@ -54,7 +58,7 @@ class fitting:
         List of (y, x) coordinate tuples for all actuators
     """
 
-    def __init__(self, dmParams, logger=logger):
+    def __init__(self, dmParams, logger=None):
         """
         Initialize the fitting class.
 
@@ -63,8 +67,10 @@ class fitting:
         dmParams : object
             An instance of a class containing DM geometry parameters
         logger : logging.Logger, optional
-            Logger instance for tracking operations
+            Deprecated, see the class docstring.
         """
+        # The deprecated argument shadows the module logger in this method only.
+        logger = resolve_logger(logger, logging.getLogger(__name__), "fitting")
         logger.info("\n -->> Initializing fitting object <<--")
         self.dmParams = dmParams
         # Initialize other class attributes as needed

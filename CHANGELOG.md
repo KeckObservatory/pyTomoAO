@@ -12,6 +12,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Deprecated
+
+- **The `logger` argument of `tomographicReconstructor` and `fitting`** (#127). It was never
+  stored, so a logger passed in only received the constructor's own messages while
+  everything logged later went to the module loggers. Passing it now emits a
+  `DeprecationWarning` (and still routes the constructor's messages to it); it will be
+  removed in 3.0. Configure the `pyTomoAO` logger with the `logging` module instead, as
+  described in the new *Logging* page of the user guide. The reconstructor no longer passes
+  its logger to the fitting object. The removal steps are listed under *Pending removals*
+  in the release guide, which now also states the deprecation policy.
+
 ### Added
 
 - **Measured noise covariance for the model-based reconstructor**:
