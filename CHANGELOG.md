@@ -14,6 +14,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Python 3.10 is now the minimum supported version, and Python 3.14 is supported** (#133).
+  Python 3.9 reached end of life in October 2025; `requires-python` is now `>=3.10`, and
+  CI tests 3.10 through 3.14. `slodarProfiler.slope_covariance` now raises `ValueError`
+  when `altitudes` and `r0m53` differ in length, instead of silently dropping the extra
+  layers.
 - **The bundled example configurations moved from `pyTomoAO/data/` to `pyTomoAO/config/`**,
   a name that says what the folder holds. `example_config()` and `list_example_configs()`
   are unchanged, so code that uses them needs nothing; only scripts that built the path to

@@ -28,7 +28,7 @@ def main(root, pixel_pupil=160, tag="kapa_n20_ideal"):
     rows, cols = np.nonzero(valid)
     tot = N * npx
     idx = []
-    for r, c in zip(rows, cols):
+    for r, c in zip(rows, cols, strict=True):
         rr, cc = np.mgrid[r * npx : (r + 1) * npx, c * npx : (c + 1) * npx]
         idx.append(np.ravel_multi_index((rr.ravel(), cc.ravel()), (tot, tot)))
     sd = SubapData(idxs=np.array(idx), display_map=rows * N + cols, nx=N, ny=N)

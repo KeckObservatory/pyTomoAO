@@ -195,7 +195,7 @@ def setup(workdir, atmosphere=None, wfs="ideal", photons=200.0):
     npx = PIXEL_PUPIL // N_LENSLET
     rows, cols = np.nonzero(valid)
     idx = []
-    for r, c in zip(rows, cols):
+    for r, c in zip(rows, cols, strict=True):
         rr, cc = np.mgrid[r * npx : (r + 1) * npx, c * npx : (c + 1) * npx]
         idx.append(np.ravel_multi_index((rr.ravel(), cc.ravel()), (PIXEL_PUPIL, PIXEL_PUPIL)))
     (calib / "subapdata").mkdir(parents=True, exist_ok=True)
@@ -475,7 +475,7 @@ def slodar(workdir, settle=0.1, L0=None):
     R0 = _r0(atm)
     cn2 = np.array(atm["cn2"]) / np.sum(atm["cn2"])
     truth = np.zeros(grid.size)
-    for h, f in zip(atm["altitude_m"], cn2):
+    for h, f in zip(atm["altitude_m"], cn2, strict=True):
         truth[np.argmin(np.abs(grid - h))] += f
     tvd = 0.5 * np.abs(res.fractionalCn2 - truth).sum()
     print(res)
