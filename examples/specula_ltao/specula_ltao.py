@@ -29,6 +29,9 @@ noiseless detector). ``slodar`` measures the slope noise from the recorded telem
 Requires SPECULA (``pip install specula``); ``--gpu`` also needs CuPy.
 """
 
+# SPECULA is an optional dependency that is not always installed in the editor's interpreter.
+# pyright: reportMissingImports=false
+
 import argparse
 import os
 import shutil
@@ -342,7 +345,7 @@ def build(workdir, alpha=1e-4, profile="true", noise=None):
 
 
 # ---- Step 4: closed loop -------------------------------------------------------------------
-def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, record=False):
+def run(workdir, *, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, record=False):
     """SPECULA closed loop; stores the on-axis residual phase (about 200 samples).
 
     With ``record``, also stores the six WFSs' slopes and the DM commands at every loop step,
@@ -689,7 +692,15 @@ def main():
     elif a.step == "build":
         build(wd, a.alpha, a.profile, a.noise)
     elif a.step == "run":
-        run(wd, a.time, a.gain, a.seed, a.gpu, a.precision, a.record)
+        run(
+            wd,
+            total_time=a.time,
+            gain=a.gain,
+            seed=a.seed,
+            gpu=a.gpu,
+            precision=a.precision,
+            record=a.record,
+        )
     elif a.step == "slodar":
         slodar(wd, L0=a.L0)
     else:
