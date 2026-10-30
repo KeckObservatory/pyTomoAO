@@ -227,7 +227,7 @@ def bin_profile(altitudes, fractions, bins):
     """
     bins = np.asarray(bins, float)
     out = np.zeros(bins.size)
-    for h, f in zip(altitudes, fractions):
+    for h, f in zip(altitudes, fractions, strict=True):
         if h <= bins[0]:
             out[0] += f
         elif h >= bins[-1]:

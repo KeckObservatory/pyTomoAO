@@ -46,7 +46,7 @@ for both the accepted and rejected cases.
 
 `.github/workflows/test.yml` runs on pull requests and on pushes to `main` and `dev`. It
 installs the package itself — `pip install ".[dev]"` — and runs `pytest` against a matrix of
-Python 3.9 through 3.13, so both the code and the dependency metadata are checked on every
+Python 3.10 through 3.14, so both the code and the dependency metadata are checked on every
 supported version.
 
 On the 3.12 leg it additionally runs a wrapper script rather than pytest directly:

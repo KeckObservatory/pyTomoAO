@@ -55,6 +55,7 @@ Both the compressed offsets and the shrunken footprint are included in the respo
 import logging
 import time
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import numpy as np
 from scipy.optimize import lsq_linear, nnls
@@ -300,7 +301,7 @@ def _gradient_stencil(nEdgePoints=3):
         entry = pts.setdefault(key, [0.0, 0.0])
         entry[ax] += wt
 
-    for tk, wk in zip(t, w):
+    for tk, wk in zip(t, w, strict=True):
         add(0.5, tk, 0, wk)
         add(-0.5, tk, 0, -wk)
         add(tk, 0.5, 1, wk)
@@ -496,7 +497,7 @@ class slodarResult:
             f"@ {self.wavelength * 1e9:.0f} nm",
             f"  - L0 = {self.L0:.1f} m, relative residual = {self.residualRms:.3f}",
         ]
-        for h, f, c in zip(self.altitude_zenith, self.fractionalCn2, self.cn2dh):
+        for h, f, c in zip(self.altitude_zenith, self.fractionalCn2, self.cn2dh, strict=True):
             lines.append(f"    {h / 1e3:7.2f} km : {f:6.3f}  (Cn2dh = {c:.3e} m^1/3)")
         return "\n".join(lines)
 
@@ -896,9 +897,7 @@ class slodarProfiler:
                     top = b
         grid = np.array(grid)
         if oversample > 1:
-            fine = [
-                np.linspace(a, b, oversample, endpoint=False) for a, b in zip(grid[:-1], grid[1:])
-            ]
+            fine = [np.linspace(a, b, oversample, endpoint=False) for a, b in pairwise(grid)]
             grid = np.concatenate([*fine, grid[-1:]])
         if hMax is not None:
             grid = grid[grid <= hMax]
@@ -1404,7 +1403,7 @@ class slodarProfiler:
             L0g = np.geomspace(5, 200, 12) if L0Grid is None else np.asarray(L0Grid, float)
             fits = [solve(v) for v in L0g]
             costs = np.array([f[2] for f in fits])
-            for v, c_ in zip(L0g, costs):
+            for v, c_ in zip(L0g, costs, strict=True):
                 logger.debug("SLODAR L0 grid: L0 %7.1f m, relative residual %.5f", v, c_)
             best = int(np.argmin(costs))
             L0used = float(L0g[best])
@@ -1514,7 +1513,7 @@ class slodarProfiler:
         n = self.nValidSubap
         G = self.nGS
         C = np.zeros((G, 2, n, G, 2, n))
-        for h, w in zip(altitudes, r0m53):
+        for h, w in zip(altitudes, r0m53, strict=True):
             if w == 0:
                 continue
             for i in range(G):

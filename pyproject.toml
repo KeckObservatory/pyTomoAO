@@ -7,7 +7,7 @@ name = "pyTomoAO"
 description = "An open-source tool for tomographic reconstruction for AO systems"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Jacob Taylor", email = "jacobataylor7@gmail.com" },
     { name = "Uriel Conod", email = "urielconod@phas.ubc.ca" },
@@ -21,11 +21,11 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Astronomy",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 # Runtime dependencies only. Test and documentation tooling lives in the optional
 # dependencies below so that installing pyTomoAO does not drag them in. matplotlib is
@@ -79,7 +79,7 @@ version = { attr = "pyTomoAO.__version__" }
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 # sandbox/ holds exploratory scripts that are deliberately not packaged or tested;
 # linting them would gate real work on throwaway code.

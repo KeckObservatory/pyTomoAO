@@ -35,9 +35,10 @@ def test_module_loggers_receive_the_messages(config, caplog):
 def test_logger_argument_is_deprecated_but_still_honoured(config, owner, caplog):
     custom = logging.getLogger("my.app")
     rec = tomographicReconstructor(config, force_cpu=True)
-    capture = caplog.at_level(logging.INFO, logger="my.app")
-    expect = pytest.warns(DeprecationWarning, match="'logger' argument")
-    with capture, expect:  # one statement: Python 3.9 has no parenthesised form
+    with (
+        caplog.at_level(logging.INFO, logger="my.app"),
+        pytest.warns(DeprecationWarning, match="'logger' argument"),
+    ):
         if owner == "reconstructor":
             tomographicReconstructor(config, logger=custom, force_cpu=True)
         else:

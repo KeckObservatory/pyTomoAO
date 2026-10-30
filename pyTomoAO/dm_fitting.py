@@ -358,7 +358,7 @@ class fitting:
         y_coords, x_coords = np.where(valid_actuator_map)
 
         # Return as list of coordinate tuples
-        return list(zip(y_coords, x_coords))
+        return list(zip(y_coords, x_coords, strict=True))
 
     def map_actuators_to_new_grid(
         self, actuator_coords, original_shape, new_shape, stretch_factor=1.03

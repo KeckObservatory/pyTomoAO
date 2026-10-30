@@ -74,7 +74,7 @@ class TestStencil:
         def as_dict(pts, wx, wy):
             return {
                 (round(x, 9), round(y, 9)): (a, b)
-                for (x, y), a, b in zip(pts, wx, wy)
+                for (x, y), a, b in zip(pts, wx, wy, strict=True)
                 if a != 0 or b != 0
             }
 
