@@ -12,33 +12,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
+## [2.1.0] - 2026-10-30
 
-- **Python 3.10 is now the minimum supported version, and Python 3.14 is supported** (#133).
-  Python 3.9 reached end of life in October 2025; `requires-python` is now `>=3.10`, and
-  CI tests 3.10 through 3.14. `slodarProfiler.slope_covariance` now raises `ValueError`
-  when `altitudes` and `r0m53` differ in length, instead of silently dropping the extra
-  layers.
-
-- **SPECULA example** (#132): its work directories (`specula_ltao_run/` and any other
-  `--workdir` created in `examples/specula_ltao/`) are git-ignored, and `setup` no longer
-  prints the layer count twice for the bundled atmospheres.
-
-- **The bundled example configurations moved from `pyTomoAO/data/` to `pyTomoAO/config/`**,
-  a name that says what the folder holds. `example_config()` and `list_example_configs()`
-  are unchanged, so code that uses them needs nothing; only scripts that built the path to
-  the YAML files by hand must be updated.
-
-### Deprecated
-
-- **The `logger` argument of `tomographicReconstructor` and `fitting`** (#127). It was never
-  stored, so a logger passed in only received the constructor's own messages while
-  everything logged later went to the module loggers. Passing it now emits a
-  `DeprecationWarning` (and still routes the constructor's messages to it); it will be
-  removed in 3.0. Configure the `pyTomoAO` logger with the `logging` module instead, as
-  described in the new *Logging* page of the user guide. The reconstructor no longer passes
-  its logger to the fitting object. The removal steps are listed under *Pending removals*
-  in the release guide, which now also states the deprecation policy.
+Adds SLODAR turbulence profiling and the tools to use a measured profile and noise in the
+reconstructor, and a tutorial running pyTomoAO's reconstructor in a SPECULA closed loop.
+Python 3.10 is now the minimum version. Nothing is removed; the `logger` constructor
+argument is deprecated (removal planned for 3.0).
 
 ### Added
 
@@ -88,6 +67,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     with photon and read noise (`wfs_sh.yml`, `calib_im_sh.yml`). `calibrate` measures
     their slope unit from the interaction matrix, and `build --noise measured` sets the
     reconstructor's noise term from the noise that `slodar` measured on the telemetry.
+
+### Changed
+
+- **Python 3.10 is now the minimum supported version, and Python 3.14 is supported** (#133).
+  Python 3.9 reached end of life in October 2025; `requires-python` is now `>=3.10`, and
+  CI tests 3.10 through 3.14. `slodarProfiler.slope_covariance` now raises `ValueError`
+  when `altitudes` and `r0m53` differ in length, instead of silently dropping the extra
+  layers.
+
+- **SPECULA example** (#132): its work directories (`specula_ltao_run/` and any other
+  `--workdir` created in `examples/specula_ltao/`) are git-ignored, and `setup` no longer
+  prints the layer count twice for the bundled atmospheres.
+
+- **The bundled example configurations moved from `pyTomoAO/data/` to `pyTomoAO/config/`**,
+  a name that says what the folder holds. `example_config()` and `list_example_configs()`
+  are unchanged, so code that uses them needs nothing; only scripts that built the path to
+  the YAML files by hand must be updated.
+
+### Deprecated
+
+- **The `logger` argument of `tomographicReconstructor` and `fitting`** (#127). It was never
+  stored, so a logger passed in only received the constructor's own messages while
+  everything logged later went to the module loggers. Passing it now emits a
+  `DeprecationWarning` (and still routes the constructor's messages to it); it will be
+  removed in 3.0. Configure the `pyTomoAO` logger with the `logging` module instead, as
+  described in the new *Logging* page of the user guide. The reconstructor no longer passes
+  its logger to the fitting object. The removal steps are listed under *Pending removals*
+  in the release guide, which now also states the deprecation policy.
 
 ## [2.0.0] - 2026-07-28
 
@@ -438,7 +445,9 @@ First tagged release, published to Test PyPI.
   GitHub Actions workflow (#23, #24).
 - Initial Sphinx documentation scaffolding (#29).
 
-[Unreleased]: https://github.com/KeckObservatory/pyTomoAO/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/KeckObservatory/pyTomoAO/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/KeckObservatory/pyTomoAO/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/KeckObservatory/pyTomoAO/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/KeckObservatory/pyTomoAO/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/KeckObservatory/pyTomoAO/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/KeckObservatory/pyTomoAO/compare/v0.1.0-test1...v0.0.1
