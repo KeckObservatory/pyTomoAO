@@ -47,9 +47,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gains `slope_conversion_matrix()` (filled in with its own geometry) and
   `grid_coordinates()` (pupil positions of the grid points, which span the padded support
   `DSupport`, not `D`).
+- **Logging in `pyTomoAO.slodar`**, in the style of the reconstructor: the profiler logs its
+  geometry at construction, the covariance-map and fit steps with their settings, timing and
+  results (r0, L0, residual, noise), and the noise and pseudo-open-loop helpers log what
+  they computed. Per-L0 grid costs and response-map computations are at DEBUG level.
+- **`slodarResult.L0AtGridEdge`** (and a logged warning): flags an L0 fit that landed on an
+  edge of `L0Grid`, i.e. one not constrained by the data.
 - **Tutorial: pyTomoAO in a SPECULA closed loop**
   (`docs/source/tutorials/specula-closed-loop.md`), with the runnable
   `examples/specula_ltao/`.
+  - Step 8 adds WFS noise: `setup --wfs sh --photons N` runs physical Shack–Hartmanns
+    with photon and read noise (`wfs_sh.yml`, `calib_im_sh.yml`). `calibrate` measures
+    their slope unit from the interaction matrix, and `build --noise measured` sets the
+    reconstructor's noise term from the noise that `slodar` measured on the telemetry.
 
 ## [2.0.0] - 2026-07-28
 

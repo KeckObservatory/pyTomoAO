@@ -6,6 +6,7 @@ IdealDerivativeSensor locates each subaperture on the pupil (X along columns).
 """
 
 import sys
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +19,7 @@ def main(root, pixel_pupil=160, tag="kapa_n20_ideal"):
     import specula
 
     specula.init(-1, precision=0)
-    from specula.data_objects.subap_data import SubapData
+    SubapData = import_module("specula.data_objects.subap_data").SubapData
 
     with open(example_config("kapa")) as f:
         valid = np.array(yaml.safe_load(f)["lgs_wfs_parameters"]["validLLMap"], dtype=bool)

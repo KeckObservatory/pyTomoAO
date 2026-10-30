@@ -61,7 +61,7 @@ def tvd(a, b):
     return 0.5 * np.abs(np.asarray(a) - np.asarray(b)).sum()
 
 
-def run_case(prof, alts, fracs, r0, nFrames, gen, seed, noiseRms=0.0, L0data=L0_TRUE, fit=None):
+def run_case(prof, alts, fracs, r0, nFrames, *, gen, seed, noiseRms=0.0, L0data=L0_TRUE, fit=None):
     fit = fit or {}
     w = prof.profile_to_r0m53(r0, fracs)
     t0 = time.time()
@@ -74,9 +74,9 @@ def run_case(prof, alts, fracs, r0, nFrames, gen, seed, noiseRms=0.0, L0data=L0_
             prof.gsDirections,
             alts,
             fracs,
-            r0,
-            L0data,
-            nFrames,
+            r0=r0,
+            L0=L0data,
+            nFrames=nFrames,
             gsHeight=prof.gsHeight,
             noiseRms=noiseRms,
             seed=seed,
@@ -92,7 +92,7 @@ def run_case(prof, alts, fracs, r0, nFrames, gen, seed, noiseRms=0.0, L0data=L0_
     return res, truth, tsim
 
 
-def profile_axes(ax, res, truth, alts, fracs, title):
+def profile_axes(ax, res, truth, alts, fracs, *, title):
     ax.barh(res.altitude / 1e3, truth, height=0.25, color="0.75", label="input, binned to grid")
     ax.plot(res.fractionalCn2, res.altitude / 1e3, "o-", color="C0", label="SLODAR")
     ax.plot(fracs, np.asarray(alts) / 1e3, "x", color="C3", ms=9, mew=2, label="input layers")
@@ -122,7 +122,7 @@ def section_simple():
                 grid = prof.default_altitudes(hMax=20e3)
                 alts = [float(grid[np.argmin(np.abs(grid - alts0[0]))])]
             for r, gen in enumerate(["gauss", "fft"]):
-                res, truth, _ = run_case(prof, alts, fracs, 0.16, 4000, gen, seed=10 + col)
+                res, truth, _ = run_case(prof, alts, fracs, 0.16, 4000, gen=gen, seed=10 + col)
                 err = tvd(res.fractionalCn2, truth)
                 results["simple"].append(
                     {
@@ -143,7 +143,7 @@ def section_simple():
                     truth,
                     alts,
                     fracs,
-                    f"{gname}, {label}, {gen}\nr0 {res.r0:.3f} (true 0.160), TVD {err:.2f}",
+                    title=f"{gname}, {label}, {gen}\nr0 {res.r0:.3f} (true 0.160), TVD {err:.2f}",
                 )
             col += 1
     fig.tight_layout()
@@ -170,7 +170,7 @@ def section_mkr7():
         gens = ["gauss", "fft"] if k == 0 else ["fft"]
         for gen in gens:
             res, truth, tsim = run_case(
-                prof, alts7, fr7, r07, 8000, gen, seed=7, fit={"removeTT": True}
+                prof, alts7, fr7, r07, 8000, gen=gen, seed=7, fit={"removeTT": True}
             )
             err = tvd(res.fractionalCn2, truth)
             print(f"  {aname:20s} {gen:5s} r0={res.r0:.4f} TVD={err:.3f} ({tsim:.0f} s sim)")
@@ -194,7 +194,7 @@ def section_mkr7():
                 truth,
                 alts7,
                 fr7,
-                f"{aname}, {gen}, 8000 frames, TT removed\n"
+                title=f"{aname}, {gen}, 8000 frames, TT removed\n"
                 f"r0 {res.r0:.3f} (true {r07:.3f}), TVD {err:.2f}",
             )
             if k == 0 and gen == "fft":
