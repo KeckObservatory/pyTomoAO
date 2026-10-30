@@ -233,10 +233,10 @@ def setup(workdir, atmosphere=None, wfs="ideal", photons=200.0):
     cfg["tomography_parameters"] = {"fovOptimization": 0, "nFitSrc": 1}  # on-axis
     with open(workdir / "pytomoao_config.yaml", "w") as f:
         yaml.safe_dump(cfg, f)
+    label = atm.get("name") or f"custom, {n} layers"  # the bundled names give the count
     print(
         f"setup: {len(idx)} subapertures, {ifunc.shape[0]} actuators, config written; "
-        f"atmosphere: {atm.get('name', 'custom')}, {n} layers, r0 {_r0(atm):.3f} m, "
-        f"L0 {atm['L0']:g} m"
+        f"atmosphere: {label}, r0 {_r0(atm):.3f} m, L0 {atm['L0']:g} m"
     )
     if wfs == "sh":
         noise = (

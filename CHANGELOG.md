@@ -14,6 +14,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **SPECULA example** (#132): its work directories (`specula_ltao_run/` and any other
+  `--workdir` created in `examples/specula_ltao/`) are git-ignored, and `setup` no longer
+  prints the layer count twice for the bundled atmospheres.
+
 - **The bundled example configurations moved from `pyTomoAO/data/` to `pyTomoAO/config/`**,
   a name that says what the folder holds. `example_config()` and `list_example_configs()`
   are unchanged, so code that uses them needs nothing; only scripts that built the path to
