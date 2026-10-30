@@ -72,7 +72,7 @@ packages = ["pyTomoAO"]
 [tool.setuptools.package-data]
 # The reference YAML configurations ship inside the package so that `pip install pyTomoAO`
 # is enough to run the documented examples; see pyTomoAO.example_config.
-pyTomoAO = ["data/*.yaml"]
+pyTomoAO = ["config/*.yaml"]
 
 [tool.setuptools.dynamic]
 version = { attr = "pyTomoAO.__version__" }

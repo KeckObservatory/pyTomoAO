@@ -12,6 +12,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The bundled example configurations moved from `pyTomoAO/data/` to `pyTomoAO/config/`**,
+  a name that says what the folder holds. `example_config()` and `list_example_configs()`
+  are unchanged, so code that uses them needs nothing; only scripts that built the path to
+  the YAML files by hand must be updated.
+
 ### Deprecated
 
 - **The `logger` argument of `tomographicReconstructor` and `fitting`** (#127). It was never
