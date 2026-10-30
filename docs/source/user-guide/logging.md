@@ -10,8 +10,10 @@ prints. Each module has its own logger, named after the module and a child of th
 | `pyTomoAO.dm_fitting` | influence functions and the fitting matrix |
 | `pyTomoAO.slodar` | SLODAR geometry, covariance maps, profile fits, noise estimates |
 
-As a library, pyTomoAO attaches no handler and sets no level, so by default nothing is
-shown except warnings and errors. The application decides what to display.
+As a library, pyTomoAO only attaches a {class}`logging.NullHandler` to the `pyTomoAO`
+logger and sets no level. Until the application configures logging, **nothing is shown,
+not even warnings and errors**: the NullHandler also stops Python's last-resort handler,
+which would otherwise print them. The application decides what to display.
 
 ## Showing the messages
 
@@ -31,11 +33,24 @@ logging.getLogger("pyTomoAO").setLevel(logging.INFO)          # pyTomoAO: progre
 logging.getLogger("pyTomoAO.slodar").setLevel(logging.DEBUG)  # SLODAR: every L0 tried
 ```
 
-To silence pyTomoAO entirely:
+A level is checked only on the logger that emits a message, not on its parents. A level
+set on a module logger therefore overrides the `pyTomoAO` one for that module, whatever is
+set on `pyTomoAO` later.
+
+To keep only pyTomoAO's errors (with no level set on the module loggers):
 
 ```python
 logging.getLogger("pyTomoAO").setLevel(logging.ERROR)
 ```
+
+To silence pyTomoAO completely, whatever the module levels, stop its messages from reaching
+the root logger's handlers:
+
+```python
+logging.getLogger("pyTomoAO").propagate = False
+```
+
+Handlers attached directly to a pyTomoAO logger still receive its messages.
 
 Messages can be written to a file, formatted or filtered with the usual handlers, attached
 to the `pyTomoAO` logger or to the root logger.
