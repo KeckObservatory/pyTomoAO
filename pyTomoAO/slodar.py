@@ -1410,7 +1410,7 @@ class slodarProfiler:
             L0used = float(L0g[best])
             x, model, cost = fits[best]
             logger.info("\nSLODAR L0 grid search: best L0 = %.1f m", L0used)
-            if best in (0, len(L0g) - 1):
+            if np.isclose(L0used, L0g.min()) or np.isclose(L0used, L0g.max()):
                 # The minimum is on the edge of the grid, so L0 is not constrained by these
                 # data (typical of short records); the profile built on it can be poor.
                 logger.warning(
