@@ -45,8 +45,8 @@ major release can work through the list.
 
 ### Pending removals
 
-**`logger` argument of `tomographicReconstructor` and `fitting`** — deprecated in the
-release after 2.0.0 (#127), to be removed in 3.0.
+**`logger` argument of `tomographicReconstructor` and `fitting`** — deprecated in
+2.1.0 (#127), to be removed in 3.0.
 
 1. Delete the `logger` parameter, and its docstring entries (class and `__init__`), from
    `tomographicReconstructor.__init__` (`pyTomoAO/reconstructor.py`) and

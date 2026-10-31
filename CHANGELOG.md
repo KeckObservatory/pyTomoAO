@@ -12,7 +12,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-10-30
+## [2.1.0] - 2026-10-31
 
 Adds SLODAR turbulence profiling and the tools to use a measured profile and noise in the
 reconstructor, and a tutorial running pyTomoAO's reconstructor in a SPECULA closed loop.
@@ -72,9 +72,11 @@ argument is deprecated (removal planned for 3.0).
 
 - **Python 3.10 is now the minimum supported version, and Python 3.14 is supported** (#133).
   Python 3.9 reached end of life in October 2025; `requires-python` is now `>=3.10`, and
-  CI tests 3.10 through 3.14. `slodarProfiler.slope_covariance` now raises `ValueError`
-  when `altitudes` and `r0m53` differ in length, instead of silently dropping the extra
-  layers.
+  CI tests 3.10 through 3.14.
+
+- **`slodarProfiler.slope_covariance` rejects mismatched layer lists**: it now raises
+  `ValueError` when `altitudes` and `r0m53` differ in length, instead of silently dropping
+  the extra layers (and so does `draw_slopes`, which builds on it).
 
 - **SPECULA example** (#132): its work directories (`specula_ltao_run/` and any other
   `--workdir` created in `examples/specula_ltao/`) are git-ignored, and `setup` no longer

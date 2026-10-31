@@ -42,7 +42,7 @@ import yaml
 
 from pyTomoAO import example_config, slodarProfiler, specula_slope_scale
 from pyTomoAO.reconstructor import tomographicReconstructor
-from pyTomoAO.slodar import pseudo_open_loop_slopes
+from pyTomoAO.slodar import ARCSEC2RAD, pseudo_open_loop_slopes
 
 HERE = Path(__file__).resolve().parent
 
@@ -78,7 +78,7 @@ SH_READ_NOISE = 3.0  # [e- rms], as in wfs_sh.yml
 
 def _r0(atm):
     """Fried parameter at 500 nm [m] from the seeing FWHM [arcsec]."""
-    return 0.9759 * 0.5e-6 / (atm["seeing_arcsec"] / 206264.806)
+    return 0.9759 * 0.5e-6 / (atm["seeing_arcsec"] * ARCSEC2RAD)
 
 
 def _load_atmosphere(path):
@@ -177,10 +177,16 @@ def setup(workdir, atmosphere=None, wfs="ideal", photons=200.0):
 
     atm = dict(DEFAULT_ATM) if atmosphere is None else _load_atmosphere(atmosphere)
     (workdir / ATM_FILE).write_text(yaml.safe_dump(atm, sort_keys=False))
+    previous = _wfs(workdir)
     info = {"sensor": wfs}
     if wfs == "sh":
         info.update(photons=float(photons), read_noise=SH_READ_NOISE if photons > 0 else 0.0)
+    if previous["sensor"] == wfs:  # same sensor: its IM (noiseless detector) is still valid
+        info.update({k: previous[k] for k in ("im_ratio", "im_correlation") if k in previous})
     (workdir / WFS_FILE).write_text(json.dumps(info, indent=1))
+    recalibrate = (
+        previous["sensor"] != wfs and (workdir / "calib" / "im" / f"{IM_TAG}.fits").exists()
+    )
     _init_specula()
     from specula.data_objects.ifunc import IFunc
     from specula.data_objects.pupilstop import Pupilstop
@@ -243,6 +249,11 @@ def setup(workdir, atmosphere=None, wfs="ideal", photons=200.0):
             f"{photons:g} photons + {SH_READ_NOISE:g} e- read noise" if photons > 0 else "noiseless"
         )
         print(f"setup: physical Shack-Hartmann WFSs, {noise}")
+    if recalibrate:
+        print(
+            f"setup: sensor changed from {previous['sensor']!r} to {wfs!r}: the interaction "
+            "matrix in calib/im/ is for the old sensor, run calibrate again"
+        )
 
 
 # ---- Step 2: interaction matrix ------------------------------------------------------------
@@ -320,7 +331,7 @@ def build(workdir, alpha=1e-4, profile="true", noise=None):
         var = np.array(json.loads(f.read_text())["noise_variance_rad2"])
         Cn = slope_noise_covariance(var, reconstructor=rec)  # -> units of the slope covariance
         rec.build_reconstructor(noiseCovariance=Cn)
-        how = f"measured noise {np.sqrt(var.mean()) * 206264.8:.3f} arcsec rms"
+        how = f"measured noise {np.sqrt(var.mean()) / ARCSEC2RAD:.3f} arcsec rms"
     else:
         rec.build_reconstructor(alpha=alpha)
         how = f"alpha={alpha:g}"
@@ -488,7 +499,7 @@ def slodar(workdir, settle=0.1, L0=None):
     print(
         f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {atm['L0']:g}), "
         f"profile TVD {tvd:.3f}, temporal noise "
-        f"{np.sqrt(noise.mean()) * 206264.8:.4f} arcsec rms"
+        f"{np.sqrt(noise.mean()) / ARCSEC2RAD:.4f} arcsec rms"
     )
 
     cfg = yaml.safe_load((workdir / "pytomoao_config.yaml").read_text())

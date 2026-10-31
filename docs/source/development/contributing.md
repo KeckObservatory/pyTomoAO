@@ -87,6 +87,6 @@ Useful bug reports include:
 
 ## Sandbox scripts
 
-`sandbox/` holds exploratory work — comparison scripts, prototypes for SLODAR, WFS map
+`sandbox/` holds exploratory work — reconstructor comparison scripts and WFS map
 utilities. It is deliberately outside the package and is not tested or packaged. Anything
 there that becomes load-bearing should move into `pyTomoAO/` with tests.
