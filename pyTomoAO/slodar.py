@@ -70,9 +70,8 @@ from pyTomoAO.tomographyUtilsCPU import (
 # Module logger; see the note in pyTomoAO/reconstructor.py.
 logger = logging.getLogger(__name__)
 
-_RAD2ARCSEC = 180 * 3600 / np.pi
-
 ARCSEC2RAD = np.pi / (180 * 3600)
+_RAD2ARCSEC = 1 / ARCSEC2RAD
 
 #: Component names of the four covariance maps, in storage order. ``"xy"`` is the covariance
 #: of X slopes on the first sensor with Y slopes on the second.
@@ -233,11 +232,11 @@ def _nnls(A, b):
     """Non-negative least squares ``min ||A x - b||, x >= 0`` with an optimality check.
 
     ``scipy.optimize.nnls`` can stop at a non-optimal point on some SciPy releases (seen with
-    SciPy 1.13, the newest available for Python 3.9: a residual 10x the minimum and a biased
-    SLODAR profile). The result is therefore checked against the Karush-Kuhn-Tucker
-    conditions -- the gradient ``A^T (A x - b)`` must vanish on the free variables and be
-    non-negative on the bound ones -- and, if they fail, refined with a bounded-variable
-    least-squares solve.
+    SciPy 1.13, which the unpinned SciPy dependency still allows on Python 3.10-3.12: a
+    residual 10x the minimum and a biased SLODAR profile). The result is therefore checked
+    against the Karush-Kuhn-Tucker conditions -- the gradient ``A^T (A x - b)`` must vanish
+    on the free variables and be non-negative on the bound ones -- and, if they fail, refined
+    with a bounded-variable least-squares solve.
 
     Parameters
     ----------
