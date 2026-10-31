@@ -41,6 +41,13 @@ Influence functions, slope ordering, scaling and actuator masking.
 How the CuPy path is selected, precision options and how to force the CPU.
 :::
 
+:::{grid-item-card} {octicon}`log;1.2em` Logging
+:link: logging
+:link-type: doc
+
+Showing, filtering or silencing pyTomoAO's progress messages.
+:::
+
 ::::
 
 ## The workflow in one picture

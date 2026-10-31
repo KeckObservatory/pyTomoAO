@@ -52,8 +52,10 @@ than the style you would choose in a new project:
 - **Docstrings are NumPy style** — `Parameters`, `Returns`, `Raises`, `Notes` sections with
   underlines. These are rendered directly into {doc}`../api/index`, so a good docstring is a
   documentation contribution.
-- **Logging, not printing.** Use the module-level `logger`; the reconstructor threads a
-  logger through to the fitting object.
+- **Logging, not printing.** Log through the module-level
+  `logger = logging.getLogger(__name__)` and nothing else: no logger arguments, no
+  handlers or levels set by the library (see {doc}`../user-guide/logging`). INFO marks the
+  main steps of a computation, DEBUG the per-iteration detail.
 - **CPU and GPU kernels stay in lockstep.** `tomographyUtilsCPU` and `tomographyUtilsGPU`
   expose the same private function names and signatures; a change to one needs the matching
   change in the other.

@@ -1,0 +1,73 @@
+# Physical Shack-Hartmann WFSs with detector noise, added on top of params_ltao.yml by
+# ``specula_ltao.py`` when the work directory was set up with ``setup --wfs sh``. It replaces the
+# six noiseless IdealDerivativeSensor blocks by, for each LGS:
+#
+#   SH (lenslets + 8x8 px per subaperture, 0.486"/px, 3.9" field, 1" LGS spot)
+#     -> CCD (photon noise + 3 e- read noise)
+#     -> ShSlopec (centre of gravity with a 20% of the peak threshold)
+#
+# The CCD is noiseless when ``setup --photons 0``; ``run`` sets the LGS magnitude (flux) and the
+# per-WFS noise seeds through override.yml. The ShSlopec blocks keep the names wfs1..wfs6, so the
+# reconstructor and the data store see them exactly as the ideal sensors.
+
+remove: ['wfs1', 'wfs2', 'wfs3', 'wfs4', 'wfs5', 'wfs6']
+
+launcher:
+  class:             'LaserLaunchTelescope'
+  spot_size:         1.0            # LGS spot FWHM [arcsec] (Gaussian, no elongation)
+
+sh1: &SH
+  class:             'SH'
+  wavelengthInNm:    589
+  subap_on_diameter: 20
+  subap_npx:         8              # pixels per subaperture
+  sensor_pxscale:    0.486          # [arcsec/px]: the FFT field bins onto the pixels exactly
+  subap_wanted_fov:  3.888          # 8 x 0.486 arcsec
+  laser_launch_tel_ref: 'launcher'
+  inputs:
+    in_ef:           'prop.out_lgs1_ef'
+  outputs: ['out_i']
+sh2: { <<: *SH, inputs: { in_ef: 'prop.out_lgs2_ef' } }
+sh3: { <<: *SH, inputs: { in_ef: 'prop.out_lgs3_ef' } }
+sh4: { <<: *SH, inputs: { in_ef: 'prop.out_lgs4_ef' } }
+sh5: { <<: *SH, inputs: { in_ef: 'prop.out_lgs5_ef' } }
+sh6: { <<: *SH, inputs: { in_ef: 'prop.out_lgs6_ef' } }
+
+det1: &CCD
+  class:             'CCD'
+  simul_params_ref:  'main'
+  size:              [160, 160]     # 20 x 8 px
+  dt:                0.002          # one loop frame
+  bandw:             1.0            # [nm]: with the LGS magnitude, sets the flux
+  quantum_eff:       1.0
+  photon_noise:      True
+  readout_noise:     True
+  readout_level:     3.0            # [e- rms]
+  inputs:
+    in_i:            'sh1.out_i'
+  outputs: ['out_pixels']
+det2: { <<: *CCD, inputs: { in_i: 'sh2.out_i' } }
+det3: { <<: *CCD, inputs: { in_i: 'sh3.out_i' } }
+det4: { <<: *CCD, inputs: { in_i: 'sh4.out_i' } }
+det5: { <<: *CCD, inputs: { in_i: 'sh5.out_i' } }
+det6: { <<: *CCD, inputs: { in_i: 'sh6.out_i' } }
+
+wfs1: &SLOPEC
+  class:             'ShSlopec'
+  subapdata_object:  'kapa_n20_ideal'   # same 20x20 map: 8 px per subaperture on 160 px
+  thr_ratio_value:   0.2
+  inputs:
+    in_pixels:       'det1.out_pixels'
+  outputs: ['out_slopes', 'out_subapdata']
+wfs2: { <<: *SLOPEC, inputs: { in_pixels: 'det2.out_pixels' } }
+wfs3: { <<: *SLOPEC, inputs: { in_pixels: 'det3.out_pixels' } }
+wfs4: { <<: *SLOPEC, inputs: { in_pixels: 'det4.out_pixels' } }
+wfs5: { <<: *SLOPEC, inputs: { in_pixels: 'det5.out_pixels' } }
+wfs6: { <<: *SLOPEC, inputs: { in_pixels: 'det6.out_pixels' } }
+
+# 'remove' also dropped the slopes from the reconstructor's inputs: put them back.
+rec_override:
+  inputs:
+    in_slopes_list:  ['wfs1.out_slopes', 'wfs2.out_slopes', 'wfs3.out_slopes',
+                      'wfs4.out_slopes', 'wfs5.out_slopes', 'wfs6.out_slopes']
+    in_commands:     'control.out_comm:-1'
