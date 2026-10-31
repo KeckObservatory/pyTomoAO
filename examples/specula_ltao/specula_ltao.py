@@ -20,8 +20,17 @@ Turbulence profiling from the closed loop (the on-sky cycle)::
     python specula_ltao.py slodar                # pseudo-open-loop slopes -> SLODAR profile
     python specula_ltao.py build --profile slodar  # reconstructor on the measured profile
 
+WFS noise: the default sensors are SPECULA's noiseless ideal derivative sensors.
+``setup --wfs sh --photons 200`` uses physical Shack-Hartmanns with a noisy detector instead
+(wfs_sh.yml: photon noise at 200 e-/subaperture/frame + 3 e- read noise; ``--photons 0`` gives a
+noiseless detector). ``slodar`` measures the slope noise from the recorded telemetry and
+``build --noise measured`` puts it into the reconstructor.
+
 Requires SPECULA (``pip install specula``); ``--gpu`` also needs CuPy.
 """
+
+# SPECULA is an optional dependency that is not always installed in the editor's interpreter.
+# pyright: reportMissingImports=false
 
 import argparse
 import os
@@ -33,7 +42,7 @@ import yaml
 
 from pyTomoAO import example_config, slodarProfiler, specula_slope_scale
 from pyTomoAO.reconstructor import tomographicReconstructor
-from pyTomoAO.slodar import pseudo_open_loop_slopes
+from pyTomoAO.slodar import ARCSEC2RAD, pseudo_open_loop_slopes
 
 HERE = Path(__file__).resolve().parent
 
@@ -60,11 +69,16 @@ DEFAULT_ATM = {
     "wind_direction": [0.0, 60.0, 135.0, 200.0, 260.0, 320.0, 30.0],
 }
 ATM_FILE = "atmosphere.yml"
+WFS_FILE = "wfs.json"  # sensor choice (setup) and its measured slope unit (calibrate)
+# Physical Shack-Hartmann (wfs_sh.yml): LGS magnitude giving 1000 detected photons per
+# subaperture and 2 ms frame through its 1 nm band, and the detector read noise.
+SH_MAG_1000 = 4.399
+SH_READ_NOISE = 3.0  # [e- rms], as in wfs_sh.yml
 
 
 def _r0(atm):
     """Fried parameter at 500 nm [m] from the seeing FWHM [arcsec]."""
-    return 0.9759 * 0.5e-6 / (atm["seeing_arcsec"] / 206264.806)
+    return 0.9759 * 0.5e-6 / (atm["seeing_arcsec"] * ARCSEC2RAD)
 
 
 def _load_atmosphere(path):
@@ -86,6 +100,30 @@ SUBAP_TAG = "kapa_n20_ideal"
 IFUNC_TAG = "kapa_dm349"
 IM_TAG = "kapa_dm349_6lgs_im"
 REC_TAG = "pytomoao_rec"
+
+
+def _wfs(workdir):
+    """Sensor of this work directory (written by setup, completed by calibrate)."""
+    import json
+
+    f = workdir / WFS_FILE
+    return json.loads(f.read_text()) if f.exists() else {"sensor": "ideal"}
+
+
+def _slope_scale(workdir):
+    """SPECULA slope unit -> radians of angle of arrival, for this work directory's sensor.
+
+    The ideal sensor's unit follows from its field of view. The physical Shack-Hartmann's
+    centroids are in their own unit: calibrate measures it as the ratio of its interaction
+    matrix to the ideal sensor's (the same DM pokes seen by both).
+    """
+    scale = specula_slope_scale(WFS_FOV, PIXEL_PUPIL // N_LENSLET)
+    wfs = _wfs(workdir)
+    if wfs["sensor"] == "ideal":
+        return scale
+    if "im_ratio" not in wfs:
+        raise RuntimeError("Shack-Hartmann slope unit unknown: run the calibrate step first")
+    return scale / wfs["im_ratio"]
 
 
 def _host(a):
@@ -128,10 +166,27 @@ def _pupil_grid(pupil):
 
 
 # ---- Step 1: setup -------------------------------------------------------------------------
-def setup(workdir, atmosphere=None):
-    """SPECULA subaperture data and DM influence functions, plus the pyTomoAO config."""
+def setup(workdir, atmosphere=None, wfs="ideal", photons=200.0):
+    """SPECULA subaperture data and DM influence functions, plus the pyTomoAO config.
+
+    ``wfs`` is "ideal" (noiseless derivative sensors) or "sh" (physical Shack-Hartmanns,
+    wfs_sh.yml) with ``photons`` detected photons per subaperture and frame (0: noiseless
+    detector).
+    """
+    import json
+
     atm = dict(DEFAULT_ATM) if atmosphere is None else _load_atmosphere(atmosphere)
     (workdir / ATM_FILE).write_text(yaml.safe_dump(atm, sort_keys=False))
+    previous = _wfs(workdir)
+    info = {"sensor": wfs}
+    if wfs == "sh":
+        info.update(photons=float(photons), read_noise=SH_READ_NOISE if photons > 0 else 0.0)
+    if previous["sensor"] == wfs:  # same sensor: its IM (noiseless detector) is still valid
+        info.update({k: previous[k] for k in ("im_ratio", "im_correlation") if k in previous})
+    (workdir / WFS_FILE).write_text(json.dumps(info, indent=1))
+    recalibrate = (
+        previous["sensor"] != wfs and (workdir / "calib" / "im" / f"{IM_TAG}.fits").exists()
+    )
     _init_specula()
     from specula.data_objects.ifunc import IFunc
     from specula.data_objects.pupilstop import Pupilstop
@@ -146,7 +201,7 @@ def setup(workdir, atmosphere=None):
     npx = PIXEL_PUPIL // N_LENSLET
     rows, cols = np.nonzero(valid)
     idx = []
-    for r, c in zip(rows, cols):
+    for r, c in zip(rows, cols, strict=True):
         rr, cc = np.mgrid[r * npx : (r + 1) * npx, c * npx : (c + 1) * npx]
         idx.append(np.ravel_multi_index((rr.ravel(), cc.ravel()), (PIXEL_PUPIL, PIXEL_PUPIL)))
     (calib / "subapdata").mkdir(parents=True, exist_ok=True)
@@ -184,38 +239,77 @@ def setup(workdir, atmosphere=None):
     cfg["tomography_parameters"] = {"fovOptimization": 0, "nFitSrc": 1}  # on-axis
     with open(workdir / "pytomoao_config.yaml", "w") as f:
         yaml.safe_dump(cfg, f)
+    label = atm.get("name") or f"custom, {n} layers"  # the bundled names give the count
     print(
         f"setup: {len(idx)} subapertures, {ifunc.shape[0]} actuators, config written; "
-        f"atmosphere: {atm.get('name', 'custom')}, {n} layers, r0 {_r0(atm):.3f} m, "
-        f"L0 {atm['L0']:g} m"
+        f"atmosphere: {label}, r0 {_r0(atm):.3f} m, L0 {atm['L0']:g} m"
     )
+    if wfs == "sh":
+        noise = (
+            f"{photons:g} photons + {SH_READ_NOISE:g} e- read noise" if photons > 0 else "noiseless"
+        )
+        print(f"setup: physical Shack-Hartmann WFSs, {noise}")
+    if recalibrate:
+        print(
+            f"setup: sensor changed from {previous['sensor']!r} to {wfs!r}: the interaction "
+            "matrix in calib/im/ is for the old sensor, run calibrate again"
+        )
 
 
 # ---- Step 2: interaction matrix ------------------------------------------------------------
 def calibrate(workdir, gpu=False):
-    """Push-pull IM of the ground DM on one LGS WFS, tiled over the six sensors."""
+    """Push-pull IM of the ground DM on one LGS WFS, tiled over the six sensors.
+
+    With Shack-Hartmann sensors, also measures their IM (noiseless detector) and stores its
+    ratio to the ideal sensor's IM: the Shack-Hartmann slope unit, used by build and slodar.
+    """
+    import json
+
     _init_specula(gpu)
     from specula.data_objects.intmat import Intmat
     from specula.simul import Simul
 
-    shutil.copy(HERE / "calib_im.yml", workdir / "calib_im.yml")
+    wfs = _wfs(workdir)
+    files = ["calib_im.yml"] + (["calib_im_sh.yml"] if wfs["sensor"] == "sh" else [])
+    for f in files:
+        shutil.copy(HERE / f, workdir / f)
     cwd = Path.cwd()
     os.chdir(workdir)
     try:
-        Simul("calib_im.yml").run()
+        Simul("calib_im.yml").run()  # ideal sensor: the slope-unit reference
+        if wfs["sensor"] == "sh":
+            Simul(*files).run()
     finally:
         os.chdir(cwd)
-    single = workdir / "calib" / "im" / "kapa_dm349_lgs_im.fits"
-    one = _host(Intmat.restore(str(single)).intmat)  # on the GPU when SPECULA runs there
-    Intmat(np.vstack([one] * N_LGS)).save(
-        str(workdir / "calib" / "im" / f"{IM_TAG}.fits"), overwrite=True
-    )
+    im_dir = workdir / "calib" / "im"
+    one = _host(Intmat.restore(str(im_dir / "kapa_dm349_lgs_im.fits")).intmat)  # GPU -> host
+    if wfs["sensor"] == "sh":
+        ideal = one
+        one = _host(Intmat.restore(str(im_dir / "kapa_dm349_lgs_im_sh.fits")).intmat)
+        ratio = float(np.sum(one * ideal) / np.sum(ideal * ideal))
+        corr = float(np.corrcoef(one.ravel(), ideal.ravel())[0, 1])
+        wfs.update(im_ratio=ratio, im_correlation=corr)
+        (workdir / WFS_FILE).write_text(json.dumps(wfs, indent=1))
+        print(
+            f"calibrate: Shack-Hartmann IM = {ratio:.3f} x ideal-sensor IM "
+            f"(correlation {corr:.3f}): its slope unit is 1/{ratio:.3f} of the ideal sensor's"
+        )
+    Intmat(np.vstack([one] * N_LGS)).save(str(im_dir / f"{IM_TAG}.fits"), overwrite=True)
     print(f"calibrate: IM {one.shape} per WFS, tiled to {(N_LGS * one.shape[0], one.shape[1])}")
 
 
 # ---- Step 3: reconstructor -----------------------------------------------------------------
-def build(workdir, alpha=1e-4, profile="true"):
-    """pyTomoAO MMSE reconstructor + DM fitting, in SPECULA units, saved as a Recmat."""
+def build(workdir, alpha=1e-4, profile="true", noise=None):
+    """pyTomoAO MMSE reconstructor + DM fitting, in SPECULA units, saved as a Recmat.
+
+    The noise model is ``alpha`` times the mean turbulent slope variance (a fixed
+    regularisation), or with ``noise="measured"`` the per-WFS slope noise that the slodar step
+    measured from closed-loop telemetry.
+    """
+    import json
+
+    from pyTomoAO.slodar import slope_noise_covariance
+
     config = workdir / "pytomoao_config.yaml"
     if profile == "kapa":  # generic profile of the KAPA example (zenith set to 0)
         cfg = yaml.safe_load(config.read_text())
@@ -230,12 +324,20 @@ def build(workdir, alpha=1e-4, profile="true"):
             raise FileNotFoundError(f"{config} not found: run the slodar step first")
 
     rec = tomographicReconstructor(str(config))
-    rec.build_reconstructor(alpha=alpha)
+    if noise == "measured":  # per-WFS noise [rad^2 of angle] from the slodar step
+        f = workdir / "slodar.json"
+        if not f.exists():
+            raise FileNotFoundError(f"{f} not found: run the slodar step first")
+        var = np.array(json.loads(f.read_text())["noise_variance_rad2"])
+        Cn = slope_noise_covariance(var, reconstructor=rec)  # -> units of the slope covariance
+        rec.build_reconstructor(noiseCovariance=Cn)
+        how = f"measured noise {np.sqrt(var.mean()) / ARCSEC2RAD:.3f} arcsec rms"
+    else:
+        rec.build_reconstructor(alpha=alpha)
+        how = f"alpha={alpha:g}"
 
     # 1. SPECULA slopes -> pyTomoAO slope convention (d x angle [m], gradient-operator order)
-    P = rec.slope_conversion_matrix(
-        subapOrder="C", slopeScale=specula_slope_scale(WFS_FOV, PIXEL_PUPIL // N_LENSLET)
-    )
+    P = rec.slope_conversion_matrix(subapOrder="C", slopeScale=_slope_scale(workdir))
     # 2. slopes -> on-axis OPD [m] on the reconstruction grid (a CuPy array when pyTomoAO
     #    uses the GPU backend, so copy it to the host)
     R = _host(rec.RecStatSA)
@@ -250,11 +352,11 @@ def build(workdir, alpha=1e-4, profile="true"):
 
     (workdir / "calib" / "rec").mkdir(parents=True, exist_ok=True)
     Recmat(recmat).save(str(workdir / "calib" / "rec" / f"{REC_TAG}.fits"), overwrite=True)
-    print(f"build: profile={profile}, alpha={alpha:g}, recmat {recmat.shape}")
+    print(f"build: profile={profile}, {how}, recmat {recmat.shape}")
 
 
 # ---- Step 4: closed loop -------------------------------------------------------------------
-def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, record=False):
+def run(workdir, *, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, record=False):
     """SPECULA closed loop; stores the on-axis residual phase (about 200 samples).
 
     With ``record``, also stores the six WFSs' slopes and the DM commands at every loop step,
@@ -265,7 +367,10 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, rec
     from specula.simul import Simul
 
     atm = _atmosphere(workdir)
-    shutil.copy(HERE / "params_ltao.yml", workdir / "params_ltao.yml")
+    wfs = _wfs(workdir)
+    files = ["params_ltao.yml"] + (["wfs_sh.yml"] if wfs["sensor"] == "sh" else [])
+    for f in files:
+        shutil.copy(HERE / f, workdir / f)
     step = yaml.safe_load((HERE / "params_ltao.yml").read_text())["main"]["time_step"]
     # Science phase is 0.4 MB per sample: keep about 200 of them whatever the run length.
     sciEvery = max(5, round(total_time / step / 200))
@@ -290,13 +395,24 @@ def run(workdir, total_time=2.0, gain=0.5, seed=311, gpu=False, precision=0, rec
             "inputs": {"input_list": inputs},
         },
     }
+    if wfs["sensor"] == "sh":  # LGS flux and detector noise; noise seeds follow the run seed
+        photons = wfs["photons"]
+        mag = SH_MAG_1000 - 2.5 * np.log10(photons / 1000) if photons > 0 else SH_MAG_1000
+        for k in range(1, N_LGS + 1):
+            override[f"lgs{k}_override"] = {"magnitude": float(mag)}
+            override[f"det{k}_override"] = {
+                "photon_noise": photons > 0,
+                "readout_noise": photons > 0,
+                "photon_seed": int(1000 * seed + 10 * k + 1),
+                "readout_seed": int(1000 * seed + 10 * k + 2),
+            }
     (workdir / "override.yml").write_text(yaml.safe_dump(override))
     out = workdir / "output"
     before = set(out.glob("2*")) if out.exists() else set()
     cwd = Path.cwd()
     os.chdir(workdir)
     try:
-        Simul("params_ltao.yml", "override.yml").run()
+        Simul(*files, "override.yml").run()
     finally:
         os.chdir(cwd)
     tn = sorted(set(out.glob("2*")) - before)[-1]
@@ -357,9 +473,7 @@ def slodar(workdir, settle=0.1, L0=None):
     )
 
     rec = tomographicReconstructor(str(workdir / "pytomoao_config.yaml"))
-    prof = slodarProfiler.from_reconstructor(
-        rec, subapOrder="C", slopeScale=specula_slope_scale(WFS_FOV, PIXEL_PUPIL // N_LENSLET)
-    )
+    prof = slodarProfiler.from_reconstructor(rec, subapOrder="C", slopeScale=_slope_scale(workdir))
     grid = prof.default_altitudes(hMax=20e3)
     if L0 is None:
         res = prof.profile(pol, removeTT=True, fitL0=True, altitudes=grid)
@@ -372,14 +486,20 @@ def slodar(workdir, settle=0.1, L0=None):
     R0 = _r0(atm)
     cn2 = np.array(atm["cn2"]) / np.sum(atm["cn2"])
     truth = np.zeros(grid.size)
-    for h, f in zip(atm["altitude_m"], cn2):
+    for h, f in zip(atm["altitude_m"], cn2, strict=True):
         truth[np.argmin(np.abs(grid - h))] += f
     tvd = 0.5 * np.abs(res.fractionalCn2 - truth).sum()
     print(res)
+    if res.L0AtGridEdge:
+        print(
+            f"slodar: WARNING - fitted L0 = {res.L0:g} m is at the edge of the search grid, so "
+            "L0 is not constrained by this telemetry. Record longer (or several runs) before "
+            "trusting this profile."
+        )
     print(
         f"slodar: r0 {res.r0:.4f} m (input {R0:.4f}), L0 {res.L0:.1f} m (input {atm['L0']:g}), "
         f"profile TVD {tvd:.3f}, temporal noise "
-        f"{np.sqrt(noise.mean()) * 206264.8:.4f} arcsec rms"
+        f"{np.sqrt(noise.mean()) / ARCSEC2RAD:.4f} arcsec rms"
     )
 
     cfg = yaml.safe_load((workdir / "pytomoao_config.yaml").read_text())
@@ -544,9 +664,27 @@ def main():
     ap.add_argument(
         "--atmosphere", default=None, help="setup: atmosphere YAML (default: KAON 503 median)"
     )
+    ap.add_argument(
+        "--wfs",
+        choices=["ideal", "sh"],
+        default="ideal",
+        help="setup: noiseless ideal sensors or physical Shack-Hartmanns (wfs_sh.yml)",
+    )
+    ap.add_argument(
+        "--photons",
+        type=float,
+        default=200.0,
+        help="setup --wfs sh: photons per subaperture and frame (0: noiseless detector)",
+    )
     ap.add_argument("--gpu", action="store_true", help="run SPECULA on GPU 0 (needs CuPy)")
     ap.add_argument("--alpha", type=float, default=1e-4, help="build: regularisation")
     ap.add_argument("--profile", choices=["true", "kapa", "slodar"], default="true", help="build")
+    ap.add_argument(
+        "--noise",
+        choices=["measured"],
+        default=None,
+        help="build: use the slope noise measured by slodar instead of --alpha",
+    )
     ap.add_argument(
         "--record", action="store_true", help="run: also save slopes + commands for slodar"
     )
@@ -559,13 +697,21 @@ def main():
     wd = Path(a.workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
     if a.step == "setup":
-        setup(wd, a.atmosphere)
+        setup(wd, a.atmosphere, a.wfs, a.photons)
     elif a.step == "calibrate":
         calibrate(wd, a.gpu)
     elif a.step == "build":
-        build(wd, a.alpha, a.profile)
+        build(wd, a.alpha, a.profile, a.noise)
     elif a.step == "run":
-        run(wd, a.time, a.gain, a.seed, a.gpu, a.precision, a.record)
+        run(
+            wd,
+            total_time=a.time,
+            gain=a.gain,
+            seed=a.seed,
+            gpu=a.gpu,
+            precision=a.precision,
+            record=a.record,
+        )
     elif a.step == "slodar":
         slodar(wd, L0=a.L0)
     else:

@@ -84,7 +84,7 @@ def example_config(name="kapa"):
         raise KeyError(
             f"Unknown example configuration {name!r}. Available: {list_example_configs()}"
         ) from None
-    return str(resources.files(__name__) / "data" / filename)
+    return str(resources.files(__name__) / "config" / filename)
 
 
 # Libraries should not configure logging for the application that imports them.
@@ -94,4 +94,4 @@ def example_config(name="kapa"):
 #     logging.basicConfig(level=logging.INFO)
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"

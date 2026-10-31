@@ -53,7 +53,9 @@ Both the compressed offsets and the shrunken footprint are included in the respo
 """
 
 import logging
+import time
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import numpy as np
 from scipy.optimize import lsq_linear, nnls
@@ -69,6 +71,7 @@ from pyTomoAO.tomographyUtilsCPU import (
 logger = logging.getLogger(__name__)
 
 ARCSEC2RAD = np.pi / (180 * 3600)
+_RAD2ARCSEC = 1 / ARCSEC2RAD
 
 #: Component names of the four covariance maps, in storage order. ``"xy"`` is the covariance
 #: of X slopes on the first sensor with Y slopes on the second.
@@ -156,6 +159,15 @@ def pseudo_open_loop_slopes(slopes, commands, interactionMatrix, delay=1, sign=1
     delay = int(delay)
     if not 0 <= delay < s.shape[0]:
         raise ValueError("delay must be in [0, nFrames)")
+    logger.info(
+        "\n-->> Pseudo-open-loop slopes: %d frames, %d slopes, %d actuators, delay %d, "
+        "sign %+g <<--",
+        s.shape[0],
+        s.shape[1],
+        c.shape[1],
+        delay,
+        sign,
+    )
     return s[delay:] + sign * (c[: s.shape[0] - delay] @ M.T)
 
 
@@ -203,6 +215,16 @@ def slope_noise_covariance(
     if d is None or nValidSubap is None or wavelength is None:
         raise ValueError("Give a reconstructor, or d, nValidSubap and wavelength")
     phase = (2 * np.pi * float(d) / float(wavelength)) ** 2 * v
+    logger.info(
+        "\nSlope noise covariance: %d sensor(s), noise %s arcsec rms -> %s rad^2 "
+        "(phase difference over d = %.3f m at %.0f nm), %d slopes per sensor",
+        v.size,
+        np.array2string(np.sqrt(v) * _RAD2ARCSEC, precision=4),
+        np.array2string(phase, precision=3),
+        float(d),
+        float(wavelength) * 1e9,
+        2 * int(nValidSubap),
+    )
     return np.repeat(phase, 2 * int(nValidSubap))
 
 
@@ -210,11 +232,11 @@ def _nnls(A, b):
     """Non-negative least squares ``min ||A x - b||, x >= 0`` with an optimality check.
 
     ``scipy.optimize.nnls`` can stop at a non-optimal point on some SciPy releases (seen with
-    SciPy 1.13, the newest available for Python 3.9: a residual 10x the minimum and a biased
-    SLODAR profile). The result is therefore checked against the Karush-Kuhn-Tucker
-    conditions -- the gradient ``A^T (A x - b)`` must vanish on the free variables and be
-    non-negative on the bound ones -- and, if they fail, refined with a bounded-variable
-    least-squares solve.
+    SciPy 1.13, which the unpinned SciPy dependency still allows on Python 3.10-3.12: a
+    residual 10x the minimum and a biased SLODAR profile). The result is therefore checked
+    against the Karush-Kuhn-Tucker conditions -- the gradient ``A^T (A x - b)`` must vanish
+    on the free variables and be non-negative on the bound ones -- and, if they fail, refined
+    with a bounded-variable least-squares solve.
 
     Parameters
     ----------
@@ -278,7 +300,7 @@ def _gradient_stencil(nEdgePoints=3):
         entry = pts.setdefault(key, [0.0, 0.0])
         entry[ax] += wt
 
-    for tk, wk in zip(t, w):
+    for tk, wk in zip(t, w, strict=True):
         add(0.5, tk, 0, wk)
         add(-0.5, tk, 0, -wk)
         add(tk, 0.5, 1, wk)
@@ -338,6 +360,7 @@ class slodarResult:
         Weighted RMS of the fit residual, relative to the weighted RMS of the data.
     L0Grid, L0Cost : numpy.ndarray
         Outer scales tried and their fit cost when ``fitL0`` was requested (else empty).
+        See :attr:`L0AtGridEdge`.
     measured, model : numpy.ndarray
         The fitted data vector and the best-fit model, for diagnostics.
     """
@@ -358,6 +381,18 @@ class slodarResult:
     L0Cost: np.ndarray = field(default_factory=lambda: np.zeros(0))
     measured: np.ndarray = field(default_factory=lambda: np.zeros(0), repr=False)
     model: np.ndarray = field(default_factory=lambda: np.zeros(0), repr=False)
+
+    @property
+    def L0AtGridEdge(self):
+        """True when ``L0`` was fitted and the best value is at an end of ``L0Grid``.
+
+        The fit minimum then lies outside the grid, so L0 is not constrained by the data.
+        This is typical of short telemetry records, where it can ruin the profile.
+        """
+        if self.L0Grid.size == 0:
+            return False
+        lo, hi = self.L0Grid.min(), self.L0Grid.max()
+        return bool(np.isclose(self.L0, lo) or np.isclose(self.L0, hi))
 
     def to_atmosphere_config(self, windSpeed=None, windDirection=None, minFraction=0.0):
         """Express the profile as an ``atmosphere_parameters`` configuration section.
@@ -392,6 +427,17 @@ class slodarResult:
             raise ValueError("No layer above minFraction")
         frac = self.fractionalCn2[keep] / self.fractionalCn2[keep].sum()
         n = int(keep.sum())
+        logger.info(
+            "\nSLODAR profile -> atmosphere_parameters: %d of %d layers kept (minFraction "
+            "%g, %.3f of the turbulence dropped and shared out), r0 %.4f m at zenith, "
+            "L0 %.1f m",
+            n,
+            keep.size,
+            minFraction,
+            float(self.fractionalCn2[~keep].sum()),
+            self.r0_zenith,
+            self.L0,
+        )
         ws = np.zeros(n) if windSpeed is None else np.asarray(windSpeed, float)[keep]
         wd = np.zeros(n) if windDirection is None else np.asarray(windDirection, float)[keep]
         return {
@@ -450,7 +496,7 @@ class slodarResult:
             f"@ {self.wavelength * 1e9:.0f} nm",
             f"  - L0 = {self.L0:.1f} m, relative residual = {self.residualRms:.3f}",
         ]
-        for h, f, c in zip(self.altitude_zenith, self.fractionalCn2, self.cn2dh):
+        for h, f, c in zip(self.altitude_zenith, self.fractionalCn2, self.cn2dh, strict=True):
             lines.append(f"    {h / 1e3:7.2f} km : {f:6.3f}  (Cn2dh = {c:.3e} m^1/3)")
         return "\n".join(lines)
 
@@ -613,6 +659,42 @@ class slodarProfiler:
         self.removeTT = False
         self._responseCache = {}
 
+        logger.info("\n-->> Initializing SLODAR profiler <<--")
+        logger.info(
+            "\n%d guide stars (%s), %dx%d lenslets, %d valid subapertures, D = %.2f m (d = %.3f m)",
+            self.nGS,
+            f"LGS at {self.gsHeight / 1e3:.1f} km range" if np.isfinite(self.gsHeight) else "NGS",
+            self.nLenslet,
+            self.nLenslet,
+            self.nValidSubap,
+            self.D,
+            self.d,
+        )
+        logger.info(
+            "\nGuide-star separations: %.1f-%.1f arcsec; L0 %.1f m, wavelength %.0f nm, "
+            "zenith angle %.1f deg, conjugation %.0f m",
+            *self._separation_range(),
+            self.L0,
+            self.wavelength * 1e9,
+            self.zenithAngleInDeg,
+            self.conjugationAltitude,
+        )
+        logger.info(
+            "\nSlope layout: subapOrder %r, slopesOrder %r, slopeScale %.4g rad/unit, "
+            "%d-point edge stencil",
+            self.subapOrder,
+            self.slopesOrder,
+            self.slopeScale,
+            self.nEdgePoints,
+        )
+
+    def _separation_range(self):
+        """Smallest and largest guide-star separation [arcsec] (0, 0 for one star)."""
+        if self.nGS < 2:
+            return 0.0, 0.0
+        sep = [self.separation(i, j) * _RAD2ARCSEC for i, j in self.pairs]
+        return min(sep), max(sep)
+
     # ------------------------------------------------------------------
     # Construction from pyTomoAO configuration objects
     @classmethod
@@ -674,6 +756,7 @@ class slodarProfiler:
         from pyTomoAO.lgsAsterismParametersClass import lgsAsterismParameters
         from pyTomoAO.lgsWfsParametersClass import lgsWfsParameters
 
+        logger.info("\nReading the SLODAR geometry from %s", config_file)
         with open(config_file) as f:
             config = yaml.safe_load(f)
         atm = atmosphereParameters(config)
@@ -695,6 +778,7 @@ class slodarProfiler:
         -------
         slodarProfiler
         """
+        logger.info("\nTaking the SLODAR geometry from a tomographicReconstructor")
         return cls.from_parameters(rec.lgsWfsParams, rec.lgsAsterismParams, rec.atmParams, **kwargs)
 
     # ------------------------------------------------------------------
@@ -812,9 +896,7 @@ class slodarProfiler:
                     top = b
         grid = np.array(grid)
         if oversample > 1:
-            fine = [
-                np.linspace(a, b, oversample, endpoint=False) for a, b in zip(grid[:-1], grid[1:])
-            ]
+            fine = [np.linspace(a, b, oversample, endpoint=False) for a, b in pairwise(grid)]
             grid = np.concatenate([*fine, grid[-1:]])
         if hMax is not None:
             grid = grid[grid <= hMax]
@@ -917,6 +999,18 @@ class slodarProfiler:
         chunkSize = int(chunkSize)
         if chunkSize < 1:
             raise ValueError("chunkSize must be at least 1")
+        nPairs = self.nGS * (self.nGS + 1) // 2
+        logger.info(
+            "\n-->> Computing SLODAR covariance maps: %d frames, %d sensors (%d maps), "
+            "tip-tilt %s, %d FFT batch(es) of up to %d frames <<--",
+            T,
+            self.nGS,
+            nPairs,
+            "removed" if removeTT else "kept",
+            -(-T // chunkSize),
+            chunkSize,
+        )
+        t0 = time.perf_counter()
         sums = {}
         for start in range(0, T, chunkSize):
             block = s[start : start + chunkSize]
@@ -940,6 +1034,9 @@ class slodarProfiler:
         self.maps = maps
         self.nFrames = T
         self.removeTT = bool(removeTT)
+        logger.info(
+            "\n-->> SLODAR covariance maps computed in %.2f s <<--", time.perf_counter() - t0
+        )
         return maps
 
     def temporal_noise_variance(self, slopes, lag=1, removeTT=False):
@@ -996,7 +1093,16 @@ class slodarProfiler:
         var = (c0 - c1).mean(axis=(1, 2))
         if removeTT:
             var = var / (1 - 1 / self.nValidSubap)
-        return np.clip(var, 0, None)
+        var = np.clip(var, 0, None)
+        logger.info(
+            "\nTemporal slope noise (C(0) - C(%d), %d frames, tip-tilt %s): %s arcsec rms "
+            "per sensor",
+            lag,
+            s.shape[0],
+            "removed" if removeTT else "kept",
+            np.array2string(np.sqrt(var) * _RAD2ARCSEC, precision=4),
+        )
+        return var
 
     # ------------------------------------------------------------------
     # Theoretical response
@@ -1090,6 +1196,12 @@ class slodarProfiler:
         )
         if key in self._responseCache:
             return self._responseCache[key]
+        logger.debug(
+            "Computing SLODAR response maps: range %.0f m, L0 %.1f m, tip-tilt %s",
+            h,
+            L0,
+            "removed" if removeTT else "kept",
+        )
         out = {}
         byBaseline = {}
         for i in range(self.nGS):
@@ -1230,6 +1342,22 @@ class slodarProfiler:
         autoZero = bool(useAuto and fitNoise)
         y = self._project(self.maps, keys, comp_idx, longTrans, mask, autoZero)
         wts = self._weights(keys, comp_idx, longTrans, mask, autoZero)
+        logger.info(
+            "\n-->> Fitting SLODAR profile: %d altitudes (%.2f-%.2f km), %d cross pair(s), "
+            "components %s, auto-covariances %s, noise %s, L0 %s; %d data points from "
+            "%d frames <<--",
+            len(altitudes),
+            altitudes.min() / 1e3 if len(altitudes) else 0.0,
+            altitudes.max() / 1e3 if len(altitudes) else 0.0,
+            len(pairs),
+            ",".join(components),
+            "used" if useAuto else "not used",
+            "fitted" if autoZero else "not fitted",
+            "fitted on a grid" if fitL0 else f"fixed at {self.L0 if L0 is None else L0:g} m",
+            y.size,
+            self.nFrames,
+        )
+        t0 = time.perf_counter()
 
         noiseCols = []
         if autoZero:
@@ -1274,10 +1402,23 @@ class slodarProfiler:
             L0g = np.geomspace(5, 200, 12) if L0Grid is None else np.asarray(L0Grid, float)
             fits = [solve(v) for v in L0g]
             costs = np.array([f[2] for f in fits])
+            for v, c_ in zip(L0g, costs, strict=True):
+                logger.debug("SLODAR L0 grid: L0 %7.1f m, relative residual %.5f", v, c_)
             best = int(np.argmin(costs))
             L0used = float(L0g[best])
             x, model, cost = fits[best]
-            logger.info("SLODAR L0 grid search: best L0 = %.1f m", L0used)
+            logger.info("\nSLODAR L0 grid search: best L0 = %.1f m", L0used)
+            if np.isclose(L0used, L0g.min()) or np.isclose(L0used, L0g.max()):
+                # The minimum is on the edge of the grid, so L0 is not constrained by these
+                # data (typical of short records); the profile built on it can be poor.
+                logger.warning(
+                    "SLODAR L0 fit is at the edge of L0Grid (%.1f m, grid %.1f-%.1f m): "
+                    "L0 is not constrained by these data; use longer telemetry or widen "
+                    "L0Grid, and treat this profile with caution",
+                    L0used,
+                    L0g.min(),
+                    L0g.max(),
+                )
         else:
             L0used = self.L0 if L0 is None else float(L0)
             x, model, cost = solve(L0used)
@@ -1285,7 +1426,24 @@ class slodarProfiler:
         nL = len(altitudes)
         w = x[:nL]
         noise = x[nL:] if autoZero else np.zeros(0)
-        return self._make_result(altitudes, w, L0used, noise, cost, L0g, costs, y, model)
+        res = self._make_result(altitudes, w, L0used, noise, cost, L0g, costs, y, model)
+        logger.info(
+            "\n-->> SLODAR profile fitted in %.2f s: r0 %.4f m (%.4f m at zenith), L0 %.1f m, "
+            "%d non-zero layer(s), relative residual %.4f <<--",
+            time.perf_counter() - t0,
+            res.r0,
+            res.r0_zenith,
+            res.L0,
+            int(np.count_nonzero(w)),
+            res.residualRms,
+        )
+        if autoZero:
+            logger.info(
+                "\nSLODAR zero-offset noise term: %s arcsec rms per sensor (for the "
+                "reconstructor, prefer temporal_noise_variance)",
+                np.array2string(np.sqrt(noise) * _RAD2ARCSEC, precision=4),
+            )
+        return res
 
     def _make_result(self, altitudes, w, L0, noise, cost, L0g, costs, y, model):
         k = 2 * np.pi / self.wavelength
@@ -1354,7 +1512,7 @@ class slodarProfiler:
         n = self.nValidSubap
         G = self.nGS
         C = np.zeros((G, 2, n, G, 2, n))
-        for h, w in zip(altitudes, r0m53):
+        for h, w in zip(altitudes, r0m53, strict=True):
             if w == 0:
                 continue
             for i in range(G):
@@ -1392,6 +1550,13 @@ class slodarProfiler:
             divided by ``slopeScale``).
         """
         rng = np.random.default_rng(rng)
+        logger.info(
+            "\nDrawing %d synthetic slope frames from the theoretical covariance (%d layers, "
+            "noise %.4g rad rms)",
+            nFrames,
+            len(altitudes),
+            noiseRms,
+        )
         C = self.slope_covariance(altitudes, r0m53, L0)
         evals, evecs = np.linalg.eigh(C)
         evals = np.clip(evals, 0, None)

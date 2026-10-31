@@ -56,8 +56,11 @@ def main(workdir, total_time=400.0, time_step=0.25, seed=11, gpu=False):
     import specula
 
     specula.init(0 if gpu else -1, precision=0)
+    from importlib import import_module
+
     from astropy.io import fits
-    from specula.simul import Simul
+
+    Simul = import_module("specula.simul").Simul
 
     os.chdir(workdir)
     before = set((workdir / "output").glob("2*")) if (workdir / "output").exists() else set()

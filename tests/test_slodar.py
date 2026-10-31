@@ -74,7 +74,7 @@ class TestStencil:
         def as_dict(pts, wx, wy):
             return {
                 (round(x, 9), round(y, 9)): (a, b)
-                for (x, y), a, b in zip(pts, wx, wy)
+                for (x, y), a, b in zip(pts, wx, wy, strict=True)
                 if a != 0 or b != 0
             }
 
@@ -257,6 +257,21 @@ class TestResponseModel:
         C1 = p.slope_covariance([1000.0], [1.0])
         C2 = p.slope_covariance([1000.0], [2.5])
         np.testing.assert_allclose(C2, 2.5 * C1)
+
+    @pytest.mark.parametrize(
+        ("altitudes", "r0m53"),
+        [
+            pytest.param([0.0, 5000.0], [1.0], id="extra-altitude"),
+            pytest.param([0.0], [1.0, 0.5], id="extra-strength"),
+        ],
+    )
+    def test_slope_covariance_rejects_mismatched_layers(self, altitudes, r0m53):
+        """A profile with unpaired altitudes or strengths must raise, not drop layers."""
+        p = slodarProfiler(_annulus(6), 3.0, np.array([[0, 0], [20, 0]]) * ARCSEC2RAD)
+        with pytest.raises(ValueError):
+            p.slope_covariance(altitudes, r0m53)
+        with pytest.raises(ValueError):  # draw_slopes builds on slope_covariance
+            p.draw_slopes(altitudes, r0m53, nFrames=2, rng=0)
 
     def test_response_maps_match_slope_covariance(self):
         """Maps of the full model covariance equal the response maps (removeTT both ways)."""
@@ -590,3 +605,28 @@ def test_pol_sign_self_check_documented_statistic():
     np.testing.assert_allclose(right, s_ol[1:])
     assert right.var() == pytest.approx(wrong.var(), rel=0.1)  # variance cannot tell
     assert np.var(np.diff(wrong, axis=0)) > 2 * np.var(np.diff(right, axis=0))
+
+
+class TestL0GridEdge:
+    def test_flags_and_warns_when_L0_fit_is_at_grid_edge(self, setup, caplog):
+        p, grid = setup
+        alts, fr = [grid[0], grid[2]], [0.7, 0.3]
+        s = p.draw_slopes(alts, p.profile_to_r0m53(0.15, fr), 4000, L0=200.0, rng=5)
+        p.compute_covariance_maps(s)
+        with caplog.at_level("WARNING", logger="pyTomoAO.slodar"):
+            res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[10, 40, 5, 20])
+        assert res.L0 == 40
+        assert res.L0AtGridEdge
+        assert "edge of L0Grid" in caplog.text
+
+    def test_interior_L0_is_not_flagged(self, setup, caplog):
+        p, grid = setup
+        alts, fr = [grid[0], grid[2]], [0.7, 0.3]
+        s = p.draw_slopes(alts, p.profile_to_r0m53(0.15, fr), 8000, L0=10.0, rng=5)
+        p.compute_covariance_maps(s)
+        with caplog.at_level("WARNING", logger="pyTomoAO.slodar"):
+            res = p.fit_profile(altitudes=grid, fitL0=True, L0Grid=[10, 40, 5, 20])
+        assert res.L0 == 10
+        assert not res.L0AtGridEdge
+        assert "edge of L0Grid" not in caplog.text
+        assert not p.fit_profile(altitudes=grid, L0=25.0).L0AtGridEdge  # L0 not fitted
