@@ -258,6 +258,21 @@ class TestResponseModel:
         C2 = p.slope_covariance([1000.0], [2.5])
         np.testing.assert_allclose(C2, 2.5 * C1)
 
+    @pytest.mark.parametrize(
+        ("altitudes", "r0m53"),
+        [
+            pytest.param([0.0, 5000.0], [1.0], id="extra-altitude"),
+            pytest.param([0.0], [1.0, 0.5], id="extra-strength"),
+        ],
+    )
+    def test_slope_covariance_rejects_mismatched_layers(self, altitudes, r0m53):
+        """A profile with unpaired altitudes or strengths must raise, not drop layers."""
+        p = slodarProfiler(_annulus(6), 3.0, np.array([[0, 0], [20, 0]]) * ARCSEC2RAD)
+        with pytest.raises(ValueError):
+            p.slope_covariance(altitudes, r0m53)
+        with pytest.raises(ValueError):  # draw_slopes builds on slope_covariance
+            p.draw_slopes(altitudes, r0m53, nFrames=2, rng=0)
+
     def test_response_maps_match_slope_covariance(self):
         """Maps of the full model covariance equal the response maps (removeTT both ways)."""
         gs = np.array([[0, 0], [20, 0], [0, 20]]) * ARCSEC2RAD
